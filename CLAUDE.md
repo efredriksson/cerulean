@@ -102,3 +102,6 @@ Do not construct records ad-hoc by setting fields inline at the call site. Defin
 
 **Comments explain why, not what — and must be concrete.**
 The code already says what is happening. A comment should explain why this logic exists and consider give the concrete scenario it handles. Avoid abstract labels; be explicit over implicit.
+
+**Never use `as` casts or `any` to work around type errors.**
+Do not cast with `as` or widen to `any` to make the type checker accept code. The only exception is repeating a cast pattern that already exists in the codebase for the same reason. Any new use requires explicit permission from the user — and it should be assumed permission will not be granted unless the circumstances are extraordinary.
