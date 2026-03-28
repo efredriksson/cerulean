@@ -50,6 +50,78 @@ local function collect_quote_edits(tokens: {tl.Token}): {Edit}
     return edits
 end
 
+local BINARY_OP_TOKENS: {string: boolean} = {
+    ["+"] = true, ["-"] = true, ["*"] = true, ["/"] = true,
+    ["%"] = true, ["^"] = true, [".."] = true, ["|"] = true,
+    ["=="] = true, ["~="] = true, ["<"] = true, [">"] = true,
+    ["<="] = true, [">="] = true, ["="] = true,
+    ["and"] = true, ["or"] = true,
+}
+
+local VALUE_ENDING_KINDS: {string: boolean} = {
+    ["identifier"] = true, ["integer"] = true, ["number"] = true,
+    ["string"] = true,
+    [")"] = true, ["]"] = true, ["}"] = true,
+}
+
+-- Teal const/close attributes use <const> / <close> syntax, which tokenises
+-- as op("<") identifier("const"|"close") op(">"). These must not be treated
+-- as comparison operators.
+local TEAL_ATTRIBUTES: {string: boolean} = {
+    ["const"] = true,
+    ["close"] = true,
+}
+
+local function collect_attribute_indices(tokens: {tl.Token}): {integer: boolean}
+    local excluded: {integer: boolean} = {}
+    for i = 1, #tokens - 2 do
+        if tokens[i].tk == "<" and TEAL_ATTRIBUTES[tokens[i + 1].tk] and tokens[i + 2].tk == ">" then
+            excluded[i] = true
+            excluded[i + 2] = true
+        end
+    end
+    return excluded
+end
+
+local function is_binary_minus(prev: tl.Token): boolean
+    return VALUE_ENDING_KINDS[prev.kind] ~= nil
+end
+
+-- Collect edits to enforce exactly one space on each side of binary operators.
+-- Only fires when both neighbours are on the same line as the operator.
+-- Skips unary minus and Teal attribute brackets (<const>, <close>).
+local function collect_op_edits(tokens: {tl.Token}): {Edit}
+    local attribute_indices = collect_attribute_indices(tokens)
+    local edits: {Edit} = {}
+    for i = 2, #tokens - 1 do
+        local token = tokens[i]
+        if attribute_indices[i] then
+        elseif not BINARY_OP_TOKENS[token.tk] then
+        else
+            local prev = tokens[i - 1]
+            local next_token = tokens[i + 1]
+            local is_binary = token.tk ~= "-" or is_binary_minus(prev)
+            if is_binary then
+                if prev.y == token.y then
+                    local prev_end = prev.x + #prev.tk - 1
+                    local gap_before = token.x - prev_end - 1
+                    if gap_before ~= 1 then
+                        table.insert(edits, Edit.new(token.y, prev_end + 1, token.x - 1, " "))
+                    end
+                end
+                if next_token.y == token.y then
+                    local op_end = token.x + #token.tk - 1
+                    local gap_after = next_token.x - op_end - 1
+                    if gap_after ~= 1 then
+                        table.insert(edits, Edit.new(token.y, op_end + 1, next_token.x - 1, " "))
+                    end
+                end
+            end
+        end
+    end
+    return edits
+end
+
 -- Collect edits for "exactly one space after comma" rule.
 -- Only fires when comma and the next token are on the same line and
 -- the gap between them is not exactly one space.
@@ -72,6 +144,9 @@ end
 local function collect_all_edits(tokens: {tl.Token}): {Edit}
     local edits: {Edit} = {}
     for _, edit in ipairs(collect_comma_edits(tokens)) do
+        table.insert(edits, edit)
+    end
+    for _, edit in ipairs(collect_op_edits(tokens)) do
         table.insert(edits, edit)
     end
     for _, edit in ipairs(collect_quote_edits(tokens)) do

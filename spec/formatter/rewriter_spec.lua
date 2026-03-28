@@ -98,6 +98,57 @@ describe("formatter", function()
       ]]))
    end)
 
+   describe("operator spacing", function()
+      it("adds spaces around binary operators that have none", helpers.format([[
+         local x = 1+2
+      ]], [[
+         local x = 1 + 2
+      ]]))
+
+      it("collapses multiple spaces around an operator to one", helpers.format([[
+         local x = 1  +  2
+      ]], [[
+         local x = 1 + 2
+      ]]))
+
+      it("does not change operators that already have one space", helpers.check([[
+         local x = 1 + 2 - 3 * 4 / 5 % 6 ^ 7
+      ]]))
+
+      it("handles all comparison and logical operators", helpers.format([[
+         if a==b or c~=d and e<f or g>h and i<=j or k>=l then end
+      ]], [[
+         if a == b or c ~= d and e < f or g > h and i <= j or k >= l then end
+      ]]))
+
+      it("does not add spaces around unary minus", helpers.check([[
+         local x = -1
+         local y = f(-1, -2)
+         local z = 1 + -1
+      ]]))
+
+      it("does not touch Teal attribute brackets", helpers.check([[
+         local x <const> = 1
+      ]]))
+
+      it("handles string concatenation operator", helpers.format([[
+         local s = "a".."b"
+      ]], [[
+         local s = "a" .. "b"
+      ]]))
+
+      it("handles assignment operator", helpers.format([[
+         local x=1
+      ]], [[
+         local x = 1
+      ]]))
+
+      it("does not touch operators where the next token is on the next line", helpers.check([[
+         local x = 1 +
+            2
+      ]]))
+   end)
+
    describe("quote normalisation", function()
       it("converts single-quoted strings to double quotes", helpers.format([[
          local x = 'hello'
