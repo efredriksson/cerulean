@@ -305,4 +305,25 @@ describe("formatter", function()
       ))
    end)
 
+   describe("function call wrapping", function()
+      it("wraps a long function call to one arg per line", helpers.format_raw(
+         "    local x = foo.new_selection(some_settings.long_field_name, minimum_value, maximum_value)\n",
+         "    local x = foo.new_selection(\n        some_settings.long_field_name,\n        minimum_value,\n        maximum_value\n    )\n"
+      ))
+
+      it("joins an already-wrapped call that fits on one line", helpers.format_raw(
+         "    local x = foo.new_selection(\n        field_a,\n        field_b\n    )\n",
+         "    local x = foo.new_selection(field_a, field_b)\n"
+      ))
+
+      it("does not change a short call", helpers.check_raw(
+         "    local x = foo.new_selection(field_a, field_b)\n"
+      ))
+
+      it("re-wraps an already-wrapped call whose args line is too long", helpers.format_raw(
+         "foo.new_number(\n    \"long_label_here\", 110, nbr_lightning_bombs_selected, settings.set_spawn_of_lightning_bombs\n)\n",
+         "foo.new_number(\n    \"long_label_here\",\n    110,\n    nbr_lightning_bombs_selected,\n    settings.set_spawn_of_lightning_bombs\n)\n"
+      ))
+   end)
+
 end)

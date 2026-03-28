@@ -52,7 +52,10 @@ local function collect_quote_edits(tokens: {tl.Token}): {Edit}
             if not content:find('"', 1, true) then
                 local normalized = content:gsub("\\'", "'")
                 local replacement = '"' .. normalized .. '"'
-                table.insert(edits, Edit.new(token.y, token.x, token.x + #token.tk - 1, replacement))
+                table.insert(
+                    edits,
+                    Edit.new(token.y, token.x, token.x + #token.tk - 1, replacement)
+                )
             end
         end
     end
@@ -109,14 +112,20 @@ local function collect_op_edits(tokens: {tl.Token}): {Edit}
                     local prev_end = prev.x + #prev.tk - 1
                     local gap_before = token.x - prev_end - 1
                     if gap_before ~= 1 then
-                        table.insert(edits, Edit.new(token.y, prev_end + 1, token.x - 1, " "))
+                        table.insert(
+                            edits,
+                            Edit.new(token.y, prev_end + 1, token.x - 1, " ")
+                        )
                     end
                 end
                 if next_token.y == token.y then
                     local op_end = token.x + #token.tk - 1
                     local gap_after = next_token.x - op_end - 1
                     if gap_after ~= 1 then
-                        table.insert(edits, Edit.new(token.y, op_end + 1, next_token.x - 1, " "))
+                        table.insert(
+                            edits,
+                            Edit.new(token.y, op_end + 1, next_token.x - 1, " ")
+                        )
                     end
                 end
             end
@@ -137,7 +146,10 @@ local function collect_comma_edits(tokens: {tl.Token}): {Edit}
             local comma_end = current.x + #current.tk
             local gap = next_token.x - comma_end
             if gap ~= 1 then
-                table.insert(edits, Edit.new(current.y, comma_end, next_token.x - 1, " "))
+                table.insert(
+                    edits,
+                    Edit.new(current.y, comma_end, next_token.x - 1, " ")
+                )
             end
         end
     end
@@ -565,6 +577,133 @@ local function wrap_table_literals(lines: {string}, fmt_off_lines: {integer: boo
     return result
 end
 
+-- Build the canonical single-line form of an already-wrapped function call.
+-- call_lines[1] ends with "(".  The last element starts with ")".
+-- Body lines may each contain one or many comma-separated arguments.
+local function join_call_lines(call_lines: {string}): string
+    local header = call_lines[1]:match("^(.-%()%s*$") or call_lines[1]
+    local body_parts: {string} = {}
+    local tail = ""
+    for i = 2, #call_lines do
+        local stripped = call_lines[i]:match("^%s*(.-)%s*$") or ""
+        if stripped:sub(1, 1) == ")" then
+            tail = stripped
+        else
+            local arg_text = stripped:gsub(",%s*$", "")
+            local args = split_params(arg_text)
+            for _, each_arg in ipairs(args) do
+                table.insert(body_parts, each_arg)
+            end
+        end
+    end
+    return header .. table.concat(body_parts, ", ") .. tail
+end
+
+-- Given a single-line function call longer than 88 characters, reformat it to
+-- one argument per line.  Returns the line unchanged when fewer than two
+-- arguments are present.
+local function wrap_one_call(line_str: string): {string}
+    local open_pos = line_str:find("%(")
+    if not open_pos then
+        return {line_str}
+    end
+    local close_pos = find_close_paren(line_str, open_pos)
+    if close_pos == 0 then
+        return {line_str}
+    end
+    local header = line_str:sub(1, open_pos)
+    local params_str = (line_str:sub(open_pos + 1, close_pos - 1):match("^%s*(.-)%s*$") or "")
+    local after = line_str:sub(close_pos)
+    local params = split_params(params_str)
+    if #params < 2 then
+        return {line_str}
+    end
+    local indent = (line_str:match("^(%s*)") or "")
+    local result: {string} = {header}
+    for i, param in ipairs(params) do
+        local suffix = i < #params and "," or ""
+        table.insert(result, indent .. "    " .. param .. suffix)
+    end
+    table.insert(result, indent .. after)
+    return result
+end
+
+-- Reformat function calls: join already-wrapped ones to one line when they fit,
+-- then split any single-line calls that exceed 88 characters.
+-- Function definition lines are skipped (handled by wrap_function_signatures).
+local function wrap_function_calls(lines: {string}, fmt_off_lines: {integer: boolean}): {string}
+    local result: {string} = {}
+    local i = 1
+    while i <= #lines do
+        local line_str = lines[i]
+        local is_sig = is_function_signature_line(line_str)
+        if fmt_off_lines[i] then
+            table.insert(result, line_str)
+            i = i + 1
+        elseif not is_sig and line_str:sub(-1) == "(" and not line_str:match("^%s*%-%-") then
+            -- Already-wrapped call: collect continuation lines until closing ")"
+            -- that sits at the opening indentation level on its own line.
+            local indent = (line_str:match("^(%s*)") or "")
+            local open_indent_len = #indent
+            local call_lines: {string} = {line_str}
+            local j = i + 1
+            local is_clean = true
+            while j <= #lines do
+                local body_line = lines[j]
+                local body_indent_len = #(body_line:match("^(%s*)") or "")
+                if body_line:match("^" .. indent .. "%)") then
+                    table.insert(call_lines, body_line)
+                    break
+                elseif body_indent_len <= open_indent_len then
+                    -- `)` not on its own line or structure is unexpected — bail.
+                    is_clean = false
+                    break
+                elseif body_line:sub(-1) == "(" then
+                    -- Nested wrapped call inside args — too complex to rejoin.
+                    is_clean = false
+                end
+                table.insert(call_lines, body_line)
+                j = j + 1
+            end
+            if is_clean and #call_lines >= 2 then
+                local joined = join_call_lines(call_lines)
+                local final_lines: {string}
+                if #joined <= 88 then
+                    final_lines = {joined}
+                else
+                    local rewrapped = wrap_one_call(joined)
+                    -- Only accept re-wrap when it changed something (i.e. ≥2
+                    -- top-level args were found); otherwise keep original form.
+                    if #rewrapped == 1 and rewrapped[1] == joined then
+                        final_lines = call_lines
+                    else
+                        final_lines = rewrapped
+                    end
+                end
+                for _, out_line in ipairs(final_lines) do
+                    table.insert(result, out_line)
+                end
+                i = j + 1
+            else
+                -- Emit opening line only; remaining lines handled in subsequent
+                -- iterations.
+                table.insert(result, line_str)
+                i = i + 1
+            end
+        elseif not is_sig and #line_str > 88 and line_str:find("%(") and not line_str:match("^%s*%-%-") then
+            local wrapped = wrap_one_call(line_str)
+            for _, out_line in ipairs(wrapped) do
+                table.insert(result, out_line)
+            end
+            i = i + 1
+        else
+            table.insert(result, line_str)
+            i = i + 1
+        end
+    end
+    return result
+end
+
 -- Matches lines of the form:  local [type] <name> = require("<path>")
 -- Captures the module path string so blocks can be sorted by it.
 local REQUIRE_LINE_PATTERN = '^(%s*)local%s+.-%s*=%s*require%s*%("([^"]+)"%s*%)'
@@ -633,6 +772,7 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
     end
 
     output_lines = wrap_function_signatures(output_lines, fmt_off_lines)
+    output_lines = wrap_function_calls(output_lines, fmt_off_lines)
     output_lines = wrap_table_literals(output_lines, fmt_off_lines)
     output_lines = collapse_blank_lines(output_lines)
     output_lines = sort_require_blocks(output_lines, fmt_off_lines)
