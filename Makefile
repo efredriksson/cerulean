@@ -26,5 +26,11 @@ ${LUTRO_DIST_PATH}: $(TRANSPILED) $(DIST_ASSETS)
 
 package: ${LUTRO_DIST_PATH}
 
+FORMATTER := tl run src/formatter/init.tl --
+
 lint:
 	tl check ${SRCS_LINT}
+	${FORMATTER} --check ${SRCS_LINT}
+
+format:
+	${FORMATTER} ${SRCS_LINT}
