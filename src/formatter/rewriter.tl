@@ -216,6 +216,26 @@ local function collect_fmt_off_lines(source_lines: {string}, source_blocks: {blo
     return fmt_off_lines
 end
 
+-- Collapse runs of more than one blank line to exactly one blank line.
+local function collapse_blank_lines(lines: {string}): {string}
+    local result: {string} = {}
+    local consecutive_blanks = 0
+    for i = 1, #lines - 1 do
+        local line_str = lines[i]
+        if line_str:match("^%s*$") then
+            consecutive_blanks = consecutive_blanks + 1
+            if consecutive_blanks <= 1 then
+                table.insert(result, line_str)
+            end
+        else
+            consecutive_blanks = 0
+            table.insert(result, line_str)
+        end
+    end
+    table.insert(result, lines[#lines])
+    return result
+end
+
 -- Matches lines of the form:  local [type] <name> = require("<path>")
 -- Captures the module path string so blocks can be sorted by it.
 local REQUIRE_LINE_PATTERN = '^(%s*)local%s+.-%s*=%s*require%s*%("([^"]+)"%s*%)'
@@ -282,6 +302,7 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
         end
     end
 
+    output_lines = collapse_blank_lines(output_lines)
     output_lines = sort_require_blocks(output_lines, fmt_off_lines)
     local output = table.concat(output_lines, "\n")
     return Rewrite.new(output, output ~= source, {})

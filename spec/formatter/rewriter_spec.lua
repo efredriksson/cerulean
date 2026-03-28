@@ -156,6 +156,37 @@ describe("formatter", function()
       ]]))
    end)
 
+   describe("blank line normalisation", function()
+      it("collapses two consecutive blank lines to one", helpers.format([[
+         local x = 1
+
+
+         local y = 2
+      ]], [[
+         local x = 1
+
+         local y = 2
+      ]]))
+
+      it("collapses three or more consecutive blank lines to one", helpers.format([[
+         local x = 1
+
+
+
+         local y = 2
+      ]], [[
+         local x = 1
+
+         local y = 2
+      ]]))
+
+      it("does not change a file with at most one blank line between declarations", helpers.check([[
+         local x = 1
+
+         local y = 2
+      ]]))
+   end)
+
    describe("require sorting", function()
       it("sorts a contiguous block of requires alphabetically by module path", helpers.format([[
          local b = require("b.module")
