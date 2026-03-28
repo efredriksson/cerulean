@@ -34,3 +34,6 @@ lint:
 
 format:
 	${FORMATTER} ${SRCS_LINT}
+
+test: lint
+	busted spec/

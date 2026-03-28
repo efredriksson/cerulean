@@ -1,0 +1,6 @@
+return {
+   default = {
+      ["auto-insulate"] = false,
+      lpath = "./src/?.lua;",
+   }
+}
