@@ -42,13 +42,20 @@ local function collect(nodes: {tl.Node}, result: {blocks.Block})
     end
 end
 
-function blocks.parse(source: string, filename: string): {blocks.Block}
-    local tokens, _ = tl.lex(source, filename)
+local function combine_errors(lex_errors: {tl.Error}, parse_errors: {tl.Error}): {tl.Error}
+    local combined: {tl.Error} = {}
+    for _, err in ipairs(lex_errors) do table.insert(combined, err) end
+    for _, err in ipairs(parse_errors) do table.insert(combined, err) end
+    return combined
+end
+
+function blocks.parse(source: string, filename: string): {blocks.Block}, {tl.Error}
+    local tokens, lex_errors = tl.lex(source, filename)
     local parse_errors: {tl.Error} = {}
     local ast, _ = tl.parse_program(tokens, parse_errors, filename)
     local result: {blocks.Block} = {}
     collect(ast, result)
-    return result
+    return result, combine_errors(lex_errors, parse_errors)
 end
 
 return blocks

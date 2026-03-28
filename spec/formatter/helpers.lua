@@ -33,6 +33,18 @@ function helpers.format(input, expected)
     end
 end
 
+-- Returns a test function that asserts the formatter reports parse errors
+-- and leaves the source unchanged.
+function helpers.parse_error(source)
+    return function()
+        local dedented = dedent(source)
+        local result = rewriter.rewrite(dedented, "test.tl")
+        assert.same(dedented, result.output)
+        assert.is_false(result.changed)
+        assert.is_true(#result.parse_errors > 0)
+    end
+end
+
 -- Returns a test function that asserts the formatter leaves source unchanged.
 function helpers.check(source)
     return function()

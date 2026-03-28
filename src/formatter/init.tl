@@ -62,6 +62,13 @@ local function process_file(path: string, check_only: boolean): boolean
 
     local rewrite = rewriter.rewrite(source, path)
 
+    if #rewrite.parse_errors > 0 then
+        for _, err in ipairs(rewrite.parse_errors) do
+            io.stderr:write(path .. ":" .. tostring(err.y) .. ":" .. tostring(err.x) .. ": " .. err.msg .. "\n")
+        end
+        os.exit(1)
+    end
+
     if not rewrite.changed then
         io.stdout:write(path .. ": ok\n")
         return false

@@ -22,12 +22,14 @@ end
 local record Rewrite
     output: string
     changed: boolean
+    parse_errors: {tl.Error}
 end
 
-function Rewrite.new(output: string, changed: boolean): Rewrite
+function Rewrite.new(output: string, changed: boolean, parse_errors: {tl.Error}): Rewrite
     local self: Rewrite = setmetatable({}, { __index = Rewrite })
     self.output = output
     self.changed = changed
+    self.parse_errors = parse_errors
     return self
 end
 
@@ -131,8 +133,12 @@ local function collect_fmt_off_lines(source_lines: {string}, source_blocks: {blo
 end
 
 function rewriter.rewrite(source: string, filename: string): Rewrite
+    local source_blocks, parse_errors = blocks.parse(source, filename)
+    if #parse_errors > 0 then
+        return Rewrite.new(source, false, parse_errors)
+    end
+
     local tokens, _ = tl.lex(source, filename)
-    local source_blocks = blocks.parse(source, filename)
     local edits = collect_comma_edits(tokens)
 
     local lines = split_preserving_trailing_newline(source)
@@ -150,7 +156,7 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
     end
 
     local output = table.concat(output_lines, "\n")
-    return Rewrite.new(output, output ~= source)
+    return Rewrite.new(output, output ~= source, {})
 end
 
 return rewriter
