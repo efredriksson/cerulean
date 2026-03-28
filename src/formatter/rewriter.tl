@@ -33,6 +33,23 @@ function Rewrite.new(output: string, changed: boolean, parse_errors: {tl.Error})
     return self
 end
 
+-- Collect edits to convert single-quoted string literals to double quotes.
+-- Skips strings that contain a double-quote character (cannot safely convert).
+local function collect_quote_edits(tokens: {tl.Token}): {Edit}
+    local edits: {Edit} = {}
+    for _, token in ipairs(tokens) do
+        if token.kind == "string" and token.tk:sub(1, 1) == "'" then
+            local content = token.tk:sub(2, -2)
+            if not content:find('"', 1, true) then
+                local normalized = content:gsub("\\'", "'")
+                local replacement = '"' .. normalized .. '"'
+                table.insert(edits, Edit.new(token.y, token.x, token.x + #token.tk - 1, replacement))
+            end
+        end
+    end
+    return edits
+end
+
 -- Collect edits for "exactly one space after comma" rule.
 -- Only fires when comma and the next token are on the same line and
 -- the gap between them is not exactly one space.
@@ -48,6 +65,17 @@ local function collect_comma_edits(tokens: {tl.Token}): {Edit}
                 table.insert(edits, Edit.new(current.y, comma_end, next_token.x - 1, " "))
             end
         end
+    end
+    return edits
+end
+
+local function collect_all_edits(tokens: {tl.Token}): {Edit}
+    local edits: {Edit} = {}
+    for _, edit in ipairs(collect_comma_edits(tokens)) do
+        table.insert(edits, edit)
+    end
+    for _, edit in ipairs(collect_quote_edits(tokens)) do
+        table.insert(edits, edit)
     end
     return edits
 end
@@ -139,7 +167,7 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
     end
 
     local tokens, _ = tl.lex(source, filename)
-    local edits = collect_comma_edits(tokens)
+    local edits = collect_all_edits(tokens)
 
     local lines = split_preserving_trailing_newline(source)
     local fmt_off_lines = collect_fmt_off_lines(lines, source_blocks)

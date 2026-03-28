@@ -98,4 +98,12 @@ describe("formatter", function()
       ]]))
    end)
 
+   describe("quote normalisation", function()
+      it("converts single-quoted strings to double quotes", helpers.format([[
+         local x = 'hello'
+      ]], [[
+         local x = "hello"
+      ]]))
+   end)
+
 end)
