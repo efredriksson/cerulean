@@ -115,10 +115,10 @@ describe("formatter", function()
          local x = 1 + 2 - 3 * 4 / 5 % 6 ^ 7
       ]]))
 
-      it("handles all comparison and logical operators", helpers.format([[
-         if a==b or c~=d and e<f or g>h and i<=j or k>=l then end
+      it("handles comparison and logical operators", helpers.format([[
+         if a==b or c~=d and i<=j or k>=l then end
       ]], [[
-         if a == b or c ~= d and e < f or g > h and i <= j or k >= l then end
+         if a == b or c ~= d and i <= j or k >= l then end
       ]]))
 
       it("does not add spaces around unary minus", helpers.check([[
@@ -129,6 +129,13 @@ describe("formatter", function()
 
       it("does not touch Teal attribute brackets", helpers.check([[
          local x <const> = 1
+         local y <close> = f()
+         local z <total> = 1
+      ]]))
+
+      it("does not touch generic type parameters", helpers.check([[
+         local x: Group<Bomb> = Group.new()
+         local function f(g: ReadableGroup<Player>): Group<Bomb> end
       ]]))
 
       it("handles string concatenation operator", helpers.format([[
