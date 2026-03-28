@@ -156,6 +156,26 @@ describe("formatter", function()
       ]]))
    end)
 
+   describe("indentation", function()
+      it("converts leading tabs to 4-space indentation", helpers.format_raw(
+         "local function f()\n\tlocal x = 1\nend\n",
+         "local function f()\n    local x = 1\nend\n"
+      ))
+
+      it("converts nested tabs to the correct number of spaces", helpers.format_raw(
+         "local function f()\n\tif true then\n\t\tlocal x = 1\n\tend\nend\n",
+         "local function f()\n    if true then\n        local x = 1\n    end\nend\n"
+      ))
+
+      it("does not change lines already using 4-space indentation", helpers.check_raw(
+         "local function f()\n    local x = 1\nend\n"
+      ))
+
+      it("does not touch tabs that appear mid-line", helpers.check_raw(
+         "local x = \"a\tb\"\n"
+      ))
+   end)
+
    describe("blank line normalisation", function()
       it("collapses two consecutive blank lines to one", helpers.format([[
          local x = 1

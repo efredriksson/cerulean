@@ -216,6 +216,16 @@ local function collect_fmt_off_lines(source_lines: {string}, source_blocks: {blo
     return fmt_off_lines
 end
 
+-- Replace each leading tab character with four spaces.
+-- Only leading tabs are converted; tabs within a line are left alone.
+local function expand_tabs(line_str: string): string
+    local indent, rest = line_str:match("^(\t*)(.*)")
+    if not indent or indent == "" then
+        return line_str
+    end
+    return string.rep("    ", #indent) .. rest
+end
+
 -- Collapse runs of more than one blank line to exactly one blank line.
 local function collapse_blank_lines(lines: {string}): {string}
     local result: {string} = {}
@@ -297,6 +307,7 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
             table.insert(output_lines, line_str)
         else
             local result = apply_edits_to_line(line_str, i, edits)
+            result = expand_tabs(result)
             result = strip_trailing_spaces(result)
             table.insert(output_lines, result)
         end
