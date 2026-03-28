@@ -63,14 +63,27 @@ end
 -- parameter brackets (e.g. Group<Bomb>) at the token level.  "<=" and ">=" are
 -- two-char tokens and are unambiguous, so they stay.
 local BINARY_OP_TOKENS: {string: boolean} = {
-    ["+"] = true, ["-"] = true, ["*"] = true, ["/"] = true,
-    ["%"] = true, ["^"] = true, [".."] = true, ["|"] = true,
-    ["=="] = true, ["~="] = true, ["<="] = true, [">="] = true, ["="] = true,
-    ["and"] = true, ["or"] = true,
+    ["+"] = true,
+    ["-"] = true,
+    ["*"] = true,
+    ["/"] = true,
+    ["%"] = true,
+    ["^"] = true,
+    [".."] = true,
+    ["|"] = true,
+    ["=="] = true,
+    ["~="] = true,
+    ["<="] = true,
+    [">="] = true,
+    ["="] = true,
+    ["and"] = true,
+    ["or"] = true,
 }
 
 local VALUE_ENDING_KINDS: {string: boolean} = {
-    ["identifier"] = true, ["integer"] = true, ["number"] = true,
+    ["identifier"] = true,
+    ["integer"] = true,
+    ["number"] = true,
     ["string"] = true,
     [")"] = true, ["]"] = true, ["}"] = true,
 }
@@ -408,6 +421,150 @@ local function wrap_function_signatures(lines: {string}, fmt_off_lines: {integer
     return result
 end
 
+-- Returns the 1-based position of the closing "}" that matches the "{" at
+-- open_pos, or 0 when the line has no matching close brace.
+local function find_close_brace(line_str: string, open_pos: integer): integer
+    local depth = 0
+    for i = open_pos, #line_str do
+        local ch = line_str:sub(i, i)
+        if ch == "{" then
+            depth = depth + 1
+        elseif ch == "}" then
+            depth = depth - 1
+            if depth == 0 then
+                return i
+            end
+        end
+    end
+    return 0
+end
+
+-- Build the canonical single-line form of a (possibly multi-line) table constructor.
+-- table_lines[1] ends with "{".  The last element starts with the closing "}".
+local function join_table_lines(table_lines: {string}): string
+    local header = table_lines[1]:match("^(.-%{)%s*$") or table_lines[1]
+    local items: {string} = {}
+    local tail = ""
+    for i = 2, #table_lines do
+        local stripped = table_lines[i]:match("^%s*(.-)%s*$") or ""
+        if stripped:sub(1, 1) == "}" then
+            tail = stripped
+        else
+            local item = stripped:gsub(",%s*$", "")
+            if item ~= "" then
+                table.insert(items, item)
+            end
+        end
+    end
+    return header .. table.concat(items, ", ") .. tail
+end
+
+-- Returns true when a table element string contains a string literal.
+-- Used to avoid wrapping tables whose elements contain quotes, since
+-- find_close_brace cannot reliably skip over string content.
+local function contains_string_literal(s: string): boolean
+    return s:find('"') ~= nil or s:find("'") ~= nil
+end
+
+-- Given a single-line table constructor longer than 88 characters, reformat it
+-- to one element per line.  Returns the single line unchanged when it has fewer
+-- than two elements, when no "= {…}" pattern is found, or when any element
+-- contains a string literal (which would confuse brace-depth counting).
+local function wrap_one_table(line_str: string): {string}
+    local eq_pos = line_str:find("=%s*{")
+    if not eq_pos then
+        return {line_str}
+    end
+    local open_pos = line_str:find("{", eq_pos)
+    if not open_pos then
+        return {line_str}
+    end
+    local close_pos = find_close_brace(line_str, open_pos)
+    if close_pos == 0 then
+        return {line_str}
+    end
+    local header = line_str:sub(1, open_pos)
+    local items_str = line_str:sub(open_pos + 1, close_pos - 1)
+    -- Skip tables whose elements contain string literals: brace counting is
+    -- unreliable when "}" or "{" appear inside quoted strings.
+    if contains_string_literal(items_str) then
+        return {line_str}
+    end
+    local after_brace = line_str:sub(close_pos + 1)
+    local items = split_params(items_str)
+    if #items < 2 then
+        return {line_str}
+    end
+    local indent = (line_str:match("^(%s*)") or "")
+    local result: {string} = {header}
+    for _, item in ipairs(items) do
+        table.insert(result, indent .. "    " .. item .. ",")
+    end
+    table.insert(result, indent .. "}" .. after_brace)
+    return result
+end
+
+-- Reformat table constructors: join already-wrapped ones to one line when
+-- they fit, then split any single-line constructors that exceed 88 characters.
+-- Only applies to tables assigned with "= {…}" syntax.
+local function wrap_table_literals(lines: {string}, fmt_off_lines: {integer: boolean}): {string}
+    local result: {string} = {}
+    local i = 1
+    while i <= #lines do
+        local line_str = lines[i]
+        if fmt_off_lines[i] then
+            table.insert(result, line_str)
+            i = i + 1
+        elseif line_str:match("=%s*{%s*$") then
+            local indent = (line_str:match("^(%s*)") or "")
+            local table_lines: {string} = {line_str}
+            local j = i + 1
+            local is_simple = true
+            while j <= #lines do
+                local body_line = lines[j]
+                -- Skip joining if any body line contains nested structure,
+                -- string literals, or comments.  Parentheses indicate a
+                -- function call that may span multiple lines.
+                if body_line:find("[{(]") or contains_string_literal(body_line) or body_line:find("%-%-") then
+                    is_simple = false
+                end
+                table.insert(table_lines, body_line)
+                if body_line:match("^" .. indent .. "}") then
+                    break
+                end
+                j = j + 1
+            end
+            if is_simple then
+                local joined = join_table_lines(table_lines)
+                local final_lines: {string}
+                if #joined <= 88 then
+                    final_lines = {joined}
+                else
+                    final_lines = wrap_one_table(joined)
+                end
+                for _, out_line in ipairs(final_lines) do
+                    table.insert(result, out_line)
+                end
+            else
+                for _, tl_line in ipairs(table_lines) do
+                    table.insert(result, tl_line)
+                end
+            end
+            i = j + 1
+        elseif #line_str > 88 and line_str:find("=%s*{") ~= nil then
+            local wrapped = wrap_one_table(line_str)
+            for _, out_line in ipairs(wrapped) do
+                table.insert(result, out_line)
+            end
+            i = i + 1
+        else
+            table.insert(result, line_str)
+            i = i + 1
+        end
+    end
+    return result
+end
+
 -- Matches lines of the form:  local [type] <name> = require("<path>")
 -- Captures the module path string so blocks can be sorted by it.
 local REQUIRE_LINE_PATTERN = '^(%s*)local%s+.-%s*=%s*require%s*%("([^"]+)"%s*%)'
@@ -476,6 +633,7 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
     end
 
     output_lines = wrap_function_signatures(output_lines, fmt_off_lines)
+    output_lines = wrap_table_literals(output_lines, fmt_off_lines)
     output_lines = collapse_blank_lines(output_lines)
     output_lines = sort_require_blocks(output_lines, fmt_off_lines)
     local output = table.concat(output_lines, "\n")

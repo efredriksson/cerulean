@@ -280,4 +280,29 @@ describe("formatter", function()
       ]]))
    end)
 
+   describe("table constructor wrapping", function()
+      it("wraps a long single-line table constructor to one element per line", helpers.format_raw(
+         "local items = {Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon}\n",
+         "local items = {\n    Alpha = Alpha,\n    Beta = Beta,\n    Gamma = Gamma,\n    Delta = Delta,\n    Epsilon = Epsilon,\n}\n"
+      ))
+
+      it("joins an already-wrapped table constructor that fits on one line", helpers.format_raw(
+         "local items = {\n    Alpha = Alpha,\n    Beta = Beta,\n}\n",
+         "local items = {Alpha = Alpha, Beta = Beta}\n"
+      ))
+
+      it("does not change a short table constructor already on one line", helpers.check_raw(
+         "local items = {Alpha = Alpha, Beta = Beta}\n"
+      ))
+
+      it("does not change an already-wrapped table constructor that does not fit on one line", helpers.check_raw(
+         "local items = {\n    Alpha = Alpha,\n    Beta = Beta,\n    Gamma = Gamma,\n    Delta = Delta,\n    Epsilon = Epsilon,\n}\n"
+      ))
+
+      it("preserves indentation when wrapping a table constructor", helpers.format_raw(
+         "    local items = {Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon}\n",
+         "    local items = {\n        Alpha = Alpha,\n        Beta = Beta,\n        Gamma = Gamma,\n        Delta = Delta,\n        Epsilon = Epsilon,\n    }\n"
+      ))
+   end)
+
 end)
