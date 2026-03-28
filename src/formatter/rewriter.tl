@@ -1,5 +1,5 @@
-local tl = require("tl")
 local blocks = require("formatter.blocks")
+local tl = require("tl")
 
 local rewriter = {}
 
@@ -216,6 +216,49 @@ local function collect_fmt_off_lines(source_lines: {string}, source_blocks: {blo
     return fmt_off_lines
 end
 
+-- Matches lines of the form:  local [type] <name> = require("<path>")
+-- Captures the module path string so blocks can be sorted by it.
+local REQUIRE_LINE_PATTERN = '^(%s*)local%s+.-%s*=%s*require%s*%("([^"]+)"%s*%)'
+
+local function is_require_line(line_str: string): boolean
+    return line_str:match(REQUIRE_LINE_PATTERN) ~= nil
+end
+
+local function require_module_path(line_str: string): string
+    local _, path = line_str:match(REQUIRE_LINE_PATTERN)
+    return path or ""
+end
+
+-- Sort contiguous blocks of require lines alphabetically by module path.
+-- Lines inside fmt-off regions are left in place.
+local function sort_require_blocks(lines: {string}, fmt_off_lines: {integer: boolean}): {string}
+    local result: {string} = {}
+    local i = 1
+    while i <= #lines do
+        if fmt_off_lines[i] or not is_require_line(lines[i]) then
+            table.insert(result, lines[i])
+            i = i + 1
+        else
+            local block_start = i
+            while i <= #lines and not fmt_off_lines[i] and is_require_line(lines[i]) do
+                i = i + 1
+            end
+            local block: {string} = {}
+            for j = block_start, i - 1 do
+                table.insert(block, lines[j])
+            end
+            local function by_module_path(first: string, second: string): boolean
+                return require_module_path(first) < require_module_path(second)
+            end
+            table.sort(block, by_module_path)
+            for _, line_str in ipairs(block) do
+                table.insert(result, line_str)
+            end
+        end
+    end
+    return result
+end
+
 function rewriter.rewrite(source: string, filename: string): Rewrite
     local source_blocks, parse_errors = blocks.parse(source, filename)
     if #parse_errors > 0 then
@@ -239,6 +282,7 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
         end
     end
 
+    output_lines = sort_require_blocks(output_lines, fmt_off_lines)
     local output = table.concat(output_lines, "\n")
     return Rewrite.new(output, output ~= source, {})
 end

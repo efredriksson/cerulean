@@ -156,6 +156,50 @@ describe("formatter", function()
       ]]))
    end)
 
+   describe("require sorting", function()
+      it("sorts a contiguous block of requires alphabetically by module path", helpers.format([[
+         local b = require("b.module")
+         local a = require("a.module")
+      ]], [[
+         local a = require("a.module")
+         local b = require("b.module")
+      ]]))
+
+      it("does not change an already-sorted block", helpers.check([[
+         local a = require("a.module")
+         local b = require("b.module")
+         local c = require("c.module")
+      ]]))
+
+      it("sorts each contiguous block independently", helpers.format([[
+         local b = require("b")
+         local a = require("a")
+
+         local d = require("d")
+         local c = require("c")
+      ]], [[
+         local a = require("a")
+         local b = require("b")
+
+         local c = require("c")
+         local d = require("d")
+      ]]))
+
+      it("does not sort requires separated by non-require lines", helpers.check([[
+         local a = require("a")
+         local x = 1
+         local b = require("b")
+      ]]))
+
+      it("sorts local type requires in the same block", helpers.format([[
+         local type B = require("b")
+         local type A = require("a")
+      ]], [[
+         local type A = require("a")
+         local type B = require("b")
+      ]]))
+   end)
+
    describe("quote normalisation", function()
       it("converts single-quoted strings to double quotes", helpers.format([[
          local x = 'hello'
