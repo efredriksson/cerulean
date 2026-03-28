@@ -156,6 +156,27 @@ describe("formatter", function()
       ]]))
    end)
 
+   describe("function signature wrapping", function()
+      it("wraps a long single-line signature to one param per line", helpers.format_raw(
+         "function f(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType): ReturnValue\nend\n",
+         "function f(\n    param_one: LongTypeName,\n    param_two: AnotherLongType,\n    param_three: YetAnotherType\n): ReturnValue\nend\n"
+      ))
+
+      it("joins an already-wrapped signature that fits on one line", helpers.format_raw(
+         "function f(\n    param_one: TypeA,\n    param_two: TypeB\n): ReturnType\nend\n",
+         "function f(param_one: TypeA, param_two: TypeB): ReturnType\nend\n"
+      ))
+
+      it("does not change a short signature that is already on one line", helpers.check_raw(
+         "function f(x: integer, y: integer): integer\nend\n"
+      ))
+
+      it("preserves indentation when wrapping a method signature", helpers.format_raw(
+         "    function Obj:method(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType)\n    end\n",
+         "    function Obj:method(\n        param_one: LongTypeName,\n        param_two: AnotherLongType,\n        param_three: YetAnotherType\n    )\n    end\n"
+      ))
+   end)
+
    describe("indentation", function()
       it("converts leading tabs to 4-space indentation", helpers.format_raw(
          "local function f()\n\tlocal x = 1\nend\n",

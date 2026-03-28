@@ -10,7 +10,12 @@ local record Edit
     replacement: string
 end
 
-function Edit.new(line: integer, col_start: integer, col_end: integer, replacement: string): Edit
+function Edit.new(
+    line: integer,
+    col_start: integer,
+    col_end: integer,
+    replacement: string
+): Edit
     local self: Edit = setmetatable({}, { __index = Edit })
     self.line = line
     self.col_start = col_start
@@ -25,7 +30,11 @@ local record Rewrite
     parse_errors: {tl.Error}
 end
 
-function Rewrite.new(output: string, changed: boolean, parse_errors: {tl.Error}): Rewrite
+function Rewrite.new(
+    output: string,
+    changed: boolean,
+    parse_errors: {tl.Error}
+): Rewrite
     local self: Rewrite = setmetatable({}, { __index = Rewrite })
     self.output = output
     self.changed = changed
@@ -136,7 +145,11 @@ local function collect_all_edits(tokens: {tl.Token}): {Edit}
     return edits
 end
 
-local function apply_edits_to_line(line_str: string, line_number: integer, edits: {Edit}): string
+local function apply_edits_to_line(
+    line_str: string,
+    line_number: integer,
+    edits: {Edit}
+): string
     local line_edits: {Edit} = {}
     for _, edit in ipairs(edits) do
         if edit.line == line_number then
@@ -172,7 +185,11 @@ end
 
 -- Returns the close_line of the innermost block that contains the given line,
 -- or last_line + 1 when the line is at the top level (no enclosing block).
-local function find_enclosing_block_end(source_blocks: {blocks.Block}, line: integer, last_line: integer): integer
+local function find_enclosing_block_end(
+    source_blocks: {blocks.Block},
+    line: integer,
+    last_line: integer
+): integer
     local innermost_end = last_line + 1
     for _, block in ipairs(source_blocks) do
         if block.open_line <= line and block.close_line > line then
@@ -246,6 +263,151 @@ local function collapse_blank_lines(lines: {string}): {string}
     return result
 end
 
+local function is_function_signature_line(line_str: string): boolean
+    return line_str:match("^%s*local%s+function%s") ~= nil or
+           line_str:match("^%s*function%s") ~= nil
+end
+
+-- Returns the 1-based position of the closing ")" that matches the "(" at
+-- open_pos, or 0 when the line has no matching close paren.
+local function find_close_paren(line_str: string, open_pos: integer): integer
+    local depth = 0
+    for i = open_pos, #line_str do
+        local ch = line_str:sub(i, i)
+        if ch == "(" then
+            depth = depth + 1
+        elseif ch == ")" then
+            depth = depth - 1
+            if depth == 0 then
+                return i
+            end
+        end
+    end
+    return 0
+end
+
+-- Split a parameter-list string by top-level commas (not inside ()[]{}),
+-- trimming each parameter.
+local function split_params(params_str: string): {string}
+    local params: {string} = {}
+    local depth = 0
+    local start = 1
+    for i = 1, #params_str do
+        local ch = params_str:sub(i, i)
+        if ch == "(" or ch == "[" or ch == "{" then
+            depth = depth + 1
+        elseif ch == ")" or ch == "]" or ch == "}" then
+            depth = depth - 1
+        elseif ch == "," and depth == 0 then
+            local param = params_str:sub(start, i - 1):match("^%s*(.-)%s*$") or ""
+            if param ~= "" then
+                table.insert(params, param)
+            end
+            start = i + 1
+        end
+    end
+    local last = params_str:sub(start):match("^%s*(.-)%s*$") or ""
+    if last ~= "" then
+        table.insert(params, last)
+    end
+    return params
+end
+
+-- Build the canonical single-line form of a (possibly multi-line) signature.
+-- signature_lines[1] ends with "(" (the opening paren line).
+-- The last element contains the closing ")" possibly followed by a return type.
+local function join_signature_lines(signature_lines: {string}): string
+    local header = signature_lines[1]:match("^(.-%()%s*$") or signature_lines[1]
+    local body_parts: {string} = {}
+    local tail = ""
+    for i = 2, #signature_lines do
+        local stripped = signature_lines[i]:match("^%s*(.-)%s*$") or ""
+        if stripped:sub(1, 1) == ")" then
+            tail = stripped
+        else
+            -- Strip trailing comma before collecting
+            local param = stripped:gsub(",%s*$", "")
+            if param ~= "" then
+                table.insert(body_parts, param)
+            end
+        end
+    end
+    return header .. table.concat(body_parts, ", ") .. tail
+end
+
+-- Given a single-line signature that is longer than 88 characters, reformat
+-- it to one parameter per line.  Returns the single line unchanged when it has
+-- fewer than two parameters or when the line is short enough already.
+local function wrap_one_signature(line_str: string): {string}
+    local open_pos = line_str:find("%(")
+    if not open_pos then
+        return {line_str}
+    end
+    local close_pos = find_close_paren(line_str, open_pos)
+    if close_pos == 0 then
+        return {line_str}
+    end
+    local header    = line_str:sub(1, open_pos)
+    local params_str = line_str:sub(open_pos + 1, close_pos - 1)
+    local after     = line_str:sub(close_pos)
+    local params    = split_params(params_str)
+    if #params < 2 then
+        return {line_str}
+    end
+    local indent = (header:match("^(%s*)") or "")
+    local result: {string} = {header}
+    for i, param in ipairs(params) do
+        local suffix = i < #params and "," or ""
+        table.insert(result, indent .. "    " .. param .. suffix)
+    end
+    table.insert(result, indent .. after)
+    return result
+end
+
+-- Reformat function signatures: join already-wrapped ones to one line when
+-- they fit, then split any single-line signatures that exceed 88 characters.
+local function wrap_function_signatures(lines: {string}, fmt_off_lines: {integer: boolean}): {string}
+    local result: {string} = {}
+    local i = 1
+    while i <= #lines do
+        local line_str = lines[i]
+        local is_sig = is_function_signature_line(line_str) and not fmt_off_lines[i]
+        -- Detect an already-wrapped multi-line signature: sig line ends with "("
+        if is_sig and line_str:sub(-1) == "(" then
+            local indent = (line_str:match("^(%s*)") or "")
+            local sig_lines: {string} = {line_str}
+            local j = i + 1
+            while j <= #lines do
+                table.insert(sig_lines, lines[j])
+                if lines[j]:match("^" .. indent .. "%)") then
+                    break
+                end
+                j = j + 1
+            end
+            local joined = join_signature_lines(sig_lines)
+            local final_lines: {string}
+            if #joined <= 88 then
+                final_lines = {joined}
+            else
+                final_lines = wrap_one_signature(joined)
+            end
+            for _, out_line in ipairs(final_lines) do
+                table.insert(result, out_line)
+            end
+            i = j + 1
+        elseif is_sig and #line_str > 88 then
+            for _, out_line in ipairs(wrap_one_signature(line_str)) do
+                table.insert(result, out_line)
+            end
+            i = i + 1
+        else
+            table.insert(result, line_str)
+            i = i + 1
+        end
+    end
+    return result
+end
+
 -- Matches lines of the form:  local [type] <name> = require("<path>")
 -- Captures the module path string so blocks can be sorted by it.
 local REQUIRE_LINE_PATTERN = '^(%s*)local%s+.-%s*=%s*require%s*%("([^"]+)"%s*%)'
@@ -313,6 +475,7 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
         end
     end
 
+    output_lines = wrap_function_signatures(output_lines, fmt_off_lines)
     output_lines = collapse_blank_lines(output_lines)
     output_lines = sort_require_blocks(output_lines, fmt_off_lines)
     local output = table.concat(output_lines, "\n")
