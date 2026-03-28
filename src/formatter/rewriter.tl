@@ -1,4 +1,5 @@
 local tl = require("tl")
+local blocks = require("formatter.blocks")
 
 local rewriter = {}
 
@@ -49,13 +50,7 @@ local function collect_comma_edits(tokens: {tl.Token}): {Edit}
     return edits
 end
 
--- Apply collected edits to a single line (1-based line number).
--- Edits must all be for the given line. Applied in reverse order to keep
--- column offsets valid.
 local function apply_edits_to_line(line_str: string, line_number: integer, edits: {Edit}): string
-    -- Edits are passed as a flat list across all lines, so we collect only
-    -- those for this line before applying. Reverse column order ensures each
-    -- sub() call uses the original column positions without offset drift.
     local line_edits: {Edit} = {}
     for _, edit in ipairs(edits) do
         if edit.line == line_number then
@@ -89,17 +84,69 @@ local function split_preserving_trailing_newline(source: string): {string}
     return lines
 end
 
+-- Returns the close_line of the innermost block that contains the given line,
+-- or last_line + 1 when the line is at the top level (no enclosing block).
+local function find_enclosing_block_end(source_blocks: {blocks.Block}, line: integer, last_line: integer): integer
+    local innermost_end = last_line + 1
+    for _, block in ipairs(source_blocks) do
+        if block.open_line <= line and block.close_line > line then
+            if block.close_line < innermost_end then
+                innermost_end = block.close_line
+            end
+        end
+    end
+    return innermost_end
+end
+
+-- tl.lex strips comments, so directives cannot be found in the token stream.
+-- We scan raw lines for the directives while using the AST-derived block
+-- spans to enforce that --fmt: on must close the same block as --fmt: off.
+local function collect_fmt_off_lines(source_lines: {string}, source_blocks: {blocks.Block}): {integer: boolean}
+    local fmt_off_lines: {integer: boolean} = {}
+    local formatting_off = false
+    local off_start = 0
+    local region_end = 0
+
+    for line_number, line_str in ipairs(source_lines) do
+        if not formatting_off and line_str:match("%-%-%s*fmt:%s*off") then
+            formatting_off = true
+            off_start = line_number
+            region_end = find_enclosing_block_end(source_blocks, line_number, #source_lines)
+        end
+
+        if formatting_off then
+            if line_number >= region_end then
+                -- The enclosing block's "end" keyword is on this line; resume formatting.
+                formatting_off = false
+            else
+                fmt_off_lines[line_number] = true
+                if line_number > off_start and line_str:match("%-%-%s*fmt:%s*on") then
+                    formatting_off = false
+                end
+            end
+        end
+    end
+
+    return fmt_off_lines
+end
+
 function rewriter.rewrite(source: string, filename: string): Rewrite
     local tokens, _ = tl.lex(source, filename)
+    local source_blocks = blocks.parse(source, filename)
     local edits = collect_comma_edits(tokens)
 
     local lines = split_preserving_trailing_newline(source)
+    local fmt_off_lines = collect_fmt_off_lines(lines, source_blocks)
 
     local output_lines: {string} = {}
     for i, line_str in ipairs(lines) do
-        local result = apply_edits_to_line(line_str, i, edits)
-        result = strip_trailing_spaces(result)
-        table.insert(output_lines, result)
+        if fmt_off_lines[i] then
+            table.insert(output_lines, line_str)
+        else
+            local result = apply_edits_to_line(line_str, i, edits)
+            result = strip_trailing_spaces(result)
+            table.insert(output_lines, result)
+        end
     end
 
     local output = table.concat(output_lines, "\n")
