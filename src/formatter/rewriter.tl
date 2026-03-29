@@ -463,10 +463,21 @@ local function has_multiline_descendant(node: parser.Node): boolean
     return found
 end
 
+-- Returns true when a multi-line table's last item line ends with a comma,
+-- indicating the author explicitly wants the table kept in expanded form.
+local function has_magic_trailing_comma(node: parser.Node, source_lines: {string}): boolean
+    if node.yend <= node.y then
+        return false
+    end
+    local last_body_line = source_lines[node.yend - 1]
+    return last_body_line ~= nil and last_body_line:match(",%s*$") ~= nil
+end
+
 -- Walk the AST collecting Spans for literal_table nodes.
 -- Only collects spans that are safe to join/split: no child spans multiple
--- lines, no fmt:off lines fall inside the span, and no lines contain comments
--- (inline comments cannot be preserved through a join/split cycle).
+-- lines, no fmt:off lines fall inside the span, no lines contain comments
+-- (inline comments cannot be preserved through a join/split cycle), and no
+-- magic trailing comma (author explicitly wants the table kept expanded).
 local function collect_table_spans(
     node: parser.Node,
     lines: {string},
@@ -485,7 +496,7 @@ local function collect_table_spans(
                 break
             end
         end
-        if is_safe and not has_multiline_descendant(node) then
+        if is_safe and not has_multiline_descendant(node) and not has_magic_trailing_comma(node, lines) then
             table.insert(result, Span.new(node.y, node.x, node.yend, node.xend))
         end
         -- Still recurse into children to find nested simple tables

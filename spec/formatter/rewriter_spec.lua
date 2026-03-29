@@ -287,7 +287,7 @@ describe("formatter", function()
       ))
 
       it("joins an already-wrapped table constructor that fits on one line", helpers.format_raw(
-         "local items = {\n    Alpha = Alpha,\n    Beta = Beta,\n}\n",
+         "local items = {\n    Alpha = Alpha,\n    Beta = Beta\n}\n",
          "local items = {Alpha = Alpha, Beta = Beta}\n"
       ))
 
@@ -306,6 +306,15 @@ describe("formatter", function()
 
       it("does not change a table whose entries have inline comments", helpers.check_raw(
          "local z = {\n    BELOW = -3, -- on ground\n    LEVEL = 0, -- ground level\n}\n"
+      ))
+
+      it("does not join a multi-line table whose last entry has a trailing comma", helpers.check_raw(
+         "local t = {\n    a = 1,\n    b = 2,\n}\n"
+      ))
+
+      it("joins a multi-line table whose last entry has no trailing comma", helpers.format_raw(
+         "local t = {\n    a = 1,\n    b = 2\n}\n",
+         "local t = {a = 1, b = 2}\n"
       ))
 
       it("does not collapse a wrapped table after joining its multi-line call entry", helpers.format_raw(
@@ -346,12 +355,12 @@ describe("formatter", function()
       ))
 
       it("joins a wrapped return table that fits on one line", helpers.format_raw(
-         "return {\n    alpha_value,\n    beta_value,\n}\n",
+         "return {\n    alpha_value,\n    beta_value\n}\n",
          "return {alpha_value, beta_value}\n"
       ))
 
       it("joins a wrapped table whose value is a call expression", helpers.format_raw(
-         "local t = {\n    key = foo(a, b),\n}\n",
+         "local t = {\n    key = foo(a, b)\n}\n",
          "local t = {key = foo(a, b)}\n"
       ))
    end)
