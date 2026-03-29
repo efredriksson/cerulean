@@ -462,6 +462,21 @@ describe("formatter", function()
          ) and
              interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
       ]]))
+
+      it("collapse the function arguments to single own line if possible", helpers.format([[
+         local function interval_overlap(
+             xmin1: number,
+             xmax1: number,
+             xmin2: number,
+             xmax2: number
+         ): boolean
+         end
+      ]], [[
+         local function interval_overlap(
+             xmin1: number, xmax1: number, xmin2: number, xmax2: number
+         ): boolean
+         end
+      ]]))
    end)
 
    describe("current-implementation limitations (AST needed)", function()
