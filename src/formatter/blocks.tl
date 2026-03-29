@@ -45,10 +45,15 @@ local function collect(nodes: {parser.Node}, result: {blocks.Block})
     end
 end
 
-function blocks.parse(source: string, filename: string): {blocks.Block}, {tl.Error}
-    local ast, errs = parser.parse(source, filename)
+function blocks.collect_from_ast(ast: parser.Node): {blocks.Block}
     local result: {blocks.Block} = {}
     collect(ast, result)
+    return result
+end
+
+function blocks.parse(source: string, filename: string): {blocks.Block}, {tl.Error}
+    local ast, errs = parser.parse(source, filename)
+    local result = blocks.collect_from_ast(ast)
     return result, errs
 end
 

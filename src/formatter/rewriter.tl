@@ -1,4 +1,5 @@
 local blocks = require("formatter.blocks")
+local parser = require("formatter.parser")
 local tl = require("tl")
 
 local rewriter = {}
@@ -28,6 +29,27 @@ local record Rewrite
     output: string
     changed: boolean
     parse_errors: {tl.Error}
+end
+
+local record Span
+    open_line: integer
+    open_col:  integer
+    close_line: integer
+    close_col:  integer
+end
+
+function Span.new(
+    open_line: integer,
+    open_col: integer,
+    close_line: integer,
+    close_col: integer
+): Span
+    local self: Span = setmetatable({}, { __index = Span })
+    self.open_line = open_line
+    self.open_col = open_col
+    self.close_line = close_line
+    self.close_col = close_col
+    return self
 end
 
 function Rewrite.new(
@@ -389,6 +411,248 @@ local function wrap_one_signature(line_str: string): {string}
     return result
 end
 
+-- ── AST-based wrapping ────────────────────────────────────────────────────────
+
+-- Recursively walk every child node reachable from a Node.
+-- Calls visit(child) for each child node encountered.
+local function walk_children(node: parser.Node, visit: function(parser.Node))
+    for _, child in ipairs(node) do visit(child) end
+    if node.body   then visit(node.body)   end
+    if node.e1     then visit(node.e1)     end
+    if node.e2     then visit(node.e2)     end
+    if node.key    then visit(node.key)    end
+    if node.value  then visit(node.value)  end
+    if node.args   then visit(node.args)   end
+    if node.name   then visit(node.name)   end
+    if node.exp    then visit(node.exp)    end
+    if node.var    then visit(node.var)    end
+    if node.from   then visit(node.from)   end
+    if node.to     then visit(node.to)     end
+    if node.step   then visit(node.step)   end
+    if node.vars   then visit(node.vars)   end
+    if node.exps   then visit(node.exps)   end
+    if node.if_blocks then
+        for _, block in ipairs(node.if_blocks) do visit(block) end
+    end
+end
+
+-- Returns true if any descendant of node spans more than one source line.
+-- Used to guard against joining table constructors whose items contain
+-- multi-line sub-expressions (nested calls, nested tables, etc.).
+local function has_multiline_descendant(node: parser.Node): boolean
+    local function check(child: parser.Node): boolean
+        if child.yend and child.yend > child.y then
+            return true
+        end
+        local found = false
+        local function visit(grandchild: parser.Node)
+            if not found then
+                found = check(grandchild)
+            end
+        end
+        walk_children(child, visit)
+        return found
+    end
+    local found = false
+    local function visit(child: parser.Node)
+        if not found then
+            found = check(child)
+        end
+    end
+    walk_children(node, visit)
+    return found
+end
+
+-- Walk the AST collecting Spans for literal_table nodes.
+-- Only collects spans that are safe to join/split: no child spans multiple
+-- lines, no fmt:off lines fall inside the span, and no lines contain comments
+-- (inline comments cannot be preserved through a join/split cycle).
+local function collect_table_spans(
+    node: parser.Node,
+    lines: {string},
+    fmt_off_lines: {integer: boolean},
+    result: {Span}
+)
+    if node.kind == "literal_table" then
+        local is_safe = true
+        for line = node.y, node.yend do
+            if fmt_off_lines[line] then
+                is_safe = false
+                break
+            end
+            if lines[line] and lines[line]:find("%-%-") then
+                is_safe = false
+                break
+            end
+        end
+        if is_safe and not has_multiline_descendant(node) then
+            table.insert(result, Span.new(node.y, node.x, node.yend, node.xend))
+        end
+        -- Still recurse into children to find nested simple tables
+    end
+
+    local function recurse(child: parser.Node)
+        collect_table_spans(child, lines, fmt_off_lines, result)
+    end
+    walk_children(node, recurse)
+end
+
+-- Extract the text of a span from the source lines.  Returns the lines that
+-- make up the span (partial first/last lines included).
+local function extract_span_lines(lines: {string}, span: Span): {string}
+    if span.open_line == span.close_line then
+        return {lines[span.open_line]:sub(span.open_col, span.close_col)}
+    end
+    local result: {string} = {}
+    table.insert(result, lines[span.open_line]:sub(span.open_col))
+    for i = span.open_line + 1, span.close_line - 1 do
+        table.insert(result, lines[i])
+    end
+    table.insert(result, lines[span.close_line]:sub(1, span.close_col))
+    return result
+end
+
+-- Join a multi-line table span back to a single line.
+-- Each body line is stripped of leading/trailing whitespace and trailing commas
+-- are collected.  Returns the joined single-line content (just {…}).
+local function join_table_span(span_lines: {string}): string
+    -- span_lines[1] starts with "{", last line ends with "}"
+    local open_brace = span_lines[1]:match("^(%{)")
+    if not open_brace then
+        return table.concat(span_lines, " ")
+    end
+    local items: {string} = {}
+    for i = 1, #span_lines do
+        local stripped = span_lines[i]:match("^%s*(.-)%s*$") or ""
+        -- Remove surrounding braces from first/last contributions
+        if i == 1 then
+            stripped = stripped:sub(2) -- remove leading "{"
+            stripped = stripped:match("^%s*(.-)%s*$") or ""
+        end
+        if i == #span_lines then
+            -- remove trailing "}" (and optional trailing comma before it)
+            stripped = stripped:gsub("%s*}%s*$", "")
+            stripped = stripped:match("^%s*(.-)%s*$") or ""
+        end
+        -- strip trailing comma
+        local item = stripped:gsub(",%s*$", "")
+        item = item:match("^%s*(.-)%s*$") or ""
+        if item ~= "" then
+            table.insert(items, item)
+        end
+    end
+    return "{" .. table.concat(items, ", ") .. "}"
+end
+
+-- Split a single-line table span "{…}" into one item per line, indented
+-- relative to the indent_prefix of the surrounding line.
+local function split_table_span(span_content: string, indent_prefix: string): {string}
+    -- strip braces
+    local inner = span_content:match("^%{(.-)%}$") or span_content:sub(2, -2)
+    inner = inner:match("^%s*(.-)%s*$") or ""
+    local items = split_params(inner)
+    if #items < 2 then
+        return {span_content}
+    end
+    local inner_indent = indent_prefix .. "    "
+    local result: {string} = {"{"}
+    for _, item in ipairs(items) do
+        table.insert(result, inner_indent .. item .. ",")
+    end
+    table.insert(result, indent_prefix .. "}")
+    return result
+end
+
+-- Apply AST-derived table spans to reformat the output_lines.
+-- Processes spans from bottom to top to keep line numbers stable.
+local function wrap_table_literals_from_ast(
+    lines: {string},
+    spans: {Span},
+    fmt_off_lines: {integer: boolean}
+): {string}
+    -- Sort spans: process bottom-to-top (last span first) so earlier line
+    -- numbers are not shifted by replacements.
+    local function later_first(first: Span, second: Span): boolean
+        if first.open_line ~= second.open_line then return first.open_line > second.open_line end
+        return first.open_col > second.open_col
+    end
+    table.sort(spans, later_first)
+
+    local result: {string} = {}
+    for _, line in ipairs(lines) do
+        table.insert(result, line)
+    end
+
+    for _, span in ipairs(spans) do
+        if fmt_off_lines[span.open_line] then
+            -- skip
+        elseif span.open_line == span.close_line then
+            -- Single-line span: wrap if too long
+            local line = result[span.open_line]
+            local full_line_len = #line
+            if full_line_len > 88 then
+                local before = line:sub(1, span.open_col - 1)
+                local after  = line:sub(span.close_col + 1)
+                local span_content = line:sub(span.open_col, span.close_col)
+                local indent_prefix = before:match("^(%s*)") or ""
+                local split_lines = split_table_span(span_content, indent_prefix)
+                if #split_lines > 1 then
+                    local new_lines: {string} = {}
+                    table.insert(new_lines, before .. split_lines[1])
+                    for i = 2, #split_lines - 1 do
+                        table.insert(new_lines, split_lines[i])
+                    end
+                    table.insert(new_lines, split_lines[#split_lines] .. after)
+                    -- Replace line span.open_line with new_lines
+                    local head: {string} = {}
+                    local tail: {string} = {}
+                    for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
+                    for i = span.open_line + 1, #result do table.insert(tail, result[i]) end
+                    result = {}
+                    for _, line_str in ipairs(head) do table.insert(result, line_str) end
+                    for _, line_str in ipairs(new_lines) do table.insert(result, line_str) end
+                    for _, line_str in ipairs(tail) do table.insert(result, line_str) end
+                end
+            end
+        else
+            -- Multi-line span: try to join
+            local span_lines = extract_span_lines(result, span)
+            local joined = join_table_span(span_lines)
+            local before = result[span.open_line]:sub(1, span.open_col - 1)
+            local after  = result[span.close_line]:sub(span.close_col + 1)
+            local full_joined = before .. joined .. after
+            local head: {string} = {}
+            local tail: {string} = {}
+            for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
+            for i = span.close_line + 1, #result do table.insert(tail, result[i]) end
+            if #full_joined <= 88 then
+                result = {}
+                for _, line_str in ipairs(head) do table.insert(result, line_str) end
+                table.insert(result, full_joined)
+                for _, line_str in ipairs(tail) do table.insert(result, line_str) end
+            else
+                -- Re-wrap: replace with properly split form
+                local indent_prefix = before:match("^(%s*)") or ""
+                local split_lines = split_table_span(joined, indent_prefix)
+                if #split_lines > 1 then
+                    local new_lines: {string} = {}
+                    table.insert(new_lines, before .. split_lines[1])
+                    for i = 2, #split_lines - 1 do
+                        table.insert(new_lines, split_lines[i])
+                    end
+                    table.insert(new_lines, split_lines[#split_lines] .. after)
+                    result = {}
+                    for _, line_str in ipairs(head) do table.insert(result, line_str) end
+                    for _, line_str in ipairs(new_lines) do table.insert(result, line_str) end
+                    for _, line_str in ipairs(tail) do table.insert(result, line_str) end
+                end
+            end
+        end
+    end
+
+    return result
+end
+
 -- Reformat function signatures: join already-wrapped ones to one line when
 -- they fit, then split any single-line signatures that exceed 88 characters.
 local function wrap_function_signatures(lines: {string}, fmt_off_lines: {integer: boolean}): {string}
@@ -422,150 +686,6 @@ local function wrap_function_signatures(lines: {string}, fmt_off_lines: {integer
             i = j + 1
         elseif is_sig and #line_str > 88 then
             for _, out_line in ipairs(wrap_one_signature(line_str)) do
-                table.insert(result, out_line)
-            end
-            i = i + 1
-        else
-            table.insert(result, line_str)
-            i = i + 1
-        end
-    end
-    return result
-end
-
--- Returns the 1-based position of the closing "}" that matches the "{" at
--- open_pos, or 0 when the line has no matching close brace.
-local function find_close_brace(line_str: string, open_pos: integer): integer
-    local depth = 0
-    for i = open_pos, #line_str do
-        local ch = line_str:sub(i, i)
-        if ch == "{" then
-            depth = depth + 1
-        elseif ch == "}" then
-            depth = depth - 1
-            if depth == 0 then
-                return i
-            end
-        end
-    end
-    return 0
-end
-
--- Build the canonical single-line form of a (possibly multi-line) table constructor.
--- table_lines[1] ends with "{".  The last element starts with the closing "}".
-local function join_table_lines(table_lines: {string}): string
-    local header = table_lines[1]:match("^(.-%{)%s*$") or table_lines[1]
-    local items: {string} = {}
-    local tail = ""
-    for i = 2, #table_lines do
-        local stripped = table_lines[i]:match("^%s*(.-)%s*$") or ""
-        if stripped:sub(1, 1) == "}" then
-            tail = stripped
-        else
-            local item = stripped:gsub(",%s*$", "")
-            if item ~= "" then
-                table.insert(items, item)
-            end
-        end
-    end
-    return header .. table.concat(items, ", ") .. tail
-end
-
--- Returns true when a table element string contains a string literal.
--- Used to avoid wrapping tables whose elements contain quotes, since
--- find_close_brace cannot reliably skip over string content.
-local function contains_string_literal(s: string): boolean
-    return s:find('"') ~= nil or s:find("'") ~= nil
-end
-
--- Given a single-line table constructor longer than 88 characters, reformat it
--- to one element per line.  Returns the single line unchanged when it has fewer
--- than two elements, when no "= {…}" pattern is found, or when any element
--- contains a string literal (which would confuse brace-depth counting).
-local function wrap_one_table(line_str: string): {string}
-    local eq_pos = line_str:find("=%s*{")
-    if not eq_pos then
-        return {line_str}
-    end
-    local open_pos = line_str:find("{", eq_pos)
-    if not open_pos then
-        return {line_str}
-    end
-    local close_pos = find_close_brace(line_str, open_pos)
-    if close_pos == 0 then
-        return {line_str}
-    end
-    local header = line_str:sub(1, open_pos)
-    local items_str = line_str:sub(open_pos + 1, close_pos - 1)
-    -- Skip tables whose elements contain string literals: brace counting is
-    -- unreliable when "}" or "{" appear inside quoted strings.
-    if contains_string_literal(items_str) then
-        return {line_str}
-    end
-    local after_brace = line_str:sub(close_pos + 1)
-    local items = split_params(items_str)
-    if #items < 2 then
-        return {line_str}
-    end
-    local indent = (line_str:match("^(%s*)") or "")
-    local result: {string} = {header}
-    for _, item in ipairs(items) do
-        table.insert(result, indent .. "    " .. item .. ",")
-    end
-    table.insert(result, indent .. "}" .. after_brace)
-    return result
-end
-
--- Reformat table constructors: join already-wrapped ones to one line when
--- they fit, then split any single-line constructors that exceed 88 characters.
--- Only applies to tables assigned with "= {…}" syntax.
-local function wrap_table_literals(lines: {string}, fmt_off_lines: {integer: boolean}): {string}
-    local result: {string} = {}
-    local i = 1
-    while i <= #lines do
-        local line_str = lines[i]
-        if fmt_off_lines[i] then
-            table.insert(result, line_str)
-            i = i + 1
-        elseif line_str:match("=%s*{%s*$") then
-            local indent = (line_str:match("^(%s*)") or "")
-            local table_lines: {string} = {line_str}
-            local j = i + 1
-            local is_simple = true
-            while j <= #lines do
-                local body_line = lines[j]
-                -- Skip joining if any body line contains nested structure,
-                -- string literals, or comments.  Parentheses indicate a
-                -- function call that may span multiple lines.
-                if body_line:find("[{(]") or contains_string_literal(body_line) or body_line:find("%-%-") then
-                    is_simple = false
-                end
-                table.insert(table_lines, body_line)
-                if body_line:match("^" .. indent .. "}") then
-                    break
-                end
-                j = j + 1
-            end
-            if is_simple then
-                local joined = join_table_lines(table_lines)
-                local final_lines: {string}
-                if #joined <= 88 then
-                    final_lines = {joined}
-                else
-                    final_lines = wrap_one_table(joined)
-                end
-                for _, out_line in ipairs(final_lines) do
-                    table.insert(result, out_line)
-                end
-            else
-                for _, tl_line in ipairs(table_lines) do
-                    table.insert(result, tl_line)
-                end
-            end
-            i = j + 1
-        elseif #line_str > 88 and line_str:find("=%s*{") ~= nil then
-            local wrapped = wrap_one_table(line_str)
-            for _, out_line in ipairs(wrapped) do
                 table.insert(result, out_line)
             end
             i = i + 1
@@ -748,10 +868,11 @@ local function sort_require_blocks(lines: {string}, fmt_off_lines: {integer: boo
 end
 
 function rewriter.rewrite(source: string, filename: string): Rewrite
-    local source_blocks, parse_errors = blocks.parse(source, filename)
+    local ast, parse_errors = parser.parse(source, filename)
     if #parse_errors > 0 then
         return Rewrite.new(source, false, parse_errors)
     end
+    local source_blocks = blocks.collect_from_ast(ast)
 
     local tokens, _ = tl.lex(source, filename)
     local edits = collect_all_edits(tokens)
@@ -771,9 +892,12 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
         end
     end
 
+    local table_spans: {Span} = {}
+    collect_table_spans(ast, lines, fmt_off_lines, table_spans)
+
     output_lines = wrap_function_signatures(output_lines, fmt_off_lines)
     output_lines = wrap_function_calls(output_lines, fmt_off_lines)
-    output_lines = wrap_table_literals(output_lines, fmt_off_lines)
+    output_lines = wrap_table_literals_from_ast(output_lines, table_spans, fmt_off_lines)
     output_lines = collapse_blank_lines(output_lines)
     output_lines = sort_require_blocks(output_lines, fmt_off_lines)
     local output = table.concat(output_lines, "\n")

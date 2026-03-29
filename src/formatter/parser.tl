@@ -197,11 +197,11 @@ local function new_typeid(): integer
    return last_typeid
 end
 
+-- fmt: off
 local type_mt: metatable<Type> = {
-   __tostring = function(_t: Type): string
-      return "?"
-   end
+    __tostring = function(_t: Type): string return "?" end,
 }
+-- fmt: on
 
 local function a_type<T is Type>(w: Where, typename: TypeName, t: T): T
    t.typeid = new_typeid()
@@ -245,14 +245,14 @@ local function clear_redundant_errors(errors: {Error})
 end
 
 local simple_types: {TypeName:boolean} = {
-   ["nil"] = true,
-   ["any"] = true,
-   ["number"] = true,
-   ["string"] = true,
-   ["thread"] = true,
-   ["boolean"] = true,
-   ["integer"] = true,
-   ["self"] = true,
+    ["nil"] = true,
+    ["any"] = true,
+    ["number"] = true,
+    ["string"] = true,
+    ["thread"] = true,
+    ["boolean"] = true,
+    ["integer"] = true,
+    ["self"] = true,
 }
 
 local function node_is_require_call(n: Node): string
@@ -275,9 +275,9 @@ local function node_is_funcall(node: Node): boolean
 end
 
 local attributes <total>: {Attribute: boolean} = {
-   ["const"] = true,
-   ["close"] = true,
-   ["total"] = true,
+    ["const"] = true,
+    ["close"] = true,
+    ["total"] = true,
 }
 local is_attribute <const>: {string:boolean} = attributes as {string:boolean}
 

@@ -303,6 +303,15 @@ describe("formatter", function()
          "    local items = {Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon}\n",
          "    local items = {\n        Alpha = Alpha,\n        Beta = Beta,\n        Gamma = Gamma,\n        Delta = Delta,\n        Epsilon = Epsilon,\n    }\n"
       ))
+
+      it("does not change a table whose entries have inline comments", helpers.check_raw(
+         "local z = {\n    BELOW = -3, -- on ground\n    LEVEL = 0, -- ground level\n}\n"
+      ))
+
+      it("does not collapse a wrapped table after joining its multi-line call entry", helpers.format_raw(
+         "local t = {\n    key = foo(\n        arg_one,\n        arg_two\n    ),\n}\n",
+         "local t = {\n    key = foo(arg_one, arg_two),\n}\n"
+      ))
    end)
 
    describe("function call wrapping", function()
@@ -323,6 +332,27 @@ describe("formatter", function()
       it("re-wraps an already-wrapped call whose args line is too long", helpers.format_raw(
          "foo.new_number(\n    \"long_label_here\", 110, nbr_lightning_bombs_selected, settings.set_spawn_of_lightning_bombs\n)\n",
          "foo.new_number(\n    \"long_label_here\",\n    110,\n    nbr_lightning_bombs_selected,\n    settings.set_spawn_of_lightning_bombs\n)\n"
+      ))
+   end)
+
+   describe("current-implementation limitations (AST needed)", function()
+      it("does not treat a commented-out function line as a signature", helpers.check_raw(
+         "-- local function foo(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherLongType)\n"
+      ))
+
+      it("wraps a return table constructor that is too long", helpers.format_raw(
+         "return {alpha_value, beta_value, gamma_value, delta_value, epsilon_value, zeta_value, eta_value}\n",
+         "return {\n    alpha_value,\n    beta_value,\n    gamma_value,\n    delta_value,\n    epsilon_value,\n    zeta_value,\n    eta_value,\n}\n"
+      ))
+
+      it("joins a wrapped return table that fits on one line", helpers.format_raw(
+         "return {\n    alpha_value,\n    beta_value,\n}\n",
+         "return {alpha_value, beta_value}\n"
+      ))
+
+      it("joins a wrapped table whose value is a call expression", helpers.format_raw(
+         "local t = {\n    key = foo(a, b),\n}\n",
+         "local t = {key = foo(a, b)}\n"
       ))
    end)
 
