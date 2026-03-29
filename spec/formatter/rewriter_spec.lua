@@ -15,9 +15,11 @@ describe("formatter", function()
          local x = f(1, 2, 3)
       ]]))
 
-      it("does not touch commas where the next token is on the next line", helpers.check([[
+      it("joins a two-line call while preserving correct comma spacing", helpers.format([[
          local x = f(1,
             2)
+      ]], [[
+         local x = f(1, 2)
       ]]))
    end)
 
@@ -157,42 +159,62 @@ describe("formatter", function()
    end)
 
    describe("function signature wrapping", function()
-      it("wraps a long single-line signature to one param per line", helpers.format_raw(
-         "function f(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType): ReturnValue\nend\n",
-         "function f(\n    param_one: LongTypeName,\n    param_two: AnotherLongType,\n    param_three: YetAnotherType\n): ReturnValue\nend\n"
-      ))
+      it("wraps a long single-line signature to one param per line", helpers.format([[
+         function f(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType): ReturnValue
+         end
+      ]],[[
+         function f(
+             param_one: LongTypeName,
+             param_two: AnotherLongType,
+             param_three: YetAnotherType
+         ): ReturnValue
+         end
+      ]]))
+      it("joins an already-wrapped signature that fits on one line", helpers.format([[
+         function f(
+            param_one: TypeA,
+            param_two: TypeB
+         ): ReturnType
+         end
+      ]],[[
+         function f(param_one: TypeA, param_two: TypeB): ReturnType
+         end
+      ]]))
 
-      it("joins an already-wrapped signature that fits on one line", helpers.format_raw(
-         "function f(\n    param_one: TypeA,\n    param_two: TypeB\n): ReturnType\nend\n",
-         "function f(param_one: TypeA, param_two: TypeB): ReturnType\nend\n"
-      ))
+      it("does not change a short signature that is already on one line", helpers.check([[
+         function f(x: integer, y: integer): integer
+         end
+      ]]))
 
-      it("does not change a short signature that is already on one line", helpers.check_raw(
-         "function f(x: integer, y: integer): integer\nend\n"
-      ))
-
-      it("preserves indentation when wrapping a method signature", helpers.format_raw(
-         "    function Obj:method(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType)\n    end\n",
-         "    function Obj:method(\n        param_one: LongTypeName,\n        param_two: AnotherLongType,\n        param_three: YetAnotherType\n    )\n    end\n"
-      ))
+      it("preserves indentation when wrapping a method signature", helpers.format([[
+         function Obj:method(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType)
+         end
+      ]],[[
+         function Obj:method(
+             param_one: LongTypeName,
+             param_two: AnotherLongType,
+             param_three: YetAnotherType
+         )
+         end
+      ]]))
    end)
 
    describe("indentation", function()
-      it("converts leading tabs to 4-space indentation", helpers.format_raw(
+      it("converts leading tabs to 4-space indentation", helpers.format(
          "local function f()\n\tlocal x = 1\nend\n",
          "local function f()\n    local x = 1\nend\n"
       ))
 
-      it("converts nested tabs to the correct number of spaces", helpers.format_raw(
+      it("converts nested tabs to the correct number of spaces", helpers.format(
          "local function f()\n\tif true then\n\t\tlocal x = 1\n\tend\nend\n",
          "local function f()\n    if true then\n        local x = 1\n    end\nend\n"
       ))
 
-      it("does not change lines already using 4-space indentation", helpers.check_raw(
+      it("does not change lines already using 4-space indentation", helpers.check(
          "local function f()\n    local x = 1\nend\n"
       ))
 
-      it("does not touch tabs that appear mid-line", helpers.check_raw(
+      it("does not touch tabs that appear mid-line", helpers.check(
          "local x = \"a\tb\"\n"
       ))
    end)
@@ -281,88 +303,236 @@ describe("formatter", function()
    end)
 
    describe("table constructor wrapping", function()
-      it("wraps a long single-line table constructor to one element per line", helpers.format_raw(
-         "local items = {Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon}\n",
-         "local items = {\n    Alpha = Alpha,\n    Beta = Beta,\n    Gamma = Gamma,\n    Delta = Delta,\n    Epsilon = Epsilon,\n}\n"
+      it("wraps a long single-line table constructor to one element per line", helpers.format([[
+         local items = {Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon}
+      ]], [[
+         local items = {
+             Alpha = Alpha,
+             Beta = Beta,
+             Gamma = Gamma,
+             Delta = Delta,
+             Epsilon = Epsilon,
+         }
+      ]]))
+
+      it("joins an already-wrapped table constructor that fits on one line", helpers.format([[
+         local items = {
+             Alpha = Alpha,
+             Beta = Beta
+         }
+      ]],[[
+         local items = {Alpha = Alpha, Beta = Beta}
+      ]]))
+
+      it("does not change a short table constructor already on one line", helpers.check(
+         "local items = {Alpha = Alpha, Beta = Beta}"
       ))
 
-      it("joins an already-wrapped table constructor that fits on one line", helpers.format_raw(
-         "local items = {\n    Alpha = Alpha,\n    Beta = Beta\n}\n",
-         "local items = {Alpha = Alpha, Beta = Beta}\n"
-      ))
+      it("does not change an already-wrapped table constructor that does not fit on one line", helpers.check([[
+         local items = {
+             Alpha = Alpha,
+             Beta = Beta,
+             Gamma = Gamma,
+             Delta = Delta,
+             Epsilon = Epsilon,
+         }
+      ]]))
 
-      it("does not change a short table constructor already on one line", helpers.check_raw(
-         "local items = {Alpha = Alpha, Beta = Beta}\n"
-      ))
+      it("preserves indentation when wrapping a table constructor", helpers.format([[
+         local items = {Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon}
+      ]],[[
+         local items = {
+             Alpha = Alpha,
+             Beta = Beta,
+             Gamma = Gamma,
+             Delta = Delta,
+             Epsilon = Epsilon,
+         }
+      ]]))
 
-      it("does not change an already-wrapped table constructor that does not fit on one line", helpers.check_raw(
-         "local items = {\n    Alpha = Alpha,\n    Beta = Beta,\n    Gamma = Gamma,\n    Delta = Delta,\n    Epsilon = Epsilon,\n}\n"
-      ))
+      it("does not change a table whose entries have inline comments", helpers.check([[
+         local z = {
+            BELOW = -3, -- on ground
+            LEVEL = 0 -- ground level
+         }
+      ]]))
 
-      it("preserves indentation when wrapping a table constructor", helpers.format_raw(
-         "    local items = {Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon}\n",
-         "    local items = {\n        Alpha = Alpha,\n        Beta = Beta,\n        Gamma = Gamma,\n        Delta = Delta,\n        Epsilon = Epsilon,\n    }\n"
-      ))
+      it("does not join a multi-line table whose last entry has a trailing comma", helpers.check([[
+         local t = {
+             a = 1,
+             b = 2,
+         }
+      ]]))
 
-      it("does not change a table whose entries have inline comments", helpers.check_raw(
-         "local z = {\n    BELOW = -3, -- on ground\n    LEVEL = 0, -- ground level\n}\n"
-      ))
+      it("joins a multi-line table whose last entry has no trailing comma", helpers.format([[
+         local t = {
+            a = 1,
+            b = 2
+         }
+      ]],[[
+         local t = {a = 1, b = 2}
+      ]]))
 
-      it("does not join a multi-line table whose last entry has a trailing comma", helpers.check_raw(
-         "local t = {\n    a = 1,\n    b = 2,\n}\n"
-      ))
-
-      it("joins a multi-line table whose last entry has no trailing comma", helpers.format_raw(
-         "local t = {\n    a = 1,\n    b = 2\n}\n",
-         "local t = {a = 1, b = 2}\n"
-      ))
-
-      it("does not collapse a wrapped table after joining its multi-line call entry", helpers.format_raw(
-         "local t = {\n    key = foo(\n        arg_one,\n        arg_two\n    ),\n}\n",
-         "local t = {\n    key = foo(arg_one, arg_two),\n}\n"
-      ))
+      it("does not collapse a wrapped table after joining its multi-line call entry", helpers.format([[
+         local t = {
+            key = foo(
+               arg_one,
+               arg_two
+            ),
+         }
+      ]],[[
+         local t = {
+            key = foo(arg_one, arg_two),
+         }
+      ]]))
    end)
 
    describe("function call wrapping", function()
-      it("wraps a long function call to one arg per line", helpers.format_raw(
-         "    local x = foo.new_selection(some_settings.long_field_name, minimum_value, maximum_value)\n",
-         "    local x = foo.new_selection(\n        some_settings.long_field_name,\n        minimum_value,\n        maximum_value\n    )\n"
+      it("wraps a long function call to one arg per line", helpers.format([[
+         local x = foo.new_selection(some_settings.long_field_name, minimum_value_long, maximum_value_long)
+      ]], [[
+         local x = foo.new_selection(
+             some_settings.long_field_name,
+             minimum_value_long,
+             maximum_value_long
+         )
+      ]]))
+      it("joins an already-wrapped call that fits on one line", helpers.format([[
+             local x = foo.new_selection(
+                 field_a,
+                 field_b
+             )
+         ]], [[
+             local x = foo.new_selection(field_a, field_b)
+         ]]
       ))
 
-      it("joins an already-wrapped call that fits on one line", helpers.format_raw(
-         "    local x = foo.new_selection(\n        field_a,\n        field_b\n    )\n",
-         "    local x = foo.new_selection(field_a, field_b)\n"
-      ))
+      it("does not change a short call", helpers.check([[
+             local x = foo.new_selection(field_a, field_b)
+      ]]))
 
-      it("does not change a short call", helpers.check_raw(
-         "    local x = foo.new_selection(field_a, field_b)\n"
-      ))
+      it("re-wraps an already-wrapped call whose args line is too long", helpers.format([[
+         foo.new_number(
+            "long_label_here", 110, nbr_lightning_bombs_selected, settings.set_spawn_of_lightning_bombs
+         )
+      ]],[[
+         foo.new_number(
+             "long_label_here",
+             110,
+             nbr_lightning_bombs_selected,
+             settings.set_spawn_of_lightning_bombs
+         )
+      ]]))
 
-      it("re-wraps an already-wrapped call whose args line is too long", helpers.format_raw(
-         "foo.new_number(\n    \"long_label_here\", 110, nbr_lightning_bombs_selected, settings.set_spawn_of_lightning_bombs\n)\n",
-         "foo.new_number(\n    \"long_label_here\",\n    110,\n    nbr_lightning_bombs_selected,\n    settings.set_spawn_of_lightning_bombs\n)\n"
-      ))
+      it("wrap the inner function and do not touch outer function", helpers.format([[
+         table.insert(
+             parts,
+             indentation .. self.name .. ": " .. string.format("%.1f", self.elapsed * 1000) .. "ms"
+         )
+      ]], [[
+         table.insert(
+             parts,
+             indentation .. self.name .. ": " .. string.format(
+                "%.1f", self.elapsed * 1000
+             ) .. "ms"
+         )
+      ]]))
+
+      it("wrap the second inner function as it is the one to reduce line lenght", helpers.format([[
+         table.insert(
+             self.trophy_positions,
+             points.new(get_x_pos(i, #names) - self.trophy.width / 2, (screen.HEIGHT - self.trophy.height) / 2)
+         )
+      ]], [[
+         table.insert(
+             self.trophy_positions,
+             points.new(
+                 get_x_pos(i, #names) - self.trophy.width / 2,
+                 (screen.HEIGHT - self.trophy.height) / 2
+             )
+         )
+      ]]))
+
+      it("does not collapse an expanded call whose closing paren has trailing content", helpers.check([[
+         return interval_overlap(
+             self.x,
+             self.x + self.width,
+             other.x,
+             other.x + other.width
+         ) and
+             interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
+      ]]))
    end)
 
    describe("current-implementation limitations (AST needed)", function()
-      it("does not treat a commented-out function line as a signature", helpers.check_raw(
-         "-- local function foo(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherLongType)\n"
-      ))
+      it("does not treat a commented-out function line as a signature", helpers.check([[
+         -- local function foo(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherLongType)
+      ]]))
 
-      it("wraps a return table constructor that is too long", helpers.format_raw(
-         "return {alpha_value, beta_value, gamma_value, delta_value, epsilon_value, zeta_value, eta_value}\n",
-         "return {\n    alpha_value,\n    beta_value,\n    gamma_value,\n    delta_value,\n    epsilon_value,\n    zeta_value,\n    eta_value,\n}\n"
-      ))
+      it("wraps a long anonymous function signature", helpers.format([[
+         local callback = function(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType): ReturnValue
+         end
+      ]],[[
+         local callback = function(
+             param_one: LongTypeName,
+             param_two: AnotherLongType,
+             param_three: YetAnotherType
+         ): ReturnValue
+         end
+      ]]))
 
-      it("joins a wrapped return table that fits on one line", helpers.format_raw(
-         "return {\n    alpha_value,\n    beta_value\n}\n",
-         "return {alpha_value, beta_value}\n"
-      ))
+      it("joins a wrapped anonymous function signature that fits on one line", helpers.format([[
+         local callback = function(
+            param_one: TypeA,
+            param_two: TypeB
+         ): ReturnType
+         end
+      ]],[[
+         local callback = function(param_one: TypeA, param_two: TypeB): ReturnType
+         end
+      ]]))
 
-      it("joins a wrapped table whose value is a call expression", helpers.format_raw(
-         "local t = {\n    key = foo(a, b)\n}\n",
-         "local t = {key = foo(a, b)}\n"
-      ))
+      it("wraps a long call whose argument is a string containing a closing paren", helpers.format([[
+         local x = my_func("closing)paren", argument_two, argument_three, argument_four_and_five_long)
+      ]],[[
+         local x = my_func(
+             "closing)paren",
+             argument_two,
+             argument_three,
+             argument_four_and_five_long
+         )
+      ]]))
+
+      it("wraps a return table constructor that is too long", helpers.format([[
+         return {alpha_value, beta_value, gamma_value, delta_value, epsilon_value, zeta_value, eta_value}
+      ]],[[
+         return {
+             alpha_value,
+             beta_value,
+             gamma_value,
+             delta_value,
+             epsilon_value,
+             zeta_value,
+             eta_value,
+         }
+      ]]))
+
+      it("joins a wrapped return table that fits on one line", helpers.format([[
+         return {
+            alpha_value,
+            beta_value
+         }
+      ]],[[
+         return {alpha_value, beta_value}
+      ]]))
+
+      it("joins a wrapped table whose value is a call expression", helpers.format([[
+         local t = {
+            key = foo(a, b)
+         }
+      ]],[[
+         local t = {key = foo(a, b)}
+      ]]))
    end)
 
 end)

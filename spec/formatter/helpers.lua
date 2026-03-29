@@ -45,24 +45,6 @@ function helpers.parse_error(source)
     end
 end
 
--- Variants that take raw strings (no dedent) — useful for testing literal
--- whitespace characters such as tabs that dedent cannot handle correctly.
-function helpers.format_raw(input, expected)
-    return function()
-        local result = rewriter.rewrite(input, "test.tl")
-        assert.same(expected, result.output)
-        assert.is_true(result.changed)
-    end
-end
-
-function helpers.check_raw(source)
-    return function()
-        local result = rewriter.rewrite(source, "test.tl")
-        assert.same(source, result.output)
-        assert.is_false(result.changed)
-    end
-end
-
 -- Returns a test function that asserts the formatter leaves source unchanged.
 function helpers.check(source)
     return function()

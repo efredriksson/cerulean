@@ -310,105 +310,46 @@ local function collapse_blank_lines(lines: {string}): {string}
     return result
 end
 
-local function is_function_signature_line(line_str: string): boolean
-    return line_str:match("^%s*local%s+function%s") ~= nil or
-           line_str:match("^%s*function%s") ~= nil
-end
-
--- Returns the 1-based position of the closing ")" that matches the "(" at
--- open_pos, or 0 when the line has no matching close paren.
-local function find_close_paren(line_str: string, open_pos: integer): integer
-    local depth = 0
-    for i = open_pos, #line_str do
-        local ch = line_str:sub(i, i)
-        if ch == "(" then
-            depth = depth + 1
-        elseif ch == ")" then
-            depth = depth - 1
-            if depth == 0 then
-                return i
-            end
-        end
-    end
-    return 0
-end
-
--- Split a parameter-list string by top-level commas (not inside ()[]{}),
--- trimming each parameter.
+-- Split a parameter-list string by top-level commas (not inside ()[]{}
+-- and not inside string literals), trimming each parameter.
 local function split_params(params_str: string): {string}
     local params: {string} = {}
     local depth = 0
+    local in_string = false
+    local string_char = ""
     local start = 1
-    for i = 1, #params_str do
+    local i = 1
+    while i <= #params_str do
         local ch = params_str:sub(i, i)
-        if ch == "(" or ch == "[" or ch == "{" then
-            depth = depth + 1
-        elseif ch == ")" or ch == "]" or ch == "}" then
-            depth = depth - 1
-        elseif ch == "," and depth == 0 then
-            local param = params_str:sub(start, i - 1):match("^%s*(.-)%s*$") or ""
-            if param ~= "" then
-                table.insert(params, param)
+        if in_string then
+            if ch == "\\" then
+                i = i + 1  -- skip escaped character
+            elseif ch == string_char then
+                in_string = false
             end
-            start = i + 1
+        else
+            if ch == '"' or ch == "'" then
+                in_string = true
+                string_char = ch
+            elseif ch == "(" or ch == "[" or ch == "{" then
+                depth = depth + 1
+            elseif ch == ")" or ch == "]" or ch == "}" then
+                depth = depth - 1
+            elseif ch == "," and depth == 0 then
+                local param = params_str:sub(start, i - 1):match("^%s*(.-)%s*$") or ""
+                if param ~= "" then
+                    table.insert(params, param)
+                end
+                start = i + 1
+            end
         end
+        i = i + 1
     end
     local last = params_str:sub(start):match("^%s*(.-)%s*$") or ""
     if last ~= "" then
         table.insert(params, last)
     end
     return params
-end
-
--- Build the canonical single-line form of a (possibly multi-line) signature.
--- signature_lines[1] ends with "(" (the opening paren line).
--- The last element contains the closing ")" possibly followed by a return type.
-local function join_signature_lines(signature_lines: {string}): string
-    local header = signature_lines[1]:match("^(.-%()%s*$") or signature_lines[1]
-    local body_parts: {string} = {}
-    local tail = ""
-    for i = 2, #signature_lines do
-        local stripped = signature_lines[i]:match("^%s*(.-)%s*$") or ""
-        if stripped:sub(1, 1) == ")" then
-            tail = stripped
-        else
-            -- Strip trailing comma before collecting
-            local param = stripped:gsub(",%s*$", "")
-            if param ~= "" then
-                table.insert(body_parts, param)
-            end
-        end
-    end
-    return header .. table.concat(body_parts, ", ") .. tail
-end
-
--- Given a single-line signature that is longer than 88 characters, reformat
--- it to one parameter per line.  Returns the single line unchanged when it has
--- fewer than two parameters or when the line is short enough already.
-local function wrap_one_signature(line_str: string): {string}
-    local open_pos = line_str:find("%(")
-    if not open_pos then
-        return {line_str}
-    end
-    local close_pos = find_close_paren(line_str, open_pos)
-    if close_pos == 0 then
-        return {line_str}
-    end
-    local header    = line_str:sub(1, open_pos)
-    local params_str = line_str:sub(open_pos + 1, close_pos - 1)
-    local after     = line_str:sub(close_pos)
-    local params    = split_params(params_str)
-    if #params < 2 then
-        return {line_str}
-    end
-    local indent = (header:match("^(%s*)") or "")
-    local result: {string} = {header}
-    for i, param in ipairs(params) do
-        local suffix = i < #params and "," or ""
-        table.insert(result, indent .. "    " .. param .. suffix)
-    end
-    table.insert(result, indent .. after)
-    return result
 end
 
 -- ── AST-based wrapping ────────────────────────────────────────────────────────
@@ -574,6 +515,272 @@ local function split_table_span(span_content: string, indent_prefix: string): {s
     return result
 end
 
+-- Join a multi-line paren span back to a single line.
+-- span_lines[1] starts with "(" (open_col); span_lines[last] ends with ")" (close_col).
+-- Inner lines are stripped of whitespace and trailing commas.
+local function join_paren_span(span_lines: {string}): string
+    local items: {string} = {}
+    for i = 1, #span_lines do
+        local stripped = span_lines[i]:match("^%s*(.-)%s*$") or ""
+        if i == 1 then
+            stripped = stripped:sub(2)  -- remove leading "("
+            stripped = stripped:match("^%s*(.-)%s*$") or ""
+        end
+        if i == #span_lines then
+            -- span_lines[last] ends exactly at ")" so strip trailing ")"
+            stripped = stripped:gsub("%)%s*$", "")
+            stripped = stripped:match("^%s*(.-)%s*$") or ""
+        end
+        local item = stripped:gsub(",%s*$", "")
+        item = item:match("^%s*(.-)%s*$") or ""
+        if item ~= "" then
+            table.insert(items, item)
+        end
+    end
+    return "(" .. table.concat(items, ", ") .. ")"
+end
+
+-- Split a single-line paren span "(…)" into one item per line.
+-- No trailing comma on the last item (unlike split_table_span).
+local function split_paren_span(span_content: string, indent_prefix: string): {string}
+    local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
+    inner = inner:match("^%s*(.-)%s*$") or ""
+    local items = split_params(inner)
+    if #items < 2 then
+        return {span_content}
+    end
+    local inner_indent = indent_prefix .. "    "
+    local result: {string} = {"("}
+    for i, item in ipairs(items) do
+        local suffix = i < #items and "," or ""
+        table.insert(result, inner_indent .. item .. suffix)
+    end
+    table.insert(result, indent_prefix .. ")")
+    return result
+end
+
+-- Split a paren span into lines, preferring compact form for call spans that
+-- have trailing content after the closing ")".  Compact form keeps all args on
+-- a single indented line; per-arg split is used otherwise or when compact
+-- would still exceed 88 chars.  A trailing "," is not treated as trailing
+-- content because it is a list separator, not part of the expression.
+-- was_already_compact: for the multi-line re-split path, only re-use compact
+-- form when the span was already compact (open + one inner line + close = 3
+-- lines).  This prevents collapsing intentionally expanded multi-arg calls
+-- whose closing ")" happens to have trailing content on the same line.
+local function split_paren_lines(
+    span_content: string,
+    indent_prefix: string,
+    is_call: boolean,
+    after: string,
+    was_already_compact: boolean
+): {string}
+    if is_call and after ~= "" and not after:match("^,") and was_already_compact then
+        local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
+        inner = inner:match("^%s*(.-)%s*$") or ""
+        local compact_indent = indent_prefix .. "   "
+        local items = split_params(inner)
+        if #items >= 2 and #(compact_indent .. inner) <= 88 then
+            return {"(", compact_indent .. inner, indent_prefix .. ")"}
+        end
+    end
+    return split_paren_span(span_content, indent_prefix)
+end
+
+-- Returns true when any original line in the span's range was replaced by an
+-- earlier rewrite.  Checking only the endpoints misses the case where an inner
+-- same-line span expanded into multiple lines, shifting the outer span's
+-- close_line reference to a now-different position in the result array.
+local function span_overlaps_replaced(replaced_lines: {integer: boolean}, span: Span): boolean
+    for line = span.open_line, span.close_line do
+        if replaced_lines[line] then
+            return true
+        end
+    end
+    return false
+end
+
+-- Returns true when any line in [open_line, close_line] is fmt:off or has a comment.
+local function span_range_is_unsafe(
+    open_line: integer,
+    close_line: integer,
+    lines: {string},
+    fmt_off_lines: {integer: boolean}
+): boolean
+    for line = open_line, close_line do
+        if fmt_off_lines[line] then
+            return true
+        end
+        if lines[line] and lines[line]:find("%-%-") then
+            return true
+        end
+    end
+    return false
+end
+
+-- Apply a set of paren spans bottom-to-top: join multi-line ones when they fit,
+-- split single-line ones that are too long.
+-- is_call: true for function-call argument spans, false for function definition
+-- parameter-list spans.  Call spans prefer compact form (all args on one line)
+-- when the closing ")" has trailing expression content on the same line.
+local function apply_paren_spans(
+    lines: {string},
+    spans: {Span},
+    fmt_off_lines: {integer: boolean},
+    is_call: boolean
+): {string}
+    -- For same-line spans, process leftmost (outermost) first so the outer call
+    -- wraps and marks the line replaced before inner spans are considered.
+    local function span_order(first: Span, second: Span): boolean
+        if first.open_line ~= second.open_line then return first.open_line > second.open_line end
+        return first.open_col < second.open_col
+    end
+    table.sort(spans, span_order)
+
+    local result: {string} = {}
+    for _, source_line in ipairs(lines) do
+        table.insert(result, source_line)
+    end
+
+    -- Track original line numbers that have been replaced by a multi-line
+    -- span rewrite.  Spans whose range overlaps this set are stale.
+    local replaced_lines: {integer: boolean} = {}
+
+    for _, span in ipairs(spans) do
+        if span_overlaps_replaced(replaced_lines, span) then
+            -- stale span: its lines were replaced by an earlier multi-line rewrite
+        elseif fmt_off_lines[span.open_line] then
+            -- skip
+        elseif span.open_line == span.close_line then
+            local line_str = result[span.open_line]
+            -- Skip spans whose open_col is beyond the current line length.
+            -- This happens when an enclosing span on the same line was already
+            -- processed and replaced the original long line with a shorter one.
+            if span.open_col > #line_str then
+                -- stale span, skip
+            elseif #line_str > 88 then
+                local before = line_str:sub(1, span.open_col - 1)
+                local after  = line_str:sub(span.close_col + 1)
+                local span_content = line_str:sub(span.open_col, span.close_col)
+                local indent_prefix = before:match("^(%s*)") or ""
+                local split_lines = split_paren_lines(span_content, indent_prefix, is_call, after, true)
+                if #split_lines > 1 then
+                    local new_lines: {string} = {}
+                    table.insert(new_lines, before .. split_lines[1])
+                    for i = 2, #split_lines - 1 do
+                        table.insert(new_lines, split_lines[i])
+                    end
+                    table.insert(new_lines, split_lines[#split_lines] .. after)
+                    local head: {string} = {}
+                    local tail: {string} = {}
+                    for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
+                    for i = span.open_line + 1, #result do table.insert(tail, result[i]) end
+                    result = {}
+                    for _, head_line in ipairs(head) do table.insert(result, head_line) end
+                    for _, new_line in ipairs(new_lines) do table.insert(result, new_line) end
+                    for _, tail_line in ipairs(tail) do table.insert(result, tail_line) end
+                    -- Mark line as replaced so other spans on this line are skipped
+                    replaced_lines[span.open_line] = true
+                end
+            end
+        else
+            local span_lines = extract_span_lines(result, span)
+            local joined = join_paren_span(span_lines)
+            local before = result[span.open_line]:sub(1, span.open_col - 1)
+            local after  = result[span.close_line]:sub(span.close_col + 1)
+            local full_joined = before .. joined .. after
+            local head: {string} = {}
+            local tail: {string} = {}
+            for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
+            for i = span.close_line + 1, #result do table.insert(tail, result[i]) end
+            if #full_joined <= 88 then
+                result = {}
+                for _, line_str in ipairs(head) do table.insert(result, line_str) end
+                table.insert(result, full_joined)
+                for _, line_str in ipairs(tail) do table.insert(result, line_str) end
+                -- Mark the replaced lines so inner spans are not re-processed
+                for line = span.open_line, span.close_line do
+                    replaced_lines[line] = true
+                end
+            else
+                local indent_prefix = before:match("^(%s*)") or ""
+                local split_lines = split_paren_lines(joined, indent_prefix, is_call, after, #span_lines == 3)
+                if #split_lines > 1 then
+                    local new_lines: {string} = {}
+                    table.insert(new_lines, before .. split_lines[1])
+                    for i = 2, #split_lines - 1 do
+                        table.insert(new_lines, split_lines[i])
+                    end
+                    table.insert(new_lines, split_lines[#split_lines] .. after)
+                    result = {}
+                    for _, line_str in ipairs(head) do table.insert(result, line_str) end
+                    for _, line_str in ipairs(new_lines) do table.insert(result, line_str) end
+                    for _, line_str in ipairs(tail) do table.insert(result, line_str) end
+                    -- Mark the replaced lines so inner spans are not re-processed
+                    for line = span.open_line, span.close_line do
+                        replaced_lines[line] = true
+                    end
+                end
+            end
+        end
+    end
+
+    return result
+end
+
+local FUNCTION_DEF_KINDS: {tl.NodeKind: boolean} = {
+    ["local_function"]  = true,
+    ["global_function"] = true,
+    ["record_function"] = true,
+    ["function"]        = true,
+}
+
+-- Walk the AST collecting Spans for function parameter lists.
+local function collect_signature_spans(
+    node: parser.Node,
+    lines: {string},
+    fmt_off_lines: {integer: boolean},
+    result: {Span}
+)
+    if FUNCTION_DEF_KINDS[node.kind] and node.args then
+        local args = node.args
+        if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
+            and not has_multiline_descendant(args)
+        then
+            table.insert(result, Span.new(args.y, args.x, args.yend, args.xend))
+        end
+    end
+    local function recurse(child: parser.Node)
+        collect_signature_spans(child, lines, fmt_off_lines, result)
+    end
+    walk_children(node, recurse)
+end
+
+-- Walk the AST collecting Spans for function call argument lists.
+-- Skips calls that use string-call or table-call syntax (no "(" on the line).
+local function collect_call_spans(
+    node: parser.Node,
+    lines: {string},
+    fmt_off_lines: {integer: boolean},
+    result: {Span}
+)
+    if node.kind == "op" and node.op ~= nil and node.op.op == "@funcall" and node.e2 ~= nil then
+        local args = node.e2
+        local args_line = lines[args.y]
+        if args_line and args_line:sub(args.x, args.x) == "(" then
+            if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
+                and not has_multiline_descendant(args)
+            then
+                table.insert(result, Span.new(args.y, args.x, args.yend, args.xend))
+            end
+        end
+    end
+    local function recurse(child: parser.Node)
+        collect_call_spans(child, lines, fmt_off_lines, result)
+    end
+    walk_children(node, recurse)
+end
+
 -- Apply AST-derived table spans to reformat the output_lines.
 -- Processes spans from bottom to top to keep line numbers stable.
 local function wrap_table_literals_from_ast(
@@ -664,177 +871,6 @@ local function wrap_table_literals_from_ast(
     return result
 end
 
--- Reformat function signatures: join already-wrapped ones to one line when
--- they fit, then split any single-line signatures that exceed 88 characters.
-local function wrap_function_signatures(lines: {string}, fmt_off_lines: {integer: boolean}): {string}
-    local result: {string} = {}
-    local i = 1
-    while i <= #lines do
-        local line_str = lines[i]
-        local is_sig = is_function_signature_line(line_str) and not fmt_off_lines[i]
-        -- Detect an already-wrapped multi-line signature: sig line ends with "("
-        if is_sig and line_str:sub(-1) == "(" then
-            local indent = (line_str:match("^(%s*)") or "")
-            local sig_lines: {string} = {line_str}
-            local j = i + 1
-            while j <= #lines do
-                table.insert(sig_lines, lines[j])
-                if lines[j]:match("^" .. indent .. "%)") then
-                    break
-                end
-                j = j + 1
-            end
-            local joined = join_signature_lines(sig_lines)
-            local final_lines: {string}
-            if #joined <= 88 then
-                final_lines = {joined}
-            else
-                final_lines = wrap_one_signature(joined)
-            end
-            for _, out_line in ipairs(final_lines) do
-                table.insert(result, out_line)
-            end
-            i = j + 1
-        elseif is_sig and #line_str > 88 then
-            for _, out_line in ipairs(wrap_one_signature(line_str)) do
-                table.insert(result, out_line)
-            end
-            i = i + 1
-        else
-            table.insert(result, line_str)
-            i = i + 1
-        end
-    end
-    return result
-end
-
--- Build the canonical single-line form of an already-wrapped function call.
--- call_lines[1] ends with "(".  The last element starts with ")".
--- Body lines may each contain one or many comma-separated arguments.
-local function join_call_lines(call_lines: {string}): string
-    local header = call_lines[1]:match("^(.-%()%s*$") or call_lines[1]
-    local body_parts: {string} = {}
-    local tail = ""
-    for i = 2, #call_lines do
-        local stripped = call_lines[i]:match("^%s*(.-)%s*$") or ""
-        if stripped:sub(1, 1) == ")" then
-            tail = stripped
-        else
-            local arg_text = stripped:gsub(",%s*$", "")
-            local args = split_params(arg_text)
-            for _, each_arg in ipairs(args) do
-                table.insert(body_parts, each_arg)
-            end
-        end
-    end
-    return header .. table.concat(body_parts, ", ") .. tail
-end
-
--- Given a single-line function call longer than 88 characters, reformat it to
--- one argument per line.  Returns the line unchanged when fewer than two
--- arguments are present.
-local function wrap_one_call(line_str: string): {string}
-    local open_pos = line_str:find("%(")
-    if not open_pos then
-        return {line_str}
-    end
-    local close_pos = find_close_paren(line_str, open_pos)
-    if close_pos == 0 then
-        return {line_str}
-    end
-    local header = line_str:sub(1, open_pos)
-    local params_str = (line_str:sub(open_pos + 1, close_pos - 1):match("^%s*(.-)%s*$") or "")
-    local after = line_str:sub(close_pos)
-    local params = split_params(params_str)
-    if #params < 2 then
-        return {line_str}
-    end
-    local indent = (line_str:match("^(%s*)") or "")
-    local result: {string} = {header}
-    for i, param in ipairs(params) do
-        local suffix = i < #params and "," or ""
-        table.insert(result, indent .. "    " .. param .. suffix)
-    end
-    table.insert(result, indent .. after)
-    return result
-end
-
--- Reformat function calls: join already-wrapped ones to one line when they fit,
--- then split any single-line calls that exceed 88 characters.
--- Function definition lines are skipped (handled by wrap_function_signatures).
-local function wrap_function_calls(lines: {string}, fmt_off_lines: {integer: boolean}): {string}
-    local result: {string} = {}
-    local i = 1
-    while i <= #lines do
-        local line_str = lines[i]
-        local is_sig = is_function_signature_line(line_str)
-        if fmt_off_lines[i] then
-            table.insert(result, line_str)
-            i = i + 1
-        elseif not is_sig and line_str:sub(-1) == "(" and not line_str:match("^%s*%-%-") then
-            -- Already-wrapped call: collect continuation lines until closing ")"
-            -- that sits at the opening indentation level on its own line.
-            local indent = (line_str:match("^(%s*)") or "")
-            local open_indent_len = #indent
-            local call_lines: {string} = {line_str}
-            local j = i + 1
-            local is_clean = true
-            while j <= #lines do
-                local body_line = lines[j]
-                local body_indent_len = #(body_line:match("^(%s*)") or "")
-                if body_line:match("^" .. indent .. "%)") then
-                    table.insert(call_lines, body_line)
-                    break
-                elseif body_indent_len <= open_indent_len then
-                    -- `)` not on its own line or structure is unexpected — bail.
-                    is_clean = false
-                    break
-                elseif body_line:sub(-1) == "(" then
-                    -- Nested wrapped call inside args — too complex to rejoin.
-                    is_clean = false
-                end
-                table.insert(call_lines, body_line)
-                j = j + 1
-            end
-            if is_clean and #call_lines >= 2 then
-                local joined = join_call_lines(call_lines)
-                local final_lines: {string}
-                if #joined <= 88 then
-                    final_lines = {joined}
-                else
-                    local rewrapped = wrap_one_call(joined)
-                    -- Only accept re-wrap when it changed something (i.e. ≥2
-                    -- top-level args were found); otherwise keep original form.
-                    if #rewrapped == 1 and rewrapped[1] == joined then
-                        final_lines = call_lines
-                    else
-                        final_lines = rewrapped
-                    end
-                end
-                for _, out_line in ipairs(final_lines) do
-                    table.insert(result, out_line)
-                end
-                i = j + 1
-            else
-                -- Emit opening line only; remaining lines handled in subsequent
-                -- iterations.
-                table.insert(result, line_str)
-                i = i + 1
-            end
-        elseif not is_sig and #line_str > 88 and line_str:find("%(") and not line_str:match("^%s*%-%-") then
-            local wrapped = wrap_one_call(line_str)
-            for _, out_line in ipairs(wrapped) do
-                table.insert(result, out_line)
-            end
-            i = i + 1
-        else
-            table.insert(result, line_str)
-            i = i + 1
-        end
-    end
-    return result
-end
-
 -- Matches lines of the form:  local [type] <name> = require("<path>")
 -- Captures the module path string so blocks can be sorted by it.
 local REQUIRE_LINE_PATTERN = '^(%s*)local%s+.-%s*=%s*require%s*%("([^"]+)"%s*%)'
@@ -903,11 +939,17 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
         end
     end
 
+    local signature_spans: {Span} = {}
+    collect_signature_spans(ast, lines, fmt_off_lines, signature_spans)
+
+    local call_spans: {Span} = {}
+    collect_call_spans(ast, lines, fmt_off_lines, call_spans)
+
     local table_spans: {Span} = {}
     collect_table_spans(ast, lines, fmt_off_lines, table_spans)
 
-    output_lines = wrap_function_signatures(output_lines, fmt_off_lines)
-    output_lines = wrap_function_calls(output_lines, fmt_off_lines)
+    output_lines = apply_paren_spans(output_lines, signature_spans, fmt_off_lines, false)
+    output_lines = apply_paren_spans(output_lines, call_spans, fmt_off_lines, true)
     output_lines = wrap_table_literals_from_ast(output_lines, table_spans, fmt_off_lines)
     output_lines = collapse_blank_lines(output_lines)
     output_lines = sort_require_blocks(output_lines, fmt_off_lines)
