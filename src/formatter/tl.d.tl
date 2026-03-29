@@ -524,9 +524,6 @@ local record tl
 
    interface Node is {Node}, Where where self.kind ~= nil
       kind: NodeKind
-      yend: integer
-      body: Node
-      if_blocks: {Node}
    end
 
    enum TokenKind

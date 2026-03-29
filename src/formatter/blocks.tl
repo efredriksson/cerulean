@@ -1,3 +1,4 @@
+local parser = require("formatter.parser")
 local tl = require("tl")
 
 local record Block
@@ -30,9 +31,9 @@ local BLOCK_NODE_KINDS: {tl.NodeKind: boolean} = {
 }
 -- fmt: on
 
--- node.yend gives the exact closing line from the internal AST, so block
+-- node.yend gives the exact closing line from the AST, so block
 -- boundaries are precise regardless of blank lines before "end".
-local function collect(nodes: {tl.Node}, result: {blocks.Block})
+local function collect(nodes: {parser.Node}, result: {blocks.Block})
     for _, node in ipairs(nodes) do
         if BLOCK_NODE_KINDS[node.kind] then
             table.insert(result, blocks.Block.new(node.y, node.yend))
@@ -44,23 +45,11 @@ local function collect(nodes: {tl.Node}, result: {blocks.Block})
     end
 end
 
-local function combine_errors(
-    lex_errors: {tl.Error},
-    parse_errors: {tl.Error}
-): {tl.Error}
-    local combined: {tl.Error} = {}
-    for _, err in ipairs(lex_errors) do table.insert(combined, err) end
-    for _, err in ipairs(parse_errors) do table.insert(combined, err) end
-    return combined
-end
-
 function blocks.parse(source: string, filename: string): {blocks.Block}, {tl.Error}
-    local tokens, lex_errors = tl.lex(source, filename)
-    local parse_errors: {tl.Error} = {}
-    local ast, _ = tl.parse_program(tokens, parse_errors, filename)
+    local ast, errs = parser.parse(source, filename)
     local result: {blocks.Block} = {}
     collect(ast, result)
-    return result, combine_errors(lex_errors, parse_errors)
+    return result, errs
 end
 
 return blocks
