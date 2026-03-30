@@ -159,14 +159,12 @@ describe("formatter", function()
    end)
 
    describe("function signature wrapping", function()
-      it("wraps a long single-line signature to one param per line", helpers.format([[
+      it("wraps a long single-line signature to compact form", helpers.format([[
          function f(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType): ReturnValue
          end
       ]],[[
          function f(
-             param_one: LongTypeName,
-             param_two: AnotherLongType,
-             param_three: YetAnotherType
+             param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType
          ): ReturnValue
          end
       ]]))
@@ -191,9 +189,7 @@ describe("formatter", function()
          end
       ]],[[
          function Obj:method(
-             param_one: LongTypeName,
-             param_two: AnotherLongType,
-             param_three: YetAnotherType
+             param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType
          )
          end
       ]]))
@@ -388,13 +384,11 @@ describe("formatter", function()
    end)
 
    describe("function call wrapping", function()
-      it("wraps a long function call to one arg per line", helpers.format([[
+      it("wraps a long function call to compact form", helpers.format([[
          local x = foo.new_selection(some_settings.long_field_name, minimum_value_long, maximum_value_long)
       ]], [[
          local x = foo.new_selection(
-             some_settings.long_field_name,
-             minimum_value_long,
-             maximum_value_long
+             some_settings.long_field_name, minimum_value_long, maximum_value_long
          )
       ]]))
       it("joins an already-wrapped call that fits on one line", helpers.format([[
@@ -489,9 +483,7 @@ describe("formatter", function()
          end
       ]],[[
          local callback = function(
-             param_one: LongTypeName,
-             param_two: AnotherLongType,
-             param_three: YetAnotherType
+             param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType
          ): ReturnValue
          end
       ]]))
@@ -508,13 +500,21 @@ describe("formatter", function()
       ]]))
 
       it("wraps a long call whose argument is a string containing a closing paren", helpers.format([[
-         local x = my_func("closing)paren", argument_two, argument_three, argument_four_and_five_long)
+         local x = my_func("closing)paren", argument_two_long, argument_three_long, argument_four_and_five_long_long)
       ]],[[
          local x = my_func(
              "closing)paren",
-             argument_two,
-             argument_three,
-             argument_four_and_five_long
+             argument_two_long,
+             argument_three_long,
+             argument_four_and_five_long_long
+         )
+      ]]))
+
+      it("collapses a call where arguments would fix on their own line", helpers.format([[
+         local x = my_func("closing)paren", argument_two, argument_three, argument_four_and_five_long)
+      ]],[[
+         local x = my_func(
+             "closing)paren", argument_two, argument_three, argument_four_and_five_long
          )
       ]]))
 
@@ -547,6 +547,30 @@ describe("formatter", function()
          }
       ]],[[
          local t = {key = foo(a, b)}
+      ]]))
+   end)
+
+   describe("combined signature and call rewriting", function()
+      -- When a multi-line signature is compacted (reducing line count), call
+      -- spans in the function body must still be resolved against the correct
+      -- output lines, not the original source line numbers.
+      it("correctly joins a call inside a function whose signature was compacted", helpers.format([[
+         function some_module.new(
+             menu_choices: {string},
+             go_back: function(),
+             on_load: function()
+         ): string
+             baz(
+                 arg1,
+                 arg2
+             )
+         end
+      ]],[[
+         function some_module.new(
+             menu_choices: {string}, go_back: function(), on_load: function()
+         ): string
+             baz(arg1, arg2)
+         end
       ]]))
    end)
 

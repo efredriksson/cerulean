@@ -12,10 +12,7 @@ local record Edit
 end
 
 function Edit.new(
-    line: integer,
-    col_start: integer,
-    col_end: integer,
-    replacement: string
+    line: integer, col_start: integer, col_end: integer, replacement: string
 ): Edit
     local self: Edit = setmetatable({}, { __index = Edit })
     self.line = line
@@ -36,26 +33,30 @@ local record Span
     open_col:  integer
     close_line: integer
     close_col:  integer
+    is_call:   boolean
+    is_table:  boolean
 end
 
 function Span.new(
     open_line: integer,
     open_col: integer,
     close_line: integer,
-    close_col: integer
+    close_col: integer,
+    is_call: boolean,
+    is_table: boolean
 ): Span
     local self: Span = setmetatable({}, { __index = Span })
     self.open_line = open_line
     self.open_col = open_col
     self.close_line = close_line
     self.close_col = close_col
+    self.is_call = is_call
+    self.is_table = is_table
     return self
 end
 
 function Rewrite.new(
-    output: string,
-    changed: boolean,
-    parse_errors: {tl.Error}
+    output: string, changed: boolean, parse_errors: {tl.Error}
 ): Rewrite
     local self: Rewrite = setmetatable({}, { __index = Rewrite })
     self.output = output
@@ -135,8 +136,7 @@ local function collect_op_edits(tokens: {tl.Token}): {Edit}
                     local gap_before = token.x - prev_end - 1
                     if gap_before ~= 1 then
                         table.insert(
-                            edits,
-                            Edit.new(token.y, prev_end + 1, token.x - 1, " ")
+                            edits, Edit.new(token.y, prev_end + 1, token.x - 1, " ")
                         )
                     end
                 end
@@ -145,8 +145,7 @@ local function collect_op_edits(tokens: {tl.Token}): {Edit}
                     local gap_after = next_token.x - op_end - 1
                     if gap_after ~= 1 then
                         table.insert(
-                            edits,
-                            Edit.new(token.y, op_end + 1, next_token.x - 1, " ")
+                            edits, Edit.new(token.y, op_end + 1, next_token.x - 1, " ")
                         )
                     end
                 end
@@ -169,8 +168,7 @@ local function collect_comma_edits(tokens: {tl.Token}): {Edit}
             local gap = next_token.x - comma_end
             if gap ~= 1 then
                 table.insert(
-                    edits,
-                    Edit.new(current.y, comma_end, next_token.x - 1, " ")
+                    edits, Edit.new(current.y, comma_end, next_token.x - 1, " ")
                 )
             end
         end
@@ -193,9 +191,7 @@ local function collect_all_edits(tokens: {tl.Token}): {Edit}
 end
 
 local function apply_edits_to_line(
-    line_str: string,
-    line_number: integer,
-    edits: {Edit}
+    line_str: string, line_number: integer, edits: {Edit}
 ): string
     local line_edits: {Edit} = {}
     for _, edit in ipairs(edits) do
@@ -233,9 +229,7 @@ end
 -- Returns the close_line of the innermost block that contains the given line,
 -- or last_line + 1 when the line is at the top level (no enclosing block).
 local function find_enclosing_block_end(
-    source_blocks: {blocks.Block},
-    line: integer,
-    last_line: integer
+    source_blocks: {blocks.Block}, line: integer, last_line: integer
 ): integer
     local innermost_end = last_line + 1
     for _, block in ipairs(source_blocks) do
@@ -438,7 +432,7 @@ local function collect_table_spans(
             end
         end
         if is_safe and not has_multiline_descendant(node) and not has_magic_trailing_comma(node, lines) then
-            table.insert(result, Span.new(node.y, node.x, node.yend, node.xend))
+            table.insert(result, Span.new(node.y, node.x, node.yend, node.xend, false, true))
         end
         -- Still recurse into children to find nested simple tables
     end
@@ -559,15 +553,16 @@ local function split_paren_span(span_content: string, indent_prefix: string): {s
     return result
 end
 
--- Split a paren span into lines, preferring compact form for call spans that
--- have trailing content after the closing ")".  Compact form keeps all args on
--- a single indented line; per-arg split is used otherwise or when compact
--- would still exceed 88 chars.  A trailing "," is not treated as trailing
--- content because it is a list separator, not part of the expression.
--- was_already_compact: for the multi-line re-split path, only re-use compact
--- form when the span was already compact (open + one inner line + close = 3
--- lines).  This prevents collapsing intentionally expanded multi-arg calls
--- whose closing ")" happens to have trailing content on the same line.
+-- Split a paren span into lines, preferring compact form when possible.
+-- Compact form keeps all args on a single indented line.
+-- Per-arg split is used when compact would still exceed 88 chars.
+--
+-- Two compact paths:
+-- 1. Call with trailing content (e.g. ") .. ms"): uses 3-space indent and only
+--    fires when the span was already compact (3 lines), to avoid collapsing
+--    intentionally expanded multi-arg calls whose ")" has trailing content.
+-- 2. Signature or call with no trailing content: uses 4-space indent and
+--    always fires when the args fit within the line limit.
 local function split_paren_lines(
     span_content: string,
     indent_prefix: string,
@@ -579,6 +574,15 @@ local function split_paren_lines(
         local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
         inner = inner:match("^%s*(.-)%s*$") or ""
         local compact_indent = indent_prefix .. "   "
+        local items = split_params(inner)
+        if #items >= 2 and #(compact_indent .. inner) <= 88 then
+            return {"(", compact_indent .. inner, indent_prefix .. ")"}
+        end
+    end
+    if not is_call or after == "" then
+        local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
+        inner = inner:match("^%s*(.-)%s*$") or ""
+        local compact_indent = indent_prefix .. "    "
         local items = split_params(inner)
         if #items >= 2 and #(compact_indent .. inner) <= 88 then
             return {"(", compact_indent .. inner, indent_prefix .. ")"}
@@ -618,19 +622,19 @@ local function span_range_is_unsafe(
     return false
 end
 
--- Apply a set of paren spans bottom-to-top: join multi-line ones when they fit,
--- split single-line ones that are too long.
--- is_call: true for function-call argument spans, false for function definition
--- parameter-list spans.  Call spans prefer compact form (all args on one line)
--- when the closing ")" has trailing expression content on the same line.
-local function apply_paren_spans(
+-- Apply all collected spans (paren and table) in a single bottom-to-top pass.
+-- Processing all span types together ensures that line-number shifts caused by
+-- one rewrite (e.g. a signature compaction) do not invalidate the line numbers
+-- of subsequent spans.  Each span carries is_call and is_table to select the
+-- correct join/split functions.
+local function apply_all_spans(
     lines: {string},
     spans: {Span},
-    fmt_off_lines: {integer: boolean},
-    is_call: boolean
+    fmt_off_lines: {integer: boolean}
 ): {string}
-    -- For same-line spans, process leftmost (outermost) first so the outer call
-    -- wraps and marks the line replaced before inner spans are considered.
+    -- Process bottom-to-top (highest open_line first).  For spans on the same
+    -- line, process leftmost (outermost) first so the outer span wraps and
+    -- marks the line replaced before inner spans are considered.
     local function span_order(first: Span, second: Span): boolean
         if first.open_line ~= second.open_line then return first.open_line > second.open_line end
         return first.open_col < second.open_col
@@ -663,7 +667,12 @@ local function apply_paren_spans(
                 local after  = line_str:sub(span.close_col + 1)
                 local span_content = line_str:sub(span.open_col, span.close_col)
                 local indent_prefix = before:match("^(%s*)") or ""
-                local split_lines = split_paren_lines(span_content, indent_prefix, is_call, after, true)
+                local split_lines: {string}
+                if span.is_table then
+                    split_lines = split_table_span(span_content, indent_prefix)
+                else
+                    split_lines = split_paren_lines(span_content, indent_prefix, span.is_call, after, true)
+                end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
                     table.insert(new_lines, before .. split_lines[1])
@@ -679,13 +688,17 @@ local function apply_paren_spans(
                     for _, head_line in ipairs(head) do table.insert(result, head_line) end
                     for _, new_line in ipairs(new_lines) do table.insert(result, new_line) end
                     for _, tail_line in ipairs(tail) do table.insert(result, tail_line) end
-                    -- Mark line as replaced so other spans on this line are skipped
                     replaced_lines[span.open_line] = true
                 end
             end
         else
             local span_lines = extract_span_lines(result, span)
-            local joined = join_paren_span(span_lines)
+            local joined: string
+            if span.is_table then
+                joined = join_table_span(span_lines)
+            else
+                joined = join_paren_span(span_lines)
+            end
             local before = result[span.open_line]:sub(1, span.open_col - 1)
             local after  = result[span.close_line]:sub(span.close_col + 1)
             local full_joined = before .. joined .. after
@@ -698,13 +711,17 @@ local function apply_paren_spans(
                 for _, line_str in ipairs(head) do table.insert(result, line_str) end
                 table.insert(result, full_joined)
                 for _, line_str in ipairs(tail) do table.insert(result, line_str) end
-                -- Mark the replaced lines so inner spans are not re-processed
                 for line = span.open_line, span.close_line do
                     replaced_lines[line] = true
                 end
             else
                 local indent_prefix = before:match("^(%s*)") or ""
-                local split_lines = split_paren_lines(joined, indent_prefix, is_call, after, #span_lines == 3)
+                local split_lines: {string}
+                if span.is_table then
+                    split_lines = split_table_span(joined, indent_prefix)
+                else
+                    split_lines = split_paren_lines(joined, indent_prefix, span.is_call, after, #span_lines == 3)
+                end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
                     table.insert(new_lines, before .. split_lines[1])
@@ -716,7 +733,6 @@ local function apply_paren_spans(
                     for _, line_str in ipairs(head) do table.insert(result, line_str) end
                     for _, line_str in ipairs(new_lines) do table.insert(result, line_str) end
                     for _, line_str in ipairs(tail) do table.insert(result, line_str) end
-                    -- Mark the replaced lines so inner spans are not re-processed
                     for line = span.open_line, span.close_line do
                         replaced_lines[line] = true
                     end
@@ -747,7 +763,7 @@ local function collect_signature_spans(
         if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
             and not has_multiline_descendant(args)
         then
-            table.insert(result, Span.new(args.y, args.x, args.yend, args.xend))
+            table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, false, false))
         end
     end
     local function recurse(child: parser.Node)
@@ -771,7 +787,7 @@ local function collect_call_spans(
             if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
                 and not has_multiline_descendant(args)
             then
-                table.insert(result, Span.new(args.y, args.x, args.yend, args.xend))
+                table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, true, false))
             end
         end
     end
@@ -779,96 +795,6 @@ local function collect_call_spans(
         collect_call_spans(child, lines, fmt_off_lines, result)
     end
     walk_children(node, recurse)
-end
-
--- Apply AST-derived table spans to reformat the output_lines.
--- Processes spans from bottom to top to keep line numbers stable.
-local function wrap_table_literals_from_ast(
-    lines: {string},
-    spans: {Span},
-    fmt_off_lines: {integer: boolean}
-): {string}
-    -- Sort spans: process bottom-to-top (last span first) so earlier line
-    -- numbers are not shifted by replacements.
-    local function later_first(first: Span, second: Span): boolean
-        if first.open_line ~= second.open_line then return first.open_line > second.open_line end
-        return first.open_col > second.open_col
-    end
-    table.sort(spans, later_first)
-
-    local result: {string} = {}
-    for _, line in ipairs(lines) do
-        table.insert(result, line)
-    end
-
-    for _, span in ipairs(spans) do
-        if fmt_off_lines[span.open_line] then
-            -- skip
-        elseif span.open_line == span.close_line then
-            -- Single-line span: wrap if too long
-            local line = result[span.open_line]
-            local full_line_len = #line
-            if full_line_len > 88 then
-                local before = line:sub(1, span.open_col - 1)
-                local after  = line:sub(span.close_col + 1)
-                local span_content = line:sub(span.open_col, span.close_col)
-                local indent_prefix = before:match("^(%s*)") or ""
-                local split_lines = split_table_span(span_content, indent_prefix)
-                if #split_lines > 1 then
-                    local new_lines: {string} = {}
-                    table.insert(new_lines, before .. split_lines[1])
-                    for i = 2, #split_lines - 1 do
-                        table.insert(new_lines, split_lines[i])
-                    end
-                    table.insert(new_lines, split_lines[#split_lines] .. after)
-                    -- Replace line span.open_line with new_lines
-                    local head: {string} = {}
-                    local tail: {string} = {}
-                    for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
-                    for i = span.open_line + 1, #result do table.insert(tail, result[i]) end
-                    result = {}
-                    for _, line_str in ipairs(head) do table.insert(result, line_str) end
-                    for _, line_str in ipairs(new_lines) do table.insert(result, line_str) end
-                    for _, line_str in ipairs(tail) do table.insert(result, line_str) end
-                end
-            end
-        else
-            -- Multi-line span: try to join
-            local span_lines = extract_span_lines(result, span)
-            local joined = join_table_span(span_lines)
-            local before = result[span.open_line]:sub(1, span.open_col - 1)
-            local after  = result[span.close_line]:sub(span.close_col + 1)
-            local full_joined = before .. joined .. after
-            local head: {string} = {}
-            local tail: {string} = {}
-            for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
-            for i = span.close_line + 1, #result do table.insert(tail, result[i]) end
-            if #full_joined <= 88 then
-                result = {}
-                for _, line_str in ipairs(head) do table.insert(result, line_str) end
-                table.insert(result, full_joined)
-                for _, line_str in ipairs(tail) do table.insert(result, line_str) end
-            else
-                -- Re-wrap: replace with properly split form
-                local indent_prefix = before:match("^(%s*)") or ""
-                local split_lines = split_table_span(joined, indent_prefix)
-                if #split_lines > 1 then
-                    local new_lines: {string} = {}
-                    table.insert(new_lines, before .. split_lines[1])
-                    for i = 2, #split_lines - 1 do
-                        table.insert(new_lines, split_lines[i])
-                    end
-                    table.insert(new_lines, split_lines[#split_lines] .. after)
-                    result = {}
-                    for _, line_str in ipairs(head) do table.insert(result, line_str) end
-                    for _, line_str in ipairs(new_lines) do table.insert(result, line_str) end
-                    for _, line_str in ipairs(tail) do table.insert(result, line_str) end
-                end
-            end
-        end
-    end
-
-    return result
 end
 
 -- Matches lines of the form:  local [type] <name> = require("<path>")
@@ -939,18 +865,12 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
         end
     end
 
-    local signature_spans: {Span} = {}
-    collect_signature_spans(ast, lines, fmt_off_lines, signature_spans)
+    local all_spans: {Span} = {}
+    collect_signature_spans(ast, lines, fmt_off_lines, all_spans)
+    collect_call_spans(ast, lines, fmt_off_lines, all_spans)
+    collect_table_spans(ast, lines, fmt_off_lines, all_spans)
 
-    local call_spans: {Span} = {}
-    collect_call_spans(ast, lines, fmt_off_lines, call_spans)
-
-    local table_spans: {Span} = {}
-    collect_table_spans(ast, lines, fmt_off_lines, table_spans)
-
-    output_lines = apply_paren_spans(output_lines, signature_spans, fmt_off_lines, false)
-    output_lines = apply_paren_spans(output_lines, call_spans, fmt_off_lines, true)
-    output_lines = wrap_table_literals_from_ast(output_lines, table_spans, fmt_off_lines)
+    output_lines = apply_all_spans(output_lines, all_spans, fmt_off_lines)
     output_lines = collapse_blank_lines(output_lines)
     output_lines = sort_require_blocks(output_lines, fmt_off_lines)
     local output = table.concat(output_lines, "\n")
