@@ -65,6 +65,22 @@ function Rewrite.new(
     return self
 end
 
+local record RequireDecl
+    first_line:  integer
+    last_line:   integer
+    module_path: string
+end
+
+function RequireDecl.new(
+    first_line: integer, last_line: integer, module_path: string
+): RequireDecl
+    local self: RequireDecl = setmetatable({}, { __index = RequireDecl })
+    self.first_line = first_line
+    self.last_line = last_line
+    self.module_path = module_path
+    return self
+end
+
 -- Collect edits to convert single-quoted string literals to double quotes.
 -- Skips strings that contain a double-quote character (cannot safely convert).
 local function collect_quote_edits(tokens: {tl.Token}): {Edit}
@@ -797,44 +813,86 @@ local function collect_call_spans(
     walk_children(node, recurse)
 end
 
--- Matches lines of the form:  local [type] <name> = require("<path>")
--- Captures the module path string so blocks can be sorted by it.
-local REQUIRE_LINE_PATTERN = '^(%s*)local%s+.-%s*=%s*require%s*%("([^"]+)"%s*%)'
-
-local function is_require_line(line_str: string): boolean
-    return line_str:match(REQUIRE_LINE_PATTERN) ~= nil
+-- Walk only the immediate children of the AST root (top-level statements) and
+-- return a RequireDecl for each local_declaration or local_type whose sole
+-- expression is a bare require("<path>") call.  Requires inside function
+-- bodies are ignored because only the top-level list is walked.
+local function collect_require_decls(ast: parser.Node): {RequireDecl}
+    local result: {RequireDecl} = {}
+    for _, node in ipairs(ast) do
+        local call_node: parser.Node
+        if node.kind == "local_declaration"
+            and node.exps ~= nil
+            and node.exps[1] ~= nil
+        then
+            call_node = node.exps[1]
+        elseif node.kind == "local_type" and node.value ~= nil then
+            call_node = node.value
+        end
+        if call_node ~= nil
+            and call_node.kind == "op"
+            and call_node.op ~= nil
+            and call_node.op.op == "@funcall"
+            and call_node.e1 ~= nil
+            and call_node.e1.tk == "require"
+            and call_node.e2 ~= nil
+            and #call_node.e2 == 1
+            and call_node.e2[1].kind == "string"
+        then
+            local module_path = call_node.e2[1].conststr or ""
+            -- Use the closing line of the argument list as last_line so that
+            -- multi-line declarations (local x =\n    require("...")) are
+            -- captured as a range and sorted as a unit.
+            local last_line = call_node.e2.yend or call_node.e2.y or node.y
+            table.insert(result, RequireDecl.new(node.y, last_line, module_path))
+        end
+    end
+    return result
 end
 
-local function require_module_path(line_str: string): string
-    local _, path = line_str:match(REQUIRE_LINE_PATTERN)
-    return path or ""
-end
+-- Sort contiguous blocks of top-level require declarations alphabetically by
+-- module path.  Lines inside fmt-off regions are left in place.
+local function sort_require_blocks(
+    lines: {string},
+    fmt_off_lines: {integer: boolean},
+    require_decls: {RequireDecl}
+): {string}
+    local decl_by_start: {integer: RequireDecl} = {}
+    for _, decl in ipairs(require_decls) do
+        decl_by_start[decl.first_line] = decl
+    end
 
--- Sort contiguous blocks of require lines alphabetically by module path.
--- Lines inside fmt-off regions are left in place.
-local function sort_require_blocks(lines: {string}, fmt_off_lines: {integer: boolean}): {string}
     local result: {string} = {}
     local i = 1
     while i <= #lines do
-        if fmt_off_lines[i] or not is_require_line(lines[i]) then
+        local decl = decl_by_start[i]
+        if fmt_off_lines[i] or decl == nil then
             table.insert(result, lines[i])
             i = i + 1
         else
-            local block_start = i
-            while i <= #lines and not fmt_off_lines[i] and is_require_line(lines[i]) do
-                i = i + 1
+            local block: {RequireDecl} = {}
+            local block_end = 0
+            local current = decl
+            while current ~= nil do
+                table.insert(block, current)
+                block_end = current.last_line
+                local next_line = current.last_line + 1
+                local next_decl = decl_by_start[next_line]
+                if next_decl == nil or fmt_off_lines[next_line] then
+                    break
+                end
+                current = next_decl
             end
-            local block: {string} = {}
-            for j = block_start, i - 1 do
-                table.insert(block, lines[j])
-            end
-            local function by_module_path(first: string, second: string): boolean
-                return require_module_path(first) < require_module_path(second)
+            local function by_module_path(first: RequireDecl, second: RequireDecl): boolean
+                return first.module_path < second.module_path
             end
             table.sort(block, by_module_path)
-            for _, line_str in ipairs(block) do
-                table.insert(result, line_str)
+            for _, sorted_decl in ipairs(block) do
+                for line = sorted_decl.first_line, sorted_decl.last_line do
+                    table.insert(result, lines[line])
+                end
             end
+            i = block_end + 1
         end
     end
     return result
@@ -846,6 +904,7 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
         return Rewrite.new(source, false, parse_errors)
     end
     local source_blocks = blocks.collect_from_ast(ast)
+    local require_decls = collect_require_decls(ast)
 
     local tokens, _ = tl.lex(source, filename)
     local edits = collect_all_edits(tokens)
@@ -865,6 +924,11 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
         end
     end
 
+    -- Require sorting runs before span rewrites so the AST line numbers
+    -- collected above (from the original source) are still accurate.
+    -- Token edits preserve line count; span rewrites may not.
+    output_lines = sort_require_blocks(output_lines, fmt_off_lines, require_decls)
+
     local all_spans: {Span} = {}
     collect_signature_spans(ast, lines, fmt_off_lines, all_spans)
     collect_call_spans(ast, lines, fmt_off_lines, all_spans)
@@ -872,7 +936,6 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
 
     output_lines = apply_all_spans(output_lines, all_spans, fmt_off_lines)
     output_lines = collapse_blank_lines(output_lines)
-    output_lines = sort_require_blocks(output_lines, fmt_off_lines)
     local output = table.concat(output_lines, "\n")
     return Rewrite.new(output, output ~= source, {})
 end

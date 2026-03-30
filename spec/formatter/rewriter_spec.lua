@@ -288,6 +288,46 @@ describe("formatter", function()
          local type A = require("a")
          local type B = require("b")
       ]]))
+
+      it("sorts requires with non-standard spacing inside the call parens", helpers.format([[
+         local b = require( "b.module" )
+         local a = require( "a.module" )
+      ]], [[
+         local a = require( "a.module" )
+         local b = require( "b.module" )
+      ]]))
+
+      it("sorts multi-line require declarations as a unit", helpers.format([[
+         local b =
+             require("b.module")
+         local a =
+             require("a.module")
+      ]], [[
+         local a =
+             require("a.module")
+         local b =
+             require("b.module")
+      ]]))
+
+      it("does not sort requires inside a function body", helpers.check([[
+         local function setup()
+            local b = require("b")
+            local a = require("a")
+         end
+      ]]))
+
+      it("excludes a require with a variable argument from the sort block", helpers.check([[
+         local b = require("b")
+         local a = require(module_name)
+         local c = require("c")
+      ]]))
+
+      it("excludes a require with a non-literal-string argument from the sort block", helpers.check([[
+         local b = require("b")
+         local a = require("a" .. ".module")
+         local c = require("c")
+      ]]))
+
    end)
 
    describe("quote normalisation", function()
