@@ -29,14 +29,18 @@ local record Rewrite
     parse_errors: {tl.Error}
 end
 
+local type SpanKind = enum
+    "call"
+    "signature"
+    "table"
+end
+
 local record Span
     open_line: integer
     open_col:  integer
     close_line: integer
     close_col:  integer
-    is_call:   boolean
-    is_signature: boolean
-    is_table:  boolean
+    kind: SpanKind
 end
 
 function Span.new(
@@ -44,18 +48,14 @@ function Span.new(
     open_col: integer,
     close_line: integer,
     close_col: integer,
-    is_call: boolean,
-    is_signature: boolean,
-    is_table: boolean
+    kind: SpanKind
 ): Span
     local self: Span = setmetatable({}, { __index = Span })
     self.open_line = open_line
     self.open_col = open_col
     self.close_line = close_line
     self.close_col = close_col
-    self.is_call = is_call
-    self.is_signature = is_signature
-    self.is_table = is_table
+    self.kind = kind
     return self
 end
 
@@ -532,7 +532,7 @@ local function collect_table_spans(
             end
         end
         if is_safe and not has_multiline_descendant(node) and not has_magic_trailing_comma(node, lines) then
-            table.insert(result, Span.new(node.y, node.x, node.yend, node.xend, false, false, true))
+            table.insert(result, Span.new(node.y, node.x, node.yend, node.xend, "table"))
         end
         -- Still recurse into children to find nested simple tables
     end
@@ -717,8 +717,8 @@ end
 -- Apply all collected spans (paren and table) in a single bottom-to-top pass.
 -- Processing all span types together ensures that line-number shifts caused by
 -- one rewrite (e.g. a signature compaction) do not invalidate the line numbers
--- of subsequent spans.  Each span carries is_call and is_table to select the
--- correct join/split functions.
+-- of subsequent spans. Each span carries a kind tag to select the correct
+-- join/split functions.
 local function apply_all_spans(
     lines: {string},
     spans: {Span},
@@ -759,16 +759,16 @@ local function apply_all_spans(
                 local after  = line_str:sub(span.close_col + 1)
                 local span_content = line_str:sub(span.open_col, span.close_col)
                 local split_lines: {string}
-                if span.is_signature then
+                if span.kind == "signature" then
                     split_lines = render_signature_with_doc(before, span_content, after)
-                elseif span.is_table then
+                elseif span.kind == "table" then
                     split_lines = render_table_with_doc(before, span_content, after)
                 else
                     split_lines = render_call_with_doc(before, span_content, after, true)
                 end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
-                    if span.is_signature or span.is_table or span.is_call then
+                    if span.kind == "signature" or span.kind == "table" or span.kind == "call" then
                         for _, new_line in ipairs(split_lines) do
                             table.insert(new_lines, new_line)
                         end
@@ -793,7 +793,7 @@ local function apply_all_spans(
         else
             local span_lines = extract_span_lines(result, span)
             local joined: string
-            if span.is_table then
+            if span.kind == "table" then
                 joined = join_table_span(span_lines)
             else
                 joined = join_paren_span(span_lines)
@@ -815,16 +815,16 @@ local function apply_all_spans(
                 end
             else
                 local split_lines: {string}
-                if span.is_signature then
+                if span.kind == "signature" then
                     split_lines = render_signature_with_doc(before, joined, after)
-                elseif span.is_table then
+                elseif span.kind == "table" then
                     split_lines = render_table_with_doc(before, joined, after)
                 else
                     split_lines = render_call_with_doc(before, joined, after, #span_lines == 3)
                 end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
-                    if span.is_signature or span.is_table or span.is_call then
+                    if span.kind == "signature" or span.kind == "table" or span.kind == "call" then
                         for _, new_line in ipairs(split_lines) do
                             table.insert(new_lines, new_line)
                         end
@@ -869,7 +869,7 @@ local function collect_signature_spans(
         if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
             and not has_multiline_descendant(args)
         then
-            table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, false, true, false))
+            table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, "signature"))
         end
     end
     local function recurse(child: parser.Node)
@@ -893,7 +893,7 @@ local function collect_call_spans(
             if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
                 and not has_multiline_descendant(args)
             then
-                table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, true, false, false))
+                table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, "call"))
             end
         end
     end
