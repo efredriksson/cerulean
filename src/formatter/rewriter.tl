@@ -561,7 +561,7 @@ end
 local function render_call_with_doc(
     kind: SpanKind,
     before: string,
-    span_content: string,
+    items: {string},
     after: string,
     was_already_compact: boolean
 ): {string}
@@ -570,14 +570,13 @@ local function render_call_with_doc(
         and
         after ~= "" and not after:match("^,") and was_already_compact
 
-    return doc_builders.render_span_construct(
+    return doc_builders.render_construct(
         kind,
         before,
-        span_content,
+        items,
         after,
         indent_prefix,
-        prefer_trailing_compact,
-        split_params
+        prefer_trailing_compact
     )
 end
 
@@ -656,11 +655,14 @@ local function apply_all_spans(
                 local before = line_str:sub(1, span.open_col - 1)
                 local after  = line_str:sub(span.close_col + 1)
                 local span_content = line_str:sub(span.open_col, span.close_col)
+                local items = doc_builders.extract_items_from_span_content(
+                    span_content, split_params
+                )
                 local split_lines: {string}
                 split_lines = render_call_with_doc(
                     span.kind,
                     before,
-                    span_content,
+                    items,
                     after,
                     true
                 )
@@ -690,9 +692,10 @@ local function apply_all_spans(
             end
         else
             local span_lines = extract_span_lines(result, span)
-            local joined = doc_builders.normalize_span_lines(
+            local items = doc_builders.extract_items_from_span_lines(
                 span.kind, span_lines, split_params
             )
+            local joined = doc_builders.compact_construct_text(span.kind, items)
             local before = result[span.open_line]:sub(1, span.open_col - 1)
             local after  = result[span.close_line]:sub(span.close_col + 1)
             local full_joined = before .. joined .. after
@@ -713,7 +716,7 @@ local function apply_all_spans(
                 split_lines = render_call_with_doc(
                     span.kind,
                     before,
-                    joined,
+                    items,
                     after,
                     #span_lines == 3
                 )

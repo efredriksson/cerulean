@@ -152,9 +152,9 @@ local function delimiters_for_kind(kind: string): string, string
     return "(", ")"
 end
 
-function doc_builders.normalize_span_lines(
+function doc_builders.extract_items_from_span_lines(
     kind: string, span_lines: {string}, split_items: function(string): {string}
-): string
+): {string}
     local open_delim, close_delim = delimiters_for_kind(kind)
     local stripped_lines: {string} = {}
 
@@ -162,7 +162,7 @@ function doc_builders.normalize_span_lines(
         local stripped = span_line:match("^%s*(.-)%s*$") or ""
         if i == 1 then
             if stripped:sub(1, 1) ~= open_delim then
-                return table.concat(span_lines, " ")
+                return split_items(table.concat(span_lines, "\n"))
             end
             stripped = stripped:sub(2)
             stripped = stripped:match("^%s*(.-)%s*$") or ""
@@ -174,7 +174,17 @@ function doc_builders.normalize_span_lines(
         table.insert(stripped_lines, stripped)
     end
 
-    local items = split_items(table.concat(stripped_lines, "\n"))
+    return split_items(table.concat(stripped_lines, "\n"))
+end
+
+function doc_builders.extract_items_from_span_content(
+    span_content: string, split_items: function(string): {string}
+): {string}
+    return extract_items_from_span(span_content, split_items)
+end
+
+function doc_builders.compact_construct_text(kind: string, items: {string}): string
+    local open_delim, close_delim = delimiters_for_kind(kind)
     return open_delim .. table.concat(items, ", ") .. close_delim
 end
 
@@ -217,25 +227,6 @@ function doc_builders.render_construct(
     end
 
     return wrap_construct_lines(prefix, suffix, lines)
-end
-
-function doc_builders.render_span_construct(
-    kind: string,
-    prefix: string,
-    span_content: string,
-    suffix: string,
-    indent_prefix: string,
-    prefer_trailing_compact: boolean,
-    split_items: function(string): {string}
-): {string}
-    local items = extract_items_from_span(span_content, split_items)
-    if #items < 2 then
-        return {prefix .. span_content .. suffix}
-    end
-
-    return doc_builders.render_construct(
-        kind, prefix, items, suffix, indent_prefix, prefer_trailing_compact
-    )
 end
 
 return doc_builders
