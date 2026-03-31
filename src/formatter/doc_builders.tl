@@ -98,4 +98,31 @@ function doc_builders.render_trailing_call_sequence(
     return doc_builders.render_delimited_sequence(items, indent_prefix, fallback_opts)
 end
 
+function doc_builders.render_function_signature(
+    prefix: string, params: {string}, suffix: string, indent_prefix: string
+): {string}
+    if #params < 2 then
+        return {
+            prefix .. "(" .. table.concat(params, ", ") .. ")" .. suffix,
+        }
+    end
+
+    local sequence_opts = DelimitedSequenceOptions.new("(", ")", 4, false)
+    local param_lines = doc_builders.render_delimited_sequence(
+        params, indent_prefix, sequence_opts
+    )
+
+    local result: {string} = {}
+    for i, line_str in ipairs(param_lines) do
+        if i == 1 then
+            table.insert(result, prefix .. line_str)
+        elseif i == #param_lines then
+            table.insert(result, line_str .. suffix)
+        else
+            table.insert(result, line_str)
+        end
+    end
+    return result
+end
+
 return doc_builders
