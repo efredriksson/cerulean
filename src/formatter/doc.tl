@@ -2,6 +2,7 @@ local record Doc
     kind: string
     text: string
     flat_text: string
+    broken_text: string
     parts: {Doc}
     amount: integer
     child: Doc
@@ -34,6 +35,13 @@ function doc.line(flat_text: string): Doc
     return result
 end
 
+function doc.break_text(broken_text: string, flat_text?: string): Doc
+    local result = new_doc("break_text")
+    result.broken_text = broken_text
+    result.flat_text = flat_text or ""
+    return result
+end
+
 function doc.concat(parts: {Doc}): Doc
     local result = new_doc("concat")
     result.parts = parts
@@ -56,6 +64,8 @@ end
 local function flat_length(node: Doc): integer
     if node.kind == "text" then
         return #(node.text or "")
+    elseif node.kind == "break_text" then
+        return #(node.flat_text or "")
     elseif node.kind == "line" then
         return #(node.flat_text or "")
     elseif node.kind == "concat" then
@@ -86,6 +96,12 @@ local function render_node(
 )
     if node.kind == "text" then
         append_text(state, node.text or "")
+    elseif node.kind == "break_text" then
+        if flat then
+            append_text(state, node.flat_text or "")
+        else
+            append_text(state, node.broken_text or "")
+        end
     elseif node.kind == "line" then
         if flat then
             append_text(state, node.flat_text or "")

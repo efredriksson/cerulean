@@ -590,25 +590,6 @@ local function join_table_span(span_lines: {string}): string
     return "{" .. table.concat(items, ", ") .. "}"
 end
 
--- Split a single-line table span "{…}" into one item per line, indented
--- relative to the indent_prefix of the surrounding line.
-local function split_table_span(span_content: string, indent_prefix: string): {string}
-    -- strip braces
-    local inner = span_content:match("^%{(.-)%}$") or span_content:sub(2, -2)
-    inner = inner:match("^%s*(.-)%s*$") or ""
-    local items = split_params(inner)
-    if #items < 2 then
-        return {span_content}
-    end
-    local inner_indent = indent_prefix .. "    "
-    local result: {string} = {"{"}
-    for _, item in ipairs(items) do
-        table.insert(result, inner_indent .. item .. ",")
-    end
-    table.insert(result, indent_prefix .. "}")
-    return result
-end
-
 -- Join a multi-line paren span back to a single line.
 -- span_lines[1] starts with "(" (open_col); span_lines[last] ends with ")" (close_col).
 -- Inner lines are stripped of whitespace and trailing commas.
@@ -653,25 +634,16 @@ local function split_paren_span(span_content: string, indent_prefix: string): {s
     return result
 end
 
-local function join_docs_with_separator(parts: {doc.Doc}, separator: doc.Doc): doc.Doc
-    if #parts == 0 then
-        return doc.concat({})
-    end
-
-    local result: {doc.Doc} = {parts[1]}
-    for i = 2, #parts do
-        table.insert(result, separator)
-        table.insert(result, parts[i])
-    end
-    return doc.concat(result)
-end
-
-local function split_paren_with_doc(
+local function split_delimited_sequence_with_doc(
     span_content: string,
+    open_delim: string,
+    close_delim: string,
     indent_prefix: string,
-    compact_indent_amount: integer
+    compact_indent_amount: integer,
+    trailing_break_separator: boolean,
+    allow_compact_broken: boolean
 ): {string}
-    local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
+    local inner = span_content:sub(2, -2)
     inner = inner:match("^%s*(.-)%s*$") or ""
     local items = split_params(inner)
     if #items < 2 then
@@ -679,41 +651,80 @@ local function split_paren_with_doc(
     end
 
     local item_docs: {doc.Doc} = {}
-    for _, item in ipairs(items) do
-        table.insert(item_docs, doc.text(item))
+    for i, item in ipairs(items) do
+        local item_parts: {doc.Doc} = {
+            doc.text(item),
+        }
+        if i < #items then
+            table.insert(item_parts, doc.text(","))
+            table.insert(item_parts, doc.line(" "))
+        elseif trailing_break_separator then
+            table.insert(item_parts, doc.break_text(","))
+        end
+        table.insert(item_docs, doc.concat(item_parts))
     end
 
-    local separator = doc.concat({
-        doc.text(","),
-        doc.line(" "),
-    })
+    local body_doc = doc.concat(item_docs)
+    if allow_compact_broken then
+        body_doc = doc.group(body_doc)
+    end
 
-    local grouped_items = doc.group(join_docs_with_separator(item_docs, separator))
-    local paren_doc = doc.concat({
-        doc.text("("),
+    local sequence_doc = doc.concat({
+        doc.text(open_delim),
         doc.indent(compact_indent_amount, doc.concat({
             doc.line(""),
-            grouped_items,
+            body_doc,
         })),
         doc.line(""),
-        doc.text(")"),
+        doc.text(close_delim),
     })
 
-    return paren_doc:render(88, 0, #indent_prefix, true)
+    return sequence_doc:render(88, 0, #indent_prefix, true)
 end
 
 local function split_signature_paren_with_doc(
     span_content: string,
     indent_prefix: string
 ): {string}
-    return split_paren_with_doc(span_content, indent_prefix, 4)
+    return split_delimited_sequence_with_doc(
+        span_content,
+        "(",
+        ")",
+        indent_prefix,
+        4,
+        false,
+        true
+    )
 end
 
 local function split_call_paren_with_doc(
     span_content: string,
     indent_prefix: string
 ): {string}
-    return split_paren_with_doc(span_content, indent_prefix, 4)
+    return split_delimited_sequence_with_doc(
+        span_content,
+        "(",
+        ")",
+        indent_prefix,
+        4,
+        false,
+        true
+    )
+end
+
+local function split_table_with_doc(
+    span_content: string,
+    indent_prefix: string
+): {string}
+    return split_delimited_sequence_with_doc(
+        span_content,
+        "{",
+        "}",
+        indent_prefix,
+        4,
+        true,
+        false
+    )
 end
 
 -- Split a paren span into lines, preferring compact form when possible.
@@ -836,7 +847,7 @@ local function apply_all_spans(
                 local indent_prefix = before:match("^(%s*)") or ""
                 local split_lines: {string}
                 if span.is_table then
-                    split_lines = split_table_span(span_content, indent_prefix)
+                    split_lines = split_table_with_doc(span_content, indent_prefix)
                 else
                     split_lines = split_paren_lines(span_content, indent_prefix, span.is_call, after, true)
                 end
@@ -885,7 +896,7 @@ local function apply_all_spans(
                 local indent_prefix = before:match("^(%s*)") or ""
                 local split_lines: {string}
                 if span.is_table then
-                    split_lines = split_table_span(joined, indent_prefix)
+                    split_lines = split_table_with_doc(joined, indent_prefix)
                 else
                     split_lines = split_paren_lines(joined, indent_prefix, span.is_call, after, #span_lines == 3)
                 end
