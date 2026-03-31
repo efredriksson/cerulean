@@ -46,64 +46,41 @@ local function build_item_docs(
     return item_docs
 end
 
-function doc_builders.render_delimited_sequence(
-    items: {string}, indent_prefix: string, opts: DelimitedSequenceOptions
-): {string}
+local function build_delimited_sequence_doc(
+    items: {string}, opts: DelimitedSequenceOptions, compact_when_possible: boolean
+): doc.Doc
     if #items < 2 then
-        return {
-            opts.open_delim .. table.concat(items, ", ") .. opts.close_delim,
-        }
+        return doc.text(
+            opts.open_delim .. table.concat(items, ", ") .. opts.close_delim
+        )
     end
 
-    local sequence_doc = doc.concat({
+    local item_doc = doc.concat(build_item_docs(items, opts.trailing_break_separator))
+    if compact_when_possible then
+        item_doc = doc.group(item_doc)
+    end
+
+    return doc.concat({
         doc.text(opts.open_delim),
         doc.indent(opts.compact_indent_amount, doc.concat({
             doc.line(""),
-            doc.group(doc.concat(build_item_docs(
-               items, opts.trailing_break_separator
-            ))),
+            item_doc,
         })),
         doc.line(""),
         doc.text(opts.close_delim),
     })
-
-    return sequence_doc:render(88, 0, #indent_prefix, true)
 end
 
-local function render_expanded_delimited_sequence(
-    items: {string}, indent_prefix: string, opts: DelimitedSequenceOptions
-): {string}
-    if #items < 2 then
-        return {
-            opts.open_delim .. table.concat(items, ", ") .. opts.close_delim,
-        }
-    end
-
-    local sequence_doc = doc.concat({
-        doc.text(opts.open_delim),
-        doc.indent(opts.compact_indent_amount, doc.concat({
-            doc.line(""),
-            doc.concat(build_item_docs(items, opts.trailing_break_separator)),
-        })),
-        doc.line(""),
-        doc.text(opts.close_delim),
-    })
-
-    return sequence_doc:render(88, 0, #indent_prefix, true)
+local function render_doc(node: doc.Doc, indent_prefix: string): {string}
+    return node:render(88, 0, #indent_prefix, true)
 end
 
-function doc_builders.render_trailing_call_sequence(
-    items: {string}, indent_prefix: string, fallback_opts: DelimitedSequenceOptions
-): {string}
+local function build_trailing_call_doc(items: {string}): doc.Doc
     if #items < 2 then
-        return {
-            fallback_opts.open_delim .. table.concat(
-               items, ", "
-            ) .. fallback_opts.close_delim,
-        }
+        return doc.text("(" .. table.concat(items, ", ") .. ")")
     end
 
-    local compact_doc = doc.concat({
+    return doc.concat({
         doc.text("("),
         doc.indent(3, doc.concat({
             doc.line(""),
@@ -112,12 +89,6 @@ function doc_builders.render_trailing_call_sequence(
         doc.line(""),
         doc.text(")"),
     })
-    local compact_lines = compact_doc:render(88, 0, #indent_prefix, true)
-    if #compact_lines == 3 and #compact_lines[2] <= 88 then
-        return compact_lines
-    end
-
-    return doc_builders.render_delimited_sequence(items, indent_prefix, fallback_opts)
 end
 
 local function wrap_construct_lines(
@@ -206,23 +177,29 @@ function doc_builders.render_construct(
     if #items < 2 then
         return {
             prefix
-                .. sequence_opts.open_delim
-                .. table.concat(items, ", ")
-                .. sequence_opts.close_delim
+                .. doc_builders.compact_construct_text(kind, items)
                 .. suffix,
         }
     end
 
     local lines: {string}
     if kind == "call" and prefer_trailing_compact then
-        lines = doc_builders.render_trailing_call_sequence(
-            items, indent_prefix, sequence_opts
-        )
+        local compact_doc = build_trailing_call_doc(items)
+        local compact_lines = render_doc(compact_doc, indent_prefix)
+        if #compact_lines == 3 and #compact_lines[2] <= 88 then
+            lines = compact_lines
+        else
+            lines = render_doc(
+                build_delimited_sequence_doc(items, sequence_opts, true), indent_prefix
+            )
+        end
     elseif kind == "call" and suffix ~= "" then
-        lines = render_expanded_delimited_sequence(items, indent_prefix, sequence_opts)
+        lines = render_doc(
+            build_delimited_sequence_doc(items, sequence_opts, false), indent_prefix
+        )
     else
-        lines = doc_builders.render_delimited_sequence(
-            items, indent_prefix, sequence_opts
+        lines = render_doc(
+            build_delimited_sequence_doc(items, sequence_opts, true), indent_prefix
         )
     end
 
