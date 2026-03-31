@@ -70,6 +70,28 @@ function doc_builders.render_delimited_sequence(
     return sequence_doc:render(88, 0, #indent_prefix, true)
 end
 
+local function render_expanded_delimited_sequence(
+    items: {string}, indent_prefix: string, opts: DelimitedSequenceOptions
+): {string}
+    if #items < 2 then
+        return {
+            opts.open_delim .. table.concat(items, ", ") .. opts.close_delim,
+        }
+    end
+
+    local sequence_doc = doc.concat({
+        doc.text(opts.open_delim),
+        doc.indent(opts.compact_indent_amount, doc.concat({
+            doc.line(""),
+            doc.concat(build_item_docs(items, opts.trailing_break_separator)),
+        })),
+        doc.line(""),
+        doc.text(opts.close_delim),
+    })
+
+    return sequence_doc:render(88, 0, #indent_prefix, true)
+end
+
 function doc_builders.render_trailing_call_sequence(
     items: {string}, indent_prefix: string, fallback_opts: DelimitedSequenceOptions
 ): {string}
@@ -96,6 +118,48 @@ function doc_builders.render_trailing_call_sequence(
     end
 
     return doc_builders.render_delimited_sequence(items, indent_prefix, fallback_opts)
+end
+
+function doc_builders.render_call_expression(
+    prefix: string,
+    args: {string},
+    suffix: string,
+    indent_prefix: string,
+    prefer_trailing_compact: boolean
+): {string}
+    if #args < 2 then
+        return {
+            prefix .. "(" .. table.concat(args, ", ") .. ")" .. suffix,
+        }
+    end
+
+    local sequence_opts = DelimitedSequenceOptions.new("(", ")", 4, false)
+    local arg_lines: {string}
+    if prefer_trailing_compact then
+        arg_lines = doc_builders.render_trailing_call_sequence(
+            args, indent_prefix, sequence_opts
+        )
+    elseif suffix ~= "" then
+        arg_lines = render_expanded_delimited_sequence(
+            args, indent_prefix, sequence_opts
+        )
+    else
+        arg_lines = doc_builders.render_delimited_sequence(
+            args, indent_prefix, sequence_opts
+        )
+    end
+
+    local result: {string} = {}
+    for i, line_str in ipairs(arg_lines) do
+        if i == 1 then
+            table.insert(result, prefix .. line_str)
+        elseif i == #arg_lines then
+            table.insert(result, line_str .. suffix)
+        else
+            table.insert(result, line_str)
+        end
+    end
+    return result
 end
 
 function doc_builders.render_function_signature(

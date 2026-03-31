@@ -615,83 +615,6 @@ local function join_paren_span(span_lines: {string}): string
     return "(" .. table.concat(items, ", ") .. ")"
 end
 
--- Split a single-line paren span "(…)" into one item per line.
--- No trailing comma on the last item (unlike split_table_span).
-local function split_paren_span(span_content: string, indent_prefix: string): {string}
-    local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
-    inner = inner:match("^%s*(.-)%s*$") or ""
-    local items = split_params(inner)
-    if #items < 2 then
-        return {span_content}
-    end
-    local inner_indent = indent_prefix .. "    "
-    local result: {string} = {"("}
-    for i, item in ipairs(items) do
-        local suffix = i < #items and "," or ""
-        table.insert(result, inner_indent .. item .. suffix)
-    end
-    table.insert(result, indent_prefix .. ")")
-    return result
-end
-
-local function split_delimited_sequence_with_doc(
-    span_content: string,
-    open_delim: string,
-    close_delim: string,
-    indent_prefix: string,
-    compact_indent_amount: integer,
-    trailing_break_separator: boolean
-): {string}
-    local inner = span_content:sub(2, -2)
-    inner = inner:match("^%s*(.-)%s*$") or ""
-    local items = split_params(inner)
-    if #items < 2 then
-        return {span_content}
-    end
-
-    local opts = doc_builders.DelimitedSequenceOptions.new(
-        open_delim,
-        close_delim,
-        compact_indent_amount,
-        trailing_break_separator
-    )
-    return doc_builders.render_delimited_sequence(items, indent_prefix, opts)
-end
-
-local function split_call_paren_with_doc(
-    span_content: string,
-    indent_prefix: string
-): {string}
-    return split_delimited_sequence_with_doc(
-        span_content,
-        "(",
-        ")",
-        indent_prefix,
-        4,
-        false
-    )
-end
-
-local function split_trailing_call_paren_with_doc(
-    span_content: string,
-    indent_prefix: string
-): {string}
-    local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
-    inner = inner:match("^%s*(.-)%s*$") or ""
-    local items = split_params(inner)
-    if #items < 2 then
-        return {span_content}
-    end
-
-    local opts = doc_builders.DelimitedSequenceOptions.new(
-        "(",
-        ")",
-        4,
-        false
-    )
-    return doc_builders.render_trailing_call_sequence(items, indent_prefix, opts)
-end
-
 local function render_signature_with_doc(
     before: string,
     span_content: string,
@@ -734,36 +657,30 @@ local function render_table_with_doc(
     )
 end
 
--- Split a paren span into lines, preferring compact form when possible.
--- Compact form keeps all args on a single indented line.
--- Per-arg split is used when compact would still exceed 88 chars.
---
--- Two compact paths:
--- 1. Call with trailing content (e.g. ") .. ms"): uses 3-space indent and only
---    fires when the span was already compact (3 lines), to avoid collapsing
---    intentionally expanded multi-arg calls whose ")" has trailing content.
--- 2. Signature or call with no trailing content: uses 4-space indent and
---    always fires when the args fit within the line limit.
-local function split_paren_lines(
+local function render_call_with_doc(
+    before: string,
     span_content: string,
-    indent_prefix: string,
-    is_call: boolean,
     after: string,
     was_already_compact: boolean
 ): {string}
-    if is_call and after ~= "" and not after:match("^,") and was_already_compact then
-        return split_trailing_call_paren_with_doc(span_content, indent_prefix)
+    local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
+    inner = inner:match("^%s*(.-)%s*$") or ""
+    local args = split_params(inner)
+    if #args < 2 then
+        return {before .. span_content .. after}
     end
-    if after == "" then
-        local items = split_params(
-            (span_content:match("^%((.-)%)$") or span_content:sub(2, -2))
-                :match("^%s*(.-)%s*$") or ""
-        )
-        if #items >= 2 then
-            return split_call_paren_with_doc(span_content, indent_prefix)
-        end
-    end
-    return split_paren_span(span_content, indent_prefix)
+
+    local indent_prefix = before:match("^(%s*)") or ""
+    local prefer_trailing_compact =
+        after ~= "" and not after:match("^,") and was_already_compact
+
+    return doc_builders.render_call_expression(
+        before,
+        args,
+        after,
+        indent_prefix,
+        prefer_trailing_compact
+    )
 end
 
 -- Returns true when any original line in the span's range was replaced by an
@@ -841,18 +758,17 @@ local function apply_all_spans(
                 local before = line_str:sub(1, span.open_col - 1)
                 local after  = line_str:sub(span.close_col + 1)
                 local span_content = line_str:sub(span.open_col, span.close_col)
-                local indent_prefix = before:match("^(%s*)") or ""
                 local split_lines: {string}
                 if span.is_signature then
                     split_lines = render_signature_with_doc(before, span_content, after)
                 elseif span.is_table then
                     split_lines = render_table_with_doc(before, span_content, after)
                 else
-                    split_lines = split_paren_lines(span_content, indent_prefix, span.is_call, after, true)
+                    split_lines = render_call_with_doc(before, span_content, after, true)
                 end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
-                    if span.is_signature or span.is_table then
+                    if span.is_signature or span.is_table or span.is_call then
                         for _, new_line in ipairs(split_lines) do
                             table.insert(new_lines, new_line)
                         end
@@ -898,18 +814,17 @@ local function apply_all_spans(
                     replaced_lines[line] = true
                 end
             else
-                local indent_prefix = before:match("^(%s*)") or ""
                 local split_lines: {string}
                 if span.is_signature then
                     split_lines = render_signature_with_doc(before, joined, after)
                 elseif span.is_table then
                     split_lines = render_table_with_doc(before, joined, after)
                 else
-                    split_lines = split_paren_lines(joined, indent_prefix, span.is_call, after, #span_lines == 3)
+                    split_lines = render_call_with_doc(before, joined, after, #span_lines == 3)
                 end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
-                    if span.is_signature or span.is_table then
+                    if span.is_signature or span.is_table or span.is_call then
                         for _, new_line in ipairs(split_lines) do
                             table.insert(new_lines, new_line)
                         end
