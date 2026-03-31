@@ -1,5 +1,5 @@
 local blocks = require("formatter.blocks")
-local doc = require("formatter.doc")
+local doc_builders = require("formatter.doc_builders")
 local parser = require("formatter.parser")
 local tl = require("tl")
 
@@ -649,31 +649,13 @@ local function split_delimited_sequence_with_doc(
         return {span_content}
     end
 
-    local item_docs: {doc.Doc} = {}
-    for i, item in ipairs(items) do
-        local item_parts: {doc.Doc} = {
-            doc.text(item),
-        }
-        if i < #items then
-            table.insert(item_parts, doc.text(","))
-            table.insert(item_parts, doc.line(" "))
-        elseif trailing_break_separator then
-            table.insert(item_parts, doc.break_text(","))
-        end
-        table.insert(item_docs, doc.concat(item_parts))
-    end
-
-    local sequence_doc = doc.concat({
-        doc.text(open_delim),
-        doc.indent(compact_indent_amount, doc.concat({
-            doc.line(""),
-            doc.group(doc.concat(item_docs)),
-        })),
-        doc.line(""),
-        doc.text(close_delim),
-    })
-
-    return sequence_doc:render(88, 0, #indent_prefix, true)
+    local opts = doc_builders.DelimitedSequenceOptions.new(
+        open_delim,
+        close_delim,
+        compact_indent_amount,
+        trailing_break_separator
+    )
+    return doc_builders.render_delimited_sequence(items, indent_prefix, opts)
 end
 
 local function split_signature_paren_with_doc(
@@ -729,21 +711,13 @@ local function split_trailing_call_paren_with_doc(
         return {span_content}
     end
 
-    local compact_doc = doc.concat({
-        doc.text("("),
-        doc.indent(3, doc.concat({
-            doc.line(""),
-            doc.text(inner),
-        })),
-        doc.line(""),
-        doc.text(")"),
-    })
-    local compact_lines = compact_doc:render(88, 0, #indent_prefix, true)
-    if #compact_lines == 3 and #compact_lines[2] <= 88 then
-        return compact_lines
-    end
-
-    return split_call_paren_with_doc(span_content, indent_prefix)
+    local opts = doc_builders.DelimitedSequenceOptions.new(
+        "(",
+        ")",
+        4,
+        false
+    )
+    return doc_builders.render_trailing_call_sequence(items, indent_prefix, opts)
 end
 
 -- Split a paren span into lines, preferring compact form when possible.
