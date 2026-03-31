@@ -193,6 +193,18 @@ describe("formatter", function()
          )
          end
       ]]))
+
+      it("splits a signature one parameter per line when the compact broken form is still too wide", helpers.format([[
+         function f(first_parameter_with_a_very_long_name: ExtremelyVerboseTypeNameAlpha, second_parameter_with_a_very_long_name: ExtremelyVerboseTypeNameBeta, third_parameter_with_a_very_long_name: ExtremelyVerboseTypeNameGamma): ReturnType
+         end
+      ]],[[
+         function f(
+             first_parameter_with_a_very_long_name: ExtremelyVerboseTypeNameAlpha,
+             second_parameter_with_a_very_long_name: ExtremelyVerboseTypeNameBeta,
+             third_parameter_with_a_very_long_name: ExtremelyVerboseTypeNameGamma
+         ): ReturnType
+         end
+      ]]))
    end)
 
    describe("indentation", function()

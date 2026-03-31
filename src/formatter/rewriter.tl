@@ -1,4 +1,5 @@
 local blocks = require("formatter.blocks")
+local doc = require("formatter.doc")
 local parser = require("formatter.parser")
 local tl = require("tl")
 
@@ -34,6 +35,7 @@ local record Span
     close_line: integer
     close_col:  integer
     is_call:   boolean
+    is_signature: boolean
     is_table:  boolean
 end
 
@@ -43,6 +45,7 @@ function Span.new(
     close_line: integer,
     close_col: integer,
     is_call: boolean,
+    is_signature: boolean,
     is_table: boolean
 ): Span
     local self: Span = setmetatable({}, { __index = Span })
@@ -51,6 +54,7 @@ function Span.new(
     self.close_line = close_line
     self.close_col = close_col
     self.is_call = is_call
+    self.is_signature = is_signature
     self.is_table = is_table
     return self
 end
@@ -528,7 +532,7 @@ local function collect_table_spans(
             end
         end
         if is_safe and not has_multiline_descendant(node) and not has_magic_trailing_comma(node, lines) then
-            table.insert(result, Span.new(node.y, node.x, node.yend, node.xend, false, true))
+            table.insert(result, Span.new(node.y, node.x, node.yend, node.xend, false, false, true))
         end
         -- Still recurse into children to find nested simple tables
     end
@@ -649,6 +653,54 @@ local function split_paren_span(span_content: string, indent_prefix: string): {s
     return result
 end
 
+local function join_docs_with_separator(parts: {doc.Doc}, separator: doc.Doc): doc.Doc
+    if #parts == 0 then
+        return doc.concat({})
+    end
+
+    local result: {doc.Doc} = {parts[1]}
+    for i = 2, #parts do
+        table.insert(result, separator)
+        table.insert(result, parts[i])
+    end
+    return doc.concat(result)
+end
+
+local function split_signature_paren_with_doc(
+    span_content: string,
+    indent_prefix: string
+): {string}
+    local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
+    inner = inner:match("^%s*(.-)%s*$") or ""
+    local items = split_params(inner)
+    if #items < 2 then
+        return {span_content}
+    end
+
+    local item_docs: {doc.Doc} = {}
+    for _, item in ipairs(items) do
+        table.insert(item_docs, doc.text(item))
+    end
+
+    local separator = doc.concat({
+        doc.text(","),
+        doc.line(" "),
+    })
+
+    local grouped_items = doc.group(join_docs_with_separator(item_docs, separator))
+    local signature_doc = doc.concat({
+        doc.text("("),
+        doc.indent(4, doc.concat({
+            doc.line(""),
+            grouped_items,
+        })),
+        doc.line(""),
+        doc.text(")"),
+    })
+
+    return signature_doc:render(88, 0, #indent_prefix, true)
+end
+
 -- Split a paren span into lines, preferring compact form when possible.
 -- Compact form keeps all args on a single indented line.
 -- Per-arg split is used when compact would still exceed 88 chars.
@@ -666,6 +718,10 @@ local function split_paren_lines(
     after: string,
     was_already_compact: boolean
 ): {string}
+    if not is_call then
+        return split_signature_paren_with_doc(span_content, indent_prefix)
+    end
+
     if is_call and after ~= "" and not after:match("^,") and was_already_compact then
         local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
         inner = inner:match("^%s*(.-)%s*$") or ""
@@ -859,7 +915,7 @@ local function collect_signature_spans(
         if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
             and not has_multiline_descendant(args)
         then
-            table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, false, false))
+            table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, false, true, false))
         end
     end
     local function recurse(child: parser.Node)
@@ -883,7 +939,7 @@ local function collect_call_spans(
             if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
                 and not has_multiline_descendant(args)
             then
-                table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, true, false))
+                table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, true, false, false))
             end
         end
     end
