@@ -501,6 +501,14 @@ describe("formatter", function()
          )
       ]]))
 
+      it("wraps a call with trailing content to compact broken form when it fits", helpers.format([[
+         local formatted = string.format("%.1f", elapsed_milliseconds_long_value, maximum_precision) .. "ms"
+      ]], [[
+         local formatted = string.format(
+            "%.1f", elapsed_milliseconds_long_value, maximum_precision
+         ) .. "ms"
+      ]]))
+
       it("does not collapse an expanded call whose closing paren has trailing content", helpers.check([[
          return interval_overlap(
              self.x,

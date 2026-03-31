@@ -718,6 +718,34 @@ local function split_table_with_doc(
     )
 end
 
+local function split_trailing_call_paren_with_doc(
+    span_content: string,
+    indent_prefix: string
+): {string}
+    local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
+    inner = inner:match("^%s*(.-)%s*$") or ""
+    local items = split_params(inner)
+    if #items < 2 then
+        return {span_content}
+    end
+
+    local compact_doc = doc.concat({
+        doc.text("("),
+        doc.indent(3, doc.concat({
+            doc.line(""),
+            doc.text(inner),
+        })),
+        doc.line(""),
+        doc.text(")"),
+    })
+    local compact_lines = compact_doc:render(88, 0, #indent_prefix, true)
+    if #compact_lines == 3 and #compact_lines[2] <= 88 then
+        return compact_lines
+    end
+
+    return split_call_paren_with_doc(span_content, indent_prefix)
+end
+
 -- Split a paren span into lines, preferring compact form when possible.
 -- Compact form keeps all args on a single indented line.
 -- Per-arg split is used when compact would still exceed 88 chars.
@@ -740,13 +768,7 @@ local function split_paren_lines(
     end
 
     if is_call and after ~= "" and not after:match("^,") and was_already_compact then
-        local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
-        inner = inner:match("^%s*(.-)%s*$") or ""
-        local compact_indent = indent_prefix .. "   "
-        local items = split_params(inner)
-        if #items >= 2 and #(compact_indent .. inner) <= 88 then
-            return {"(", compact_indent .. inner, indent_prefix .. ")"}
-        end
+        return split_trailing_call_paren_with_doc(span_content, indent_prefix)
     end
     if not is_call or after == "" then
         local items = split_params(
