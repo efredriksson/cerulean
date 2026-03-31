@@ -672,20 +672,6 @@ local function split_call_paren_with_doc(
     )
 end
 
-local function split_table_with_doc(
-    span_content: string,
-    indent_prefix: string
-): {string}
-    return split_delimited_sequence_with_doc(
-        span_content,
-        "{",
-        "}",
-        indent_prefix,
-        4,
-        true
-    )
-end
-
 local function split_trailing_call_paren_with_doc(
     span_content: string,
     indent_prefix: string
@@ -722,6 +708,27 @@ local function render_signature_with_doc(
     return doc_builders.render_function_signature(
         before,
         params,
+        after,
+        indent_prefix
+    )
+end
+
+local function render_table_with_doc(
+    before: string,
+    span_content: string,
+    after: string
+): {string}
+    local inner = span_content:match("^%{(.-)%}$") or span_content:sub(2, -2)
+    inner = inner:match("^%s*(.-)%s*$") or ""
+    local fields = split_params(inner)
+    if #fields < 2 then
+        return {before .. span_content .. after}
+    end
+
+    local indent_prefix = before:match("^(%s*)") or ""
+    return doc_builders.render_table_constructor(
+        before,
+        fields,
         after,
         indent_prefix
     )
@@ -839,13 +846,13 @@ local function apply_all_spans(
                 if span.is_signature then
                     split_lines = render_signature_with_doc(before, span_content, after)
                 elseif span.is_table then
-                    split_lines = split_table_with_doc(span_content, indent_prefix)
+                    split_lines = render_table_with_doc(before, span_content, after)
                 else
                     split_lines = split_paren_lines(span_content, indent_prefix, span.is_call, after, true)
                 end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
-                    if span.is_signature then
+                    if span.is_signature or span.is_table then
                         for _, new_line in ipairs(split_lines) do
                             table.insert(new_lines, new_line)
                         end
@@ -896,13 +903,13 @@ local function apply_all_spans(
                 if span.is_signature then
                     split_lines = render_signature_with_doc(before, joined, after)
                 elseif span.is_table then
-                    split_lines = split_table_with_doc(joined, indent_prefix)
+                    split_lines = render_table_with_doc(before, joined, after)
                 else
                     split_lines = split_paren_lines(joined, indent_prefix, span.is_call, after, #span_lines == 3)
                 end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
-                    if span.is_signature then
+                    if span.is_signature or span.is_table then
                         for _, new_line in ipairs(split_lines) do
                             table.insert(new_lines, new_line)
                         end
