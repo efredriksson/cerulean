@@ -81,6 +81,42 @@ function RequireDecl.new(
     return self
 end
 
+local record FormatterContext
+    source: string
+    filename: string
+    ast: parser.Node
+    source_blocks: {blocks.Block}
+    require_decls: {RequireDecl}
+    tokens: {tl.Token}
+    edits: {Edit}
+    lines: {string}
+    fmt_off_lines: {integer: boolean}
+end
+
+function FormatterContext.new(
+    source: string,
+    filename: string,
+    ast: parser.Node,
+    source_blocks: {blocks.Block},
+    require_decls: {RequireDecl},
+    tokens: {tl.Token},
+    edits: {Edit},
+    lines: {string},
+    fmt_off_lines: {integer: boolean}
+): FormatterContext
+    local self: FormatterContext = setmetatable({}, { __index = FormatterContext })
+    self.source = source
+    self.filename = filename
+    self.ast = ast
+    self.source_blocks = source_blocks
+    self.require_decls = require_decls
+    self.tokens = tokens
+    self.edits = edits
+    self.lines = lines
+    self.fmt_off_lines = fmt_off_lines
+    return self
+end
+
 -- Collect edits to convert single-quoted string literals to double quotes.
 -- Skips strings that contain a double-quote character (cannot safely convert).
 local function collect_quote_edits(tokens: {tl.Token}): {Edit}
@@ -942,29 +978,52 @@ local function sort_require_blocks(
     return result
 end
 
+local function build_formatter_context(
+    source: string,
+    filename: string,
+    ast: parser.Node
+): FormatterContext
+    local source_blocks = blocks.collect_from_ast(ast)
+    local require_decls = collect_require_decls(ast)
+    local tokens, _ = tl.lex(source, filename)
+    local edits = collect_all_edits(tokens)
+    local lines = split_preserving_trailing_newline(source)
+    local fmt_off_lines = collect_fmt_off_lines(lines, source_blocks)
+
+    return FormatterContext.new(
+        source,
+        filename,
+        ast,
+        source_blocks,
+        require_decls,
+        tokens,
+        edits,
+        lines,
+        fmt_off_lines
+    )
+end
+
 local function run_lexical_whitespace_pass(
-    lines: {string},
-    fmt_off_lines: {integer: boolean},
-    edits: {Edit}
+    context: FormatterContext
 ): {string}
     local result: {string} = {}
-    for i, line_str in ipairs(lines) do
-        if fmt_off_lines[i] then
+    for i, line_str in ipairs(context.lines) do
+        if context.fmt_off_lines[i] then
             table.insert(result, line_str)
         else
-            table.insert(result, apply_edits_to_line(line_str, i, edits))
+            table.insert(result, apply_edits_to_line(line_str, i, context.edits))
         end
     end
     return result
 end
 
 local function run_line_cleanup_pass(
-    lines: {string},
-    fmt_off_lines: {integer: boolean}
+    context: FormatterContext,
+    lines: {string}
 ): {string}
     local result: {string} = {}
     for i, line_str in ipairs(lines) do
-        if fmt_off_lines[i] then
+        if context.fmt_off_lines[i] then
             table.insert(result, line_str)
         else
             local cleaned = expand_tabs(line_str)
@@ -976,37 +1035,34 @@ local function run_line_cleanup_pass(
 end
 
 local function run_reorder_pass(
-    lines: {string},
-    fmt_off_lines: {integer: boolean},
-    require_decls: {RequireDecl}
+    context: FormatterContext,
+    lines: {string}
 ): {string}
     -- Require sorting runs before span rewrites so the AST line numbers
     -- collected from the original source are still accurate.
     -- Token edits preserve line count; span rewrites may not.
-    return sort_require_blocks(lines, fmt_off_lines, require_decls)
+    return sort_require_blocks(lines, context.fmt_off_lines, context.require_decls)
 end
 
 local function collect_structural_spans(
-    ast: parser.Node,
-    source_lines: {string},
-    fmt_off_lines: {integer: boolean}
+    context: FormatterContext
 ): {Span}
     local spans: {Span} = {}
-    collect_signature_spans(ast, source_lines, fmt_off_lines, spans)
-    collect_call_spans(ast, source_lines, fmt_off_lines, spans)
-    collect_table_spans(ast, source_lines, fmt_off_lines, spans)
+    collect_signature_spans(context.ast, context.lines, context.fmt_off_lines, spans)
+    collect_call_spans(context.ast, context.lines, context.fmt_off_lines, spans)
+    collect_table_spans(context.ast, context.lines, context.fmt_off_lines, spans)
     return spans
 end
 
 local function run_structural_span_pass(
+    context: FormatterContext,
     lines: {string},
-    spans: {Span},
-    fmt_off_lines: {integer: boolean}
+    spans: {Span}
 ): {string}
-    return apply_all_spans(lines, spans, fmt_off_lines)
+    return apply_all_spans(lines, spans, context.fmt_off_lines)
 end
 
-local function run_final_cleanup_pass(lines: {string}): {string}
+local function run_final_cleanup_pass(_context: FormatterContext, lines: {string}): {string}
     return collapse_blank_lines(lines)
 end
 
@@ -1015,22 +1071,16 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
     if #parse_errors > 0 then
         return Rewrite.new(source, false, parse_errors)
     end
-    local source_blocks = blocks.collect_from_ast(ast)
-    local require_decls = collect_require_decls(ast)
 
-    local tokens, _ = tl.lex(source, filename)
-    local edits = collect_all_edits(tokens)
+    local context = build_formatter_context(source, filename, ast)
 
-    local lines = split_preserving_trailing_newline(source)
-    local fmt_off_lines = collect_fmt_off_lines(lines, source_blocks)
+    local output_lines = run_lexical_whitespace_pass(context)
+    output_lines = run_line_cleanup_pass(context, output_lines)
+    output_lines = run_reorder_pass(context, output_lines)
 
-    local output_lines = run_lexical_whitespace_pass(lines, fmt_off_lines, edits)
-    output_lines = run_line_cleanup_pass(output_lines, fmt_off_lines)
-    output_lines = run_reorder_pass(output_lines, fmt_off_lines, require_decls)
-
-    local structural_spans = collect_structural_spans(ast, lines, fmt_off_lines)
-    output_lines = run_structural_span_pass(output_lines, structural_spans, fmt_off_lines)
-    output_lines = run_final_cleanup_pass(output_lines)
+    local structural_spans = collect_structural_spans(context)
+    output_lines = run_structural_span_pass(context, output_lines, structural_spans)
+    output_lines = run_final_cleanup_pass(context, output_lines)
 
     local output = table.concat(output_lines, "\n")
     return Rewrite.new(output, output ~= source, {})
