@@ -695,18 +695,23 @@ local function apply_all_spans(
             local items = doc_builders.extract_items_from_span_lines(
                 span.kind, span_lines, split_params
             )
-            local joined = doc_builders.compact_construct_text(span.kind, items)
             local before = result[span.open_line]:sub(1, span.open_col - 1)
             local after  = result[span.close_line]:sub(span.close_col + 1)
-            local full_joined = before .. joined .. after
+            local compact_lines = doc_builders.render_compact_construct(
+                span.kind,
+                before,
+                items,
+                after,
+                before:match("^(%s*)") or ""
+            )
             local head: {string} = {}
             local tail: {string} = {}
             for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
             for i = span.close_line + 1, #result do table.insert(tail, result[i]) end
-            if #full_joined <= 88 then
+            if #compact_lines == 1 and #compact_lines[1] <= 88 then
                 result = {}
                 for _, line_str in ipairs(head) do table.insert(result, line_str) end
-                table.insert(result, full_joined)
+                table.insert(result, compact_lines[1])
                 for _, line_str in ipairs(tail) do table.insert(result, line_str) end
                 for line = span.open_line, span.close_line do
                     replaced_lines[line] = true

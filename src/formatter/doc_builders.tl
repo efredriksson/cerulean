@@ -75,6 +75,24 @@ local function render_doc(node: doc.Doc, indent_prefix: string): {string}
     return node:render(88, 0, #indent_prefix, true)
 end
 
+local function build_compact_delimited_sequence_doc(
+    items: {string}, opts: DelimitedSequenceOptions
+): doc.Doc
+    local parts: {doc.Doc} = {
+        doc.text(opts.open_delim),
+    }
+
+    for i, item in ipairs(items) do
+        table.insert(parts, doc.text(item))
+        if i < #items then
+            table.insert(parts, doc.text(", "))
+        end
+    end
+
+    table.insert(parts, doc.text(opts.close_delim))
+    return doc.concat(parts)
+end
+
 local function build_trailing_call_doc(items: {string}): doc.Doc
     if #items < 2 then
         return doc.text("(" .. table.concat(items, ", ") .. ")")
@@ -96,7 +114,9 @@ local function wrap_construct_lines(
 ): {string}
     local result: {string} = {}
     for i, line_str in ipairs(lines) do
-        if i == 1 then
+        if i == 1 and i == #lines then
+            table.insert(result, prefix .. line_str .. suffix)
+        elseif i == 1 then
             table.insert(result, prefix .. line_str)
         elseif i == #lines then
             table.insert(result, line_str .. suffix)
@@ -154,9 +174,23 @@ function doc_builders.extract_items_from_span_content(
     return extract_items_from_span(span_content, split_items)
 end
 
-function doc_builders.compact_construct_text(kind: string, items: {string}): string
-    local open_delim, close_delim = delimiters_for_kind(kind)
-    return open_delim .. table.concat(items, ", ") .. close_delim
+function doc_builders.render_compact_construct(
+    kind: string, prefix: string, items: {string}, suffix: string, indent_prefix: string
+): {string}
+    local sequence_opts: DelimitedSequenceOptions
+    if kind == "table" then
+        sequence_opts = DelimitedSequenceOptions.new("{", "}", 4, true)
+    else
+        sequence_opts = DelimitedSequenceOptions.new("(", ")", 4, false)
+    end
+
+    return wrap_construct_lines(
+        prefix,
+        suffix,
+        render_doc(
+            build_compact_delimited_sequence_doc(items, sequence_opts), indent_prefix
+        )
+    )
 end
 
 function doc_builders.render_construct(
@@ -175,11 +209,9 @@ function doc_builders.render_construct(
     end
 
     if #items < 2 then
-        return {
-            prefix
-                .. doc_builders.compact_construct_text(kind, items)
-                .. suffix,
-        }
+        return doc_builders.render_compact_construct(
+            kind, prefix, items, suffix, indent_prefix
+        )
     end
 
     local lines: {string}
