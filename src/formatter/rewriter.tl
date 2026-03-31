@@ -666,9 +666,10 @@ local function join_docs_with_separator(parts: {doc.Doc}, separator: doc.Doc): d
     return doc.concat(result)
 end
 
-local function split_signature_paren_with_doc(
+local function split_paren_with_doc(
     span_content: string,
-    indent_prefix: string
+    indent_prefix: string,
+    compact_indent_amount: integer
 ): {string}
     local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
     inner = inner:match("^%s*(.-)%s*$") or ""
@@ -688,9 +689,9 @@ local function split_signature_paren_with_doc(
     })
 
     local grouped_items = doc.group(join_docs_with_separator(item_docs, separator))
-    local signature_doc = doc.concat({
+    local paren_doc = doc.concat({
         doc.text("("),
-        doc.indent(4, doc.concat({
+        doc.indent(compact_indent_amount, doc.concat({
             doc.line(""),
             grouped_items,
         })),
@@ -698,7 +699,21 @@ local function split_signature_paren_with_doc(
         doc.text(")"),
     })
 
-    return signature_doc:render(88, 0, #indent_prefix, true)
+    return paren_doc:render(88, 0, #indent_prefix, true)
+end
+
+local function split_signature_paren_with_doc(
+    span_content: string,
+    indent_prefix: string
+): {string}
+    return split_paren_with_doc(span_content, indent_prefix, 4)
+end
+
+local function split_call_paren_with_doc(
+    span_content: string,
+    indent_prefix: string
+): {string}
+    return split_paren_with_doc(span_content, indent_prefix, 4)
 end
 
 -- Split a paren span into lines, preferring compact form when possible.
@@ -732,12 +747,12 @@ local function split_paren_lines(
         end
     end
     if not is_call or after == "" then
-        local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
-        inner = inner:match("^%s*(.-)%s*$") or ""
-        local compact_indent = indent_prefix .. "    "
-        local items = split_params(inner)
-        if #items >= 2 and #(compact_indent .. inner) <= 88 then
-            return {"(", compact_indent .. inner, indent_prefix .. ")"}
+        local items = split_params(
+            (span_content:match("^%((.-)%)$") or span_content:sub(2, -2))
+                :match("^%s*(.-)%s*$") or ""
+        )
+        if #items >= 2 then
+            return split_call_paren_with_doc(span_content, indent_prefix)
         end
     end
     return split_paren_span(span_content, indent_prefix)
