@@ -144,6 +144,40 @@ local function extract_items_from_span(
     return split_items(inner)
 end
 
+local function delimiters_for_kind(kind: string): string, string
+    if kind == "table" then
+        return "{", "}"
+    end
+
+    return "(", ")"
+end
+
+function doc_builders.normalize_span_lines(
+    kind: string, span_lines: {string}, split_items: function(string): {string}
+): string
+    local open_delim, close_delim = delimiters_for_kind(kind)
+    local stripped_lines: {string} = {}
+
+    for i, span_line in ipairs(span_lines) do
+        local stripped = span_line:match("^%s*(.-)%s*$") or ""
+        if i == 1 then
+            if stripped:sub(1, 1) ~= open_delim then
+                return table.concat(span_lines, " ")
+            end
+            stripped = stripped:sub(2)
+            stripped = stripped:match("^%s*(.-)%s*$") or ""
+        end
+        if i == #span_lines then
+            stripped = stripped:gsub("%s*" .. "%" .. close_delim .. "%s*$", "")
+            stripped = stripped:match("^%s*(.-)%s*$") or ""
+        end
+        table.insert(stripped_lines, stripped)
+    end
+
+    local items = split_items(table.concat(stripped_lines, "\n"))
+    return open_delim .. table.concat(items, ", ") .. close_delim
+end
+
 function doc_builders.render_construct(
     kind: string,
     prefix: string,

@@ -558,63 +558,6 @@ local function extract_span_lines(lines: {string}, span: Span): {string}
     return result
 end
 
--- Join a multi-line table span back to a single line.
--- Each body line is stripped of leading/trailing whitespace and trailing commas
--- are collected.  Returns the joined single-line content (just {…}).
-local function join_table_span(span_lines: {string}): string
-    -- span_lines[1] starts with "{", last line ends with "}"
-    local open_brace = span_lines[1]:match("^(%{)")
-    if not open_brace then
-        return table.concat(span_lines, " ")
-    end
-    local items: {string} = {}
-    for i = 1, #span_lines do
-        local stripped = span_lines[i]:match("^%s*(.-)%s*$") or ""
-        -- Remove surrounding braces from first/last contributions
-        if i == 1 then
-            stripped = stripped:sub(2) -- remove leading "{"
-            stripped = stripped:match("^%s*(.-)%s*$") or ""
-        end
-        if i == #span_lines then
-            -- remove trailing "}" (and optional trailing comma before it)
-            stripped = stripped:gsub("%s*}%s*$", "")
-            stripped = stripped:match("^%s*(.-)%s*$") or ""
-        end
-        -- strip trailing comma
-        local item = stripped:gsub(",%s*$", "")
-        item = item:match("^%s*(.-)%s*$") or ""
-        if item ~= "" then
-            table.insert(items, item)
-        end
-    end
-    return "{" .. table.concat(items, ", ") .. "}"
-end
-
--- Join a multi-line paren span back to a single line.
--- span_lines[1] starts with "(" (open_col); span_lines[last] ends with ")" (close_col).
--- Inner lines are stripped of whitespace and trailing commas.
-local function join_paren_span(span_lines: {string}): string
-    local items: {string} = {}
-    for i = 1, #span_lines do
-        local stripped = span_lines[i]:match("^%s*(.-)%s*$") or ""
-        if i == 1 then
-            stripped = stripped:sub(2)  -- remove leading "("
-            stripped = stripped:match("^%s*(.-)%s*$") or ""
-        end
-        if i == #span_lines then
-            -- span_lines[last] ends exactly at ")" so strip trailing ")"
-            stripped = stripped:gsub("%)%s*$", "")
-            stripped = stripped:match("^%s*(.-)%s*$") or ""
-        end
-        local item = stripped:gsub(",%s*$", "")
-        item = item:match("^%s*(.-)%s*$") or ""
-        if item ~= "" then
-            table.insert(items, item)
-        end
-    end
-    return "(" .. table.concat(items, ", ") .. ")"
-end
-
 local function render_call_with_doc(
     kind: SpanKind,
     before: string,
@@ -747,12 +690,9 @@ local function apply_all_spans(
             end
         else
             local span_lines = extract_span_lines(result, span)
-            local joined: string
-            if span.kind == "table" then
-                joined = join_table_span(span_lines)
-            else
-                joined = join_paren_span(span_lines)
-            end
+            local joined = doc_builders.normalize_span_lines(
+                span.kind, span_lines, split_params
+            )
             local before = result[span.open_line]:sub(1, span.open_col - 1)
             local after  = result[span.close_line]:sub(span.close_col + 1)
             local full_joined = before .. joined .. after
