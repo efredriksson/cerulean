@@ -942,6 +942,74 @@ local function sort_require_blocks(
     return result
 end
 
+local function run_lexical_whitespace_pass(
+    lines: {string},
+    fmt_off_lines: {integer: boolean},
+    edits: {Edit}
+): {string}
+    local result: {string} = {}
+    for i, line_str in ipairs(lines) do
+        if fmt_off_lines[i] then
+            table.insert(result, line_str)
+        else
+            table.insert(result, apply_edits_to_line(line_str, i, edits))
+        end
+    end
+    return result
+end
+
+local function run_line_cleanup_pass(
+    lines: {string},
+    fmt_off_lines: {integer: boolean}
+): {string}
+    local result: {string} = {}
+    for i, line_str in ipairs(lines) do
+        if fmt_off_lines[i] then
+            table.insert(result, line_str)
+        else
+            local cleaned = expand_tabs(line_str)
+            cleaned = strip_trailing_spaces(cleaned)
+            table.insert(result, cleaned)
+        end
+    end
+    return result
+end
+
+local function run_reorder_pass(
+    lines: {string},
+    fmt_off_lines: {integer: boolean},
+    require_decls: {RequireDecl}
+): {string}
+    -- Require sorting runs before span rewrites so the AST line numbers
+    -- collected from the original source are still accurate.
+    -- Token edits preserve line count; span rewrites may not.
+    return sort_require_blocks(lines, fmt_off_lines, require_decls)
+end
+
+local function collect_structural_spans(
+    ast: parser.Node,
+    source_lines: {string},
+    fmt_off_lines: {integer: boolean}
+): {Span}
+    local spans: {Span} = {}
+    collect_signature_spans(ast, source_lines, fmt_off_lines, spans)
+    collect_call_spans(ast, source_lines, fmt_off_lines, spans)
+    collect_table_spans(ast, source_lines, fmt_off_lines, spans)
+    return spans
+end
+
+local function run_structural_span_pass(
+    lines: {string},
+    spans: {Span},
+    fmt_off_lines: {integer: boolean}
+): {string}
+    return apply_all_spans(lines, spans, fmt_off_lines)
+end
+
+local function run_final_cleanup_pass(lines: {string}): {string}
+    return collapse_blank_lines(lines)
+end
+
 function rewriter.rewrite(source: string, filename: string): Rewrite
     local ast, parse_errors = parser.parse(source, filename)
     if #parse_errors > 0 then
@@ -956,30 +1024,14 @@ function rewriter.rewrite(source: string, filename: string): Rewrite
     local lines = split_preserving_trailing_newline(source)
     local fmt_off_lines = collect_fmt_off_lines(lines, source_blocks)
 
-    local output_lines: {string} = {}
-    for i, line_str in ipairs(lines) do
-        if fmt_off_lines[i] then
-            table.insert(output_lines, line_str)
-        else
-            local result = apply_edits_to_line(line_str, i, edits)
-            result = expand_tabs(result)
-            result = strip_trailing_spaces(result)
-            table.insert(output_lines, result)
-        end
-    end
+    local output_lines = run_lexical_whitespace_pass(lines, fmt_off_lines, edits)
+    output_lines = run_line_cleanup_pass(output_lines, fmt_off_lines)
+    output_lines = run_reorder_pass(output_lines, fmt_off_lines, require_decls)
 
-    -- Require sorting runs before span rewrites so the AST line numbers
-    -- collected above (from the original source) are still accurate.
-    -- Token edits preserve line count; span rewrites may not.
-    output_lines = sort_require_blocks(output_lines, fmt_off_lines, require_decls)
+    local structural_spans = collect_structural_spans(ast, lines, fmt_off_lines)
+    output_lines = run_structural_span_pass(output_lines, structural_spans, fmt_off_lines)
+    output_lines = run_final_cleanup_pass(output_lines)
 
-    local all_spans: {Span} = {}
-    collect_signature_spans(ast, lines, fmt_off_lines, all_spans)
-    collect_call_spans(ast, lines, fmt_off_lines, all_spans)
-    collect_table_spans(ast, lines, fmt_off_lines, all_spans)
-
-    output_lines = apply_all_spans(output_lines, all_spans, fmt_off_lines)
-    output_lines = collapse_blank_lines(output_lines)
     local output = table.concat(output_lines, "\n")
     return Rewrite.new(output, output ~= source, {})
 end
