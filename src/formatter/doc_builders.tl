@@ -136,6 +136,14 @@ local function wrap_construct_lines(
     return result
 end
 
+local function extract_items_from_span(
+    span_content: string, split_items: function(string): {string}
+): {string}
+    local inner = span_content:sub(2, -2)
+    inner = inner:match("^%s*(.-)%s*$") or ""
+    return split_items(inner)
+end
+
 function doc_builders.render_construct(
     kind: string,
     prefix: string,
@@ -175,6 +183,25 @@ function doc_builders.render_construct(
     end
 
     return wrap_construct_lines(prefix, suffix, lines)
+end
+
+function doc_builders.render_span_construct(
+    kind: string,
+    prefix: string,
+    span_content: string,
+    suffix: string,
+    indent_prefix: string,
+    prefer_trailing_compact: boolean,
+    split_items: function(string): {string}
+): {string}
+    local items = extract_items_from_span(span_content, split_items)
+    if #items < 2 then
+        return {prefix .. span_content .. suffix}
+    end
+
+    return doc_builders.render_construct(
+        kind, prefix, items, suffix, indent_prefix, prefer_trailing_compact
+    )
 end
 
 return doc_builders

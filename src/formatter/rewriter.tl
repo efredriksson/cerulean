@@ -622,25 +622,19 @@ local function render_call_with_doc(
     after: string,
     was_already_compact: boolean
 ): {string}
-    local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
-    inner = inner:match("^%s*(.-)%s*$") or ""
-    local items = split_params(inner)
-    if #items < 2 then
-        return {before .. span_content .. after}
-    end
-
     local indent_prefix = before:match("^(%s*)") or ""
     local prefer_trailing_compact = kind == "call"
         and
         after ~= "" and not after:match("^,") and was_already_compact
 
-    return doc_builders.render_construct(
+    return doc_builders.render_span_construct(
         kind,
         before,
-        items,
+        span_content,
         after,
         indent_prefix,
-        prefer_trailing_compact
+        prefer_trailing_compact,
+        split_params
     )
 end
 
