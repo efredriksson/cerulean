@@ -206,6 +206,49 @@ local function collect_all_edits(tokens: {tl.Token}): {Edit}
     return edits
 end
 
+local function error_on_edit_conflicts(line_edits: {Edit}, line_number: integer)
+    local function edit_bounds(edit: Edit): integer, integer
+        if edit.col_end < edit.col_start then
+            return edit.col_start, edit.col_start
+        end
+        return edit.col_start, edit.col_end + 1
+    end
+
+    local function edits_conflict(first: Edit, second: Edit): boolean
+        local first_start, first_end = edit_bounds(first)
+        local second_start, second_end = edit_bounds(second)
+        local first_is_insertion = first_start == first_end
+        local second_is_insertion = second_start == second_end
+
+        if first_is_insertion and second_is_insertion then
+            return first_start == second_start
+        elseif first_is_insertion then
+            return first_start >= second_start and first_start < second_end
+        elseif second_is_insertion then
+            return second_start >= first_start and second_start < first_end
+        end
+
+        return first_start < second_end and second_start < first_end
+    end
+
+    for i = 1, #line_edits do
+        for j = i + 1, #line_edits do
+            if edits_conflict(line_edits[i], line_edits[j]) then
+                error(
+                    string.format(
+                        "formatter produced overlapping edits on line %d (%d:%d and %d:%d)",
+                        line_number,
+                        line_edits[i].col_start,
+                        line_edits[i].col_end,
+                        line_edits[j].col_start,
+                        line_edits[j].col_end
+                    )
+                )
+            end
+        end
+    end
+end
+
 local function apply_edits_to_line(
     line_str: string, line_number: integer, edits: {Edit}
 ): string
@@ -220,6 +263,7 @@ local function apply_edits_to_line(
         return first.col_start > second.col_start
     end
     table.sort(line_edits, by_col_desc)
+    error_on_edit_conflicts(line_edits, line_number)
 
     local result = line_str
     for _, edit in ipairs(line_edits) do
