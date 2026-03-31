@@ -640,8 +640,7 @@ local function split_delimited_sequence_with_doc(
     close_delim: string,
     indent_prefix: string,
     compact_indent_amount: integer,
-    trailing_break_separator: boolean,
-    allow_compact_broken: boolean
+    trailing_break_separator: boolean
 ): {string}
     local inner = span_content:sub(2, -2)
     inner = inner:match("^%s*(.-)%s*$") or ""
@@ -664,16 +663,11 @@ local function split_delimited_sequence_with_doc(
         table.insert(item_docs, doc.concat(item_parts))
     end
 
-    local body_doc = doc.concat(item_docs)
-    if allow_compact_broken then
-        body_doc = doc.group(body_doc)
-    end
-
     local sequence_doc = doc.concat({
         doc.text(open_delim),
         doc.indent(compact_indent_amount, doc.concat({
             doc.line(""),
-            body_doc,
+            doc.group(doc.concat(item_docs)),
         })),
         doc.line(""),
         doc.text(close_delim),
@@ -692,8 +686,7 @@ local function split_signature_paren_with_doc(
         ")",
         indent_prefix,
         4,
-        false,
-        true
+        false
     )
 end
 
@@ -707,8 +700,7 @@ local function split_call_paren_with_doc(
         ")",
         indent_prefix,
         4,
-        false,
-        true
+        false
     )
 end
 
@@ -722,8 +714,7 @@ local function split_table_with_doc(
         "}",
         indent_prefix,
         4,
-        true,
-        false
+        true
     )
 end
 

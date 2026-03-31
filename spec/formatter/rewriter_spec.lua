@@ -351,15 +351,11 @@ describe("formatter", function()
    end)
 
    describe("table constructor wrapping", function()
-      it("wraps a long single-line table constructor to one element per line", helpers.format([[
+      it("wraps a long single-line table constructor to compact form when the inner line fits", helpers.format([[
          local items = {Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon}
       ]], [[
          local items = {
-             Alpha = Alpha,
-             Beta = Beta,
-             Gamma = Gamma,
-             Delta = Delta,
-             Epsilon = Epsilon,
+             Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon
          }
       ]]))
 
@@ -390,11 +386,17 @@ describe("formatter", function()
          local items = {Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon}
       ]],[[
          local items = {
-             Alpha = Alpha,
-             Beta = Beta,
-             Gamma = Gamma,
-             Delta = Delta,
-             Epsilon = Epsilon,
+             Alpha = Alpha, Beta = Beta, Gamma = Gamma, Delta = Delta, Epsilon = Epsilon
+         }
+      ]]))
+
+      it("wraps a long table constructor to one element per line when the compact broken form is still too wide", helpers.format([[
+         local items = {first_parameter_with_a_very_long_name = ExtremelyVerboseValueAlpha, second_parameter_with_a_very_long_name = ExtremelyVerboseValueBeta, third_parameter_with_a_very_long_name = ExtremelyVerboseValueGamma}
+      ]], [[
+         local items = {
+             first_parameter_with_a_very_long_name = ExtremelyVerboseValueAlpha,
+             second_parameter_with_a_very_long_name = ExtremelyVerboseValueBeta,
+             third_parameter_with_a_very_long_name = ExtremelyVerboseValueGamma,
          }
       ]]))
 
