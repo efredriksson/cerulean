@@ -120,100 +120,61 @@ function doc_builders.render_trailing_call_sequence(
     return doc_builders.render_delimited_sequence(items, indent_prefix, fallback_opts)
 end
 
-function doc_builders.render_call_expression(
+local function wrap_construct_lines(
+    prefix: string, suffix: string, lines: {string}
+): {string}
+    local result: {string} = {}
+    for i, line_str in ipairs(lines) do
+        if i == 1 then
+            table.insert(result, prefix .. line_str)
+        elseif i == #lines then
+            table.insert(result, line_str .. suffix)
+        else
+            table.insert(result, line_str)
+        end
+    end
+    return result
+end
+
+function doc_builders.render_construct(
+    kind: string,
     prefix: string,
-    args: {string},
+    items: {string},
     suffix: string,
     indent_prefix: string,
     prefer_trailing_compact: boolean
 ): {string}
-    if #args < 2 then
-        return {
-            prefix .. "(" .. table.concat(args, ", ") .. ")" .. suffix,
-        }
-    end
-
-    local sequence_opts = DelimitedSequenceOptions.new("(", ")", 4, false)
-    local arg_lines: {string}
-    if prefer_trailing_compact then
-        arg_lines = doc_builders.render_trailing_call_sequence(
-            args, indent_prefix, sequence_opts
-        )
-    elseif suffix ~= "" then
-        arg_lines = render_expanded_delimited_sequence(
-            args, indent_prefix, sequence_opts
-        )
+    local sequence_opts: DelimitedSequenceOptions
+    if kind == "table" then
+        sequence_opts = DelimitedSequenceOptions.new("{", "}", 4, true)
     else
-        arg_lines = doc_builders.render_delimited_sequence(
-            args, indent_prefix, sequence_opts
+        sequence_opts = DelimitedSequenceOptions.new("(", ")", 4, false)
+    end
+
+    if #items < 2 then
+        return {
+            prefix
+                .. sequence_opts.open_delim
+                .. table.concat(items, ", ")
+                .. sequence_opts.close_delim
+                .. suffix,
+        }
+    end
+
+    local lines: {string}
+    if kind == "call" and prefer_trailing_compact then
+        lines = doc_builders.render_trailing_call_sequence(
+            items, indent_prefix, sequence_opts
+        )
+    elseif kind == "call" and suffix ~= "" then
+        lines = render_expanded_delimited_sequence(items, indent_prefix, sequence_opts)
+    else
+        lines = doc_builders.render_delimited_sequence(
+            items, indent_prefix, sequence_opts
         )
     end
 
-    local result: {string} = {}
-    for i, line_str in ipairs(arg_lines) do
-        if i == 1 then
-            table.insert(result, prefix .. line_str)
-        elseif i == #arg_lines then
-            table.insert(result, line_str .. suffix)
-        else
-            table.insert(result, line_str)
-        end
-    end
-    return result
-end
-
-function doc_builders.render_function_signature(
-    prefix: string, params: {string}, suffix: string, indent_prefix: string
-): {string}
-    if #params < 2 then
-        return {
-            prefix .. "(" .. table.concat(params, ", ") .. ")" .. suffix,
-        }
-    end
-
-    local sequence_opts = DelimitedSequenceOptions.new("(", ")", 4, false)
-    local param_lines = doc_builders.render_delimited_sequence(
-        params, indent_prefix, sequence_opts
-    )
-
-    local result: {string} = {}
-    for i, line_str in ipairs(param_lines) do
-        if i == 1 then
-            table.insert(result, prefix .. line_str)
-        elseif i == #param_lines then
-            table.insert(result, line_str .. suffix)
-        else
-            table.insert(result, line_str)
-        end
-    end
-    return result
-end
-
-function doc_builders.render_table_constructor(
-    prefix: string, fields: {string}, suffix: string, indent_prefix: string
-): {string}
-    if #fields < 2 then
-        return {
-            prefix .. "{" .. table.concat(fields, ", ") .. "}" .. suffix,
-        }
-    end
-
-    local sequence_opts = DelimitedSequenceOptions.new("{", "}", 4, true)
-    local field_lines = doc_builders.render_delimited_sequence(
-        fields, indent_prefix, sequence_opts
-    )
-
-    local result: {string} = {}
-    for i, line_str in ipairs(field_lines) do
-        if i == 1 then
-            table.insert(result, prefix .. line_str)
-        elseif i == #field_lines then
-            table.insert(result, line_str .. suffix)
-        else
-            table.insert(result, line_str)
-        end
-    end
-    return result
+    return wrap_construct_lines(prefix, suffix, lines)
 end
 
 return doc_builders

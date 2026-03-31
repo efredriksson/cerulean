@@ -615,49 +615,8 @@ local function join_paren_span(span_lines: {string}): string
     return "(" .. table.concat(items, ", ") .. ")"
 end
 
-local function render_signature_with_doc(
-    before: string,
-    span_content: string,
-    after: string
-): {string}
-    local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
-    inner = inner:match("^%s*(.-)%s*$") or ""
-    local params = split_params(inner)
-    if #params < 2 then
-        return {before .. span_content .. after}
-    end
-
-    local indent_prefix = before:match("^(%s*)") or ""
-    return doc_builders.render_function_signature(
-        before,
-        params,
-        after,
-        indent_prefix
-    )
-end
-
-local function render_table_with_doc(
-    before: string,
-    span_content: string,
-    after: string
-): {string}
-    local inner = span_content:match("^%{(.-)%}$") or span_content:sub(2, -2)
-    inner = inner:match("^%s*(.-)%s*$") or ""
-    local fields = split_params(inner)
-    if #fields < 2 then
-        return {before .. span_content .. after}
-    end
-
-    local indent_prefix = before:match("^(%s*)") or ""
-    return doc_builders.render_table_constructor(
-        before,
-        fields,
-        after,
-        indent_prefix
-    )
-end
-
 local function render_call_with_doc(
+    kind: SpanKind,
     before: string,
     span_content: string,
     after: string,
@@ -665,18 +624,20 @@ local function render_call_with_doc(
 ): {string}
     local inner = span_content:match("^%((.-)%)$") or span_content:sub(2, -2)
     inner = inner:match("^%s*(.-)%s*$") or ""
-    local args = split_params(inner)
-    if #args < 2 then
+    local items = split_params(inner)
+    if #items < 2 then
         return {before .. span_content .. after}
     end
 
     local indent_prefix = before:match("^(%s*)") or ""
-    local prefer_trailing_compact =
+    local prefer_trailing_compact = kind == "call"
+        and
         after ~= "" and not after:match("^,") and was_already_compact
 
-    return doc_builders.render_call_expression(
+    return doc_builders.render_construct(
+        kind,
         before,
-        args,
+        items,
         after,
         indent_prefix,
         prefer_trailing_compact
@@ -759,13 +720,13 @@ local function apply_all_spans(
                 local after  = line_str:sub(span.close_col + 1)
                 local span_content = line_str:sub(span.open_col, span.close_col)
                 local split_lines: {string}
-                if span.kind == "signature" then
-                    split_lines = render_signature_with_doc(before, span_content, after)
-                elseif span.kind == "table" then
-                    split_lines = render_table_with_doc(before, span_content, after)
-                else
-                    split_lines = render_call_with_doc(before, span_content, after, true)
-                end
+                split_lines = render_call_with_doc(
+                    span.kind,
+                    before,
+                    span_content,
+                    after,
+                    true
+                )
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
                     if span.kind == "signature" or span.kind == "table" or span.kind == "call" then
@@ -815,13 +776,13 @@ local function apply_all_spans(
                 end
             else
                 local split_lines: {string}
-                if span.kind == "signature" then
-                    split_lines = render_signature_with_doc(before, joined, after)
-                elseif span.kind == "table" then
-                    split_lines = render_table_with_doc(before, joined, after)
-                else
-                    split_lines = render_call_with_doc(before, joined, after, #span_lines == 3)
-                end
+                split_lines = render_call_with_doc(
+                    span.kind,
+                    before,
+                    joined,
+                    after,
+                    #span_lines == 3
+                )
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
                     if span.kind == "signature" or span.kind == "table" or span.kind == "call" then
