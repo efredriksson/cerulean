@@ -53,15 +53,27 @@ local function has_comment(
     return false
 end
 
+local function has_non_empty_line_between(
+    lines: {string}, start_line: integer, end_line: integer
+): boolean
+    for line = start_line, end_line do
+        if lines[line] ~= nil and lines[line]:match("%S") ~= nil then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function stmt_is_safe_source_shape(stmt: parser.Node): boolean
     if stmt.kind == "return" then
-        return stmt.exps == nil or node_list_is_single_line(stmt.exps)
+        return true
     elseif stmt.kind == "assignment" then
-        return node_list_is_single_line(stmt.vars) and node_list_is_single_line(stmt.exps)
+        return true
     elseif stmt.kind == "local_declaration" then
-        return node_list_is_single_line(stmt.vars) and node_list_is_single_line(stmt.exps)
+        return true
     elseif stmt.kind == "local_type" then
-        return stmt.value ~= nil and node_is_single_line(stmt.value)
+        return stmt.value ~= nil
     elseif stmt.kind == "op" then
         return node_is_single_line(stmt)
     elseif stmt.kind == "break" then
@@ -111,7 +123,7 @@ function structural_render_analysis.can_render_block(
 
     local previous_end: integer | nil = nil
     for _, stmt in ipairs(block) do
-        local stmt_end = node_end_line(stmt)
+        local stmt_end = max_source_line(stmt)
         if fmt_off_regions:includes_range(stmt.y, stmt_end) then
             return false
         end
@@ -119,7 +131,11 @@ function structural_render_analysis.can_render_block(
             return false
         end
         if previous_end ~= nil and stmt.y > (previous_end as integer) + 1 then
-            return false
+            if not has_non_empty_line_between(
+               lines, (previous_end as integer) + 1, stmt.y - 1
+            ) then
+                return false
+            end
         end
         if not stmt_is_safe_source_shape(stmt) then
             return false

@@ -422,6 +422,116 @@ describe("formatter", function()
       ]]))
    end)
 
+   describe("top-level structural block rendering", function()
+      it("reindents a clean top-level if block", helpers.format([[
+         if ready then
+           tick()
+         end
+      ]], [[
+         if ready then
+             tick()
+         end
+      ]]))
+
+      it("reindents a clean top-level mixed local if return block", helpers.format([[
+         local ready = true
+         if ready then
+           tick()
+         end
+         return ready and done()
+      ]], [[
+         local ready = true
+         if ready then
+             tick()
+         end
+         return ready and done()
+      ]]))
+
+      it("reindents a top-level function definition with nested clean blocks", helpers.format([[
+         local function build(items: {string})
+           for _, item in ipairs(items) do
+             if active(item) then
+               log(item)
+             end
+           end
+         end
+         return build
+      ]], [[
+         local function build(items: {string})
+             for _, item in ipairs(items) do
+                 if active(item) then
+                     log(item)
+                 end
+             end
+         end
+         return build
+      ]]))
+
+      it("reindents a top-level block with a multiline local call rhs", helpers.format([[
+         local selected = foo.new_selection(
+             some_settings.long_field_name,
+             minimum_value_long,
+             maximum_value_long
+         )
+         if enabled then
+           log(selected)
+         end
+         return selected
+      ]], [[
+         local selected = foo.new_selection(
+             some_settings.long_field_name, minimum_value_long, maximum_value_long
+         )
+         if enabled then
+             log(selected)
+         end
+         return selected
+      ]]))
+
+      it("reindents a top-level block with a multiline local table rhs", helpers.format([[
+         local items = {
+             first_parameter_with_a_very_long_name = ExtremelyVerboseValueAlpha,
+             second_parameter_with_a_very_long_name = ExtremelyVerboseValueBeta,
+             third_parameter_with_a_very_long_name = ExtremelyVerboseValueGamma
+         }
+         if ready then
+           log(items)
+         end
+         return items
+      ]], [[
+         local items = {
+             first_parameter_with_a_very_long_name = ExtremelyVerboseValueAlpha,
+             second_parameter_with_a_very_long_name = ExtremelyVerboseValueBeta,
+             third_parameter_with_a_very_long_name = ExtremelyVerboseValueGamma,
+         }
+         if ready then
+             log(items)
+         end
+         return items
+      ]]))
+
+      it("reindents a top-level block with a multiline return expression", helpers.format([[
+         local ready = true
+         if ready then
+           tick()
+         end
+         return interval_overlap(
+             self.x,
+             self.x + self.width,
+             other.x,
+             other.x + other.width
+         ) and
+             interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
+      ]], [[
+         local ready = true
+         if ready then
+             tick()
+         end
+         return interval_overlap(
+            self.x, self.x + self.width, other.x, other.x + other.width
+         ) and interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
+      ]]))
+   end)
+
    describe("blank line normalisation", function()
       it("collapses two consecutive blank lines to one", helpers.format([[
          local x = 1

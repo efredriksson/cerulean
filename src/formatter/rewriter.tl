@@ -766,6 +766,16 @@ local function run_final_cleanup_pass(
     return collapse_blank_lines(lines)
 end
 
+local function top_level_block_has_nested_structure(block: parser.Node): boolean
+    for _, stmt in ipairs(block) do
+        if stmt.body ~= nil or stmt.if_blocks ~= nil then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function run_structural_phase(
     source: string, filename: string, ast: parser.Node
 ): string
@@ -781,9 +791,10 @@ local function run_structural_phase(
         output_lines = context.lines
     end
 
-    if structural_render_analysis.can_render_block(
-       context.ast, output_lines, context.fmt_off_regions
-    ) then
+    if top_level_block_has_nested_structure(context.ast)
+        and structural_render_analysis.can_render_block(
+           context.ast, output_lines, context.fmt_off_regions
+        ) then
         local structurally_rendered = block_doc.render_block(context.ast)
         if structurally_rendered ~= nil then
             local rendered_source = table.concat(structurally_rendered, "\n") .. "\n"
