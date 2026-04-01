@@ -1,3 +1,4 @@
+local ast_utils = require("formatter.ast_utils")
 local parser = require("formatter.parser")
 local tl = require("tl")
 
@@ -15,39 +16,13 @@ function Block.new(open_line: integer, close_line: integer): blocks.Block
     return self
 end
 
--- fmt: off
-local BLOCK_NODE_KINDS: {tl.NodeKind: boolean} = {
-    ["function"]        = true,
-    ["local_function"]  = true,
-    ["global_function"] = true,
-    ["record_function"] = true,
-    ["if"]              = true,
-    ["while"]           = true,
-    ["fornum"]          = true,
-    ["forin"]           = true,
-    ["repeat"]          = true,
-    ["do"]              = true,
-    ["newtype"]         = true,
-}
--- fmt: on
-
--- node.yend gives the exact closing line from the AST, so block
--- boundaries are precise regardless of blank lines before "end".
-local function collect(nodes: {parser.Node}, result: {blocks.Block})
-    for _, node in ipairs(nodes) do
-        if BLOCK_NODE_KINDS[node.kind] then
-            table.insert(result, blocks.Block.new(node.y, node.yend))
-        end
-
-        collect(node.body and {node.body} or {}, result)
-        collect(node.if_blocks or {}, result)
-        collect(node, result)
-    end
-end
-
 function blocks.collect_from_ast(ast: parser.Node): {blocks.Block}
     local result: {blocks.Block} = {}
-    collect(ast, result)
+    for _, block_span in ipairs(ast_utils.collect_block_spans(ast)) do
+        table.insert(
+            result, blocks.Block.new(block_span.open_line, block_span.close_line)
+        )
+    end
     return result
 end
 

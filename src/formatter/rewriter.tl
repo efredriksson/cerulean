@@ -1,4 +1,4 @@
-local blocks = require("formatter.blocks")
+local ast_utils = require("formatter.ast_utils")
 local doc_builders = require("formatter.doc_builders")
 local parser = require("formatter.parser")
 local tl = require("tl")
@@ -89,7 +89,7 @@ local record FormatterContext
     source: string
     filename: string
     ast: parser.Node
-    source_blocks: {blocks.Block}
+    source_blocks: {ast_utils.BlockSpan}
     require_decls: {RequireDecl}
     tokens: {tl.Token}
     edits: {Edit}
@@ -101,7 +101,7 @@ function FormatterContext.new(
     source: string,
     filename: string,
     ast: parser.Node,
-    source_blocks: {blocks.Block},
+    source_blocks: {ast_utils.BlockSpan},
     require_decls: {RequireDecl},
     tokens: {tl.Token},
     edits: {Edit},
@@ -326,54 +326,6 @@ local function split_preserving_trailing_newline(source: string): {string}
     return lines
 end
 
--- Returns the close_line of the innermost block that contains the given line,
--- or last_line + 1 when the line is at the top level (no enclosing block).
-local function find_enclosing_block_end(
-    source_blocks: {blocks.Block}, line: integer, last_line: integer
-): integer
-    local innermost_end = last_line + 1
-    for _, block in ipairs(source_blocks) do
-        if block.open_line <= line and block.close_line > line then
-            if block.close_line < innermost_end then
-                innermost_end = block.close_line
-            end
-        end
-    end
-    return innermost_end
-end
-
--- tl.lex strips comments, so directives cannot be found in the token stream.
--- We scan raw lines for the directives while using the AST-derived block
--- spans to enforce that --fmt: on must close the same block as --fmt: off.
-local function collect_fmt_off_lines(source_lines: {string}, source_blocks: {blocks.Block}): {integer: boolean}
-    local fmt_off_lines: {integer: boolean} = {}
-    local formatting_off = false
-    local off_start = 0
-    local region_end = 0
-
-    for line_number, line_str in ipairs(source_lines) do
-        if not formatting_off and line_str:match("%-%-%s*fmt:%s*off") then
-            formatting_off = true
-            off_start = line_number
-            region_end = find_enclosing_block_end(source_blocks, line_number, #source_lines)
-        end
-
-        if formatting_off then
-            if line_number >= region_end then
-                -- The enclosing block's "end" keyword is on this line; resume formatting.
-                formatting_off = false
-            else
-                fmt_off_lines[line_number] = true
-                if line_number > off_start and line_str:match("%-%-%s*fmt:%s*on") then
-                    formatting_off = false
-                end
-            end
-        end
-    end
-
-    return fmt_off_lines
-end
-
 -- Replace each leading tab character with four spaces.
 -- Only leading tabs are converted; tabs within a line are left alone.
 local function expand_tabs(line_str: string): string
@@ -448,59 +400,11 @@ end
 
 -- ── AST-based wrapping ────────────────────────────────────────────────────────
 
--- Recursively walk every child node reachable from a Node.
--- Calls visit(child) for each child node encountered.
-local function walk_children(node: parser.Node, visit: function(parser.Node))
-    for _, child in ipairs(node) do visit(child) end
-    if node.body   then visit(node.body)   end
-    if node.e1     then visit(node.e1)     end
-    if node.e2     then visit(node.e2)     end
-    if node.key    then visit(node.key)    end
-    if node.value  then visit(node.value)  end
-    if node.args   then visit(node.args)   end
-    if node.name   then visit(node.name)   end
-    if node.exp    then visit(node.exp)    end
-    if node.var    then visit(node.var)    end
-    if node.from   then visit(node.from)   end
-    if node.to     then visit(node.to)     end
-    if node.step   then visit(node.step)   end
-    if node.vars   then visit(node.vars)   end
-    if node.exps   then visit(node.exps)   end
-    if node.if_blocks then
-        for _, block in ipairs(node.if_blocks) do visit(block) end
-    end
-end
-
--- Returns true if any descendant of node spans more than one source line.
--- Used to guard against joining table constructors whose items contain
--- multi-line sub-expressions (nested calls, nested tables, etc.).
-local function has_multiline_descendant(node: parser.Node): boolean
-    local function check(child: parser.Node): boolean
-        if child.yend and child.yend > child.y then
-            return true
-        end
-        local found = false
-        local function visit(grandchild: parser.Node)
-            if not found then
-                found = check(grandchild)
-            end
-        end
-        walk_children(child, visit)
-        return found
-    end
-    local found = false
-    local function visit(child: parser.Node)
-        if not found then
-            found = check(child)
-        end
-    end
-    walk_children(node, visit)
-    return found
-end
-
 -- Returns true when a multi-line table's last item line ends with a comma,
 -- indicating the author explicitly wants the table kept in expanded form.
-local function has_magic_trailing_comma(node: parser.Node, source_lines: {string}): boolean
+local function has_magic_trailing_comma(
+    node: parser.Node, source_lines: {string}
+): boolean
     if node.yend <= node.y then
         return false
     end
@@ -531,8 +435,12 @@ local function collect_table_spans(
                 break
             end
         end
-        if is_safe and not has_multiline_descendant(node) and not has_magic_trailing_comma(node, lines) then
-            table.insert(result, Span.new(node.y, node.x, node.yend, node.xend, "table"))
+        if is_safe and not ast_utils.has_multiline_descendant(node) and not has_magic_trailing_comma(
+           node, lines
+        ) then
+            table.insert(
+                result, Span.new(node.y, node.x, node.yend, node.xend, "table")
+            )
         end
         -- Still recurse into children to find nested simple tables
     end
@@ -540,7 +448,7 @@ local function collect_table_spans(
     local function recurse(child: parser.Node)
         collect_table_spans(child, lines, fmt_off_lines, result)
     end
-    walk_children(node, recurse)
+    ast_utils.walk_children(node, recurse)
 end
 
 -- Extract the text of a span from the source lines.  Returns the lines that
@@ -571,12 +479,7 @@ local function render_call_with_doc(
         after ~= "" and not after:match("^,") and was_already_compact
 
     return doc_builders.render_construct(
-        kind,
-        before,
-        items,
-        after,
-        indent_prefix,
-        prefer_trailing_compact
+        kind, before, items, after, indent_prefix, prefer_trailing_compact
     )
 end
 
@@ -584,7 +487,9 @@ end
 -- earlier rewrite.  Checking only the endpoints misses the case where an inner
 -- same-line span expanded into multiple lines, shifting the outer span's
 -- close_line reference to a now-different position in the result array.
-local function span_overlaps_replaced(replaced_lines: {integer: boolean}, span: Span): boolean
+local function span_overlaps_replaced(
+    replaced_lines: {integer: boolean}, span: Span
+): boolean
     for line = span.open_line, span.close_line do
         if replaced_lines[line] then
             return true
@@ -617,9 +522,7 @@ end
 -- of subsequent spans. Each span carries a kind tag to select the correct
 -- join/split functions.
 local function apply_all_spans(
-    lines: {string},
-    spans: {Span},
-    fmt_off_lines: {integer: boolean}
+    lines: {string}, spans: {Span}, fmt_off_lines: {integer: boolean}
 ): {string}
     -- Process bottom-to-top (highest open_line first).  For spans on the same
     -- line, process leftmost (outermost) first so the outer span wraps and
@@ -653,18 +556,14 @@ local function apply_all_spans(
                 -- stale span, skip
             elseif #line_str > 88 then
                 local before = line_str:sub(1, span.open_col - 1)
-                local after  = line_str:sub(span.close_col + 1)
+                local after = line_str:sub(span.close_col + 1)
                 local span_content = line_str:sub(span.open_col, span.close_col)
                 local items = doc_builders.extract_items_from_span_content(
                     span_content, split_params
                 )
                 local split_lines: {string}
                 split_lines = render_call_with_doc(
-                    span.kind,
-                    before,
-                    items,
-                    after,
-                    true
+                    span.kind, before, items, after, true
                 )
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
@@ -682,11 +581,19 @@ local function apply_all_spans(
                     local head: {string} = {}
                     local tail: {string} = {}
                     for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
-                    for i = span.open_line + 1, #result do table.insert(tail, result[i]) end
+                    for i = span.open_line + 1, #result do table.insert(
+                       tail, result[i]
+                    ) end
                     result = {}
-                    for _, head_line in ipairs(head) do table.insert(result, head_line) end
-                    for _, new_line in ipairs(new_lines) do table.insert(result, new_line) end
-                    for _, tail_line in ipairs(tail) do table.insert(result, tail_line) end
+                    for _, head_line in ipairs(head) do table.insert(
+                       result, head_line
+                    ) end
+                    for _, new_line in ipairs(new_lines) do table.insert(
+                       result, new_line
+                    ) end
+                    for _, tail_line in ipairs(tail) do table.insert(
+                       result, tail_line
+                    ) end
                     replaced_lines[span.open_line] = true
                 end
             end
@@ -696,13 +603,9 @@ local function apply_all_spans(
                 span.kind, span_lines, split_params
             )
             local before = result[span.open_line]:sub(1, span.open_col - 1)
-            local after  = result[span.close_line]:sub(span.close_col + 1)
+            local after = result[span.close_line]:sub(span.close_col + 1)
             local compact_lines = doc_builders.render_compact_construct(
-                span.kind,
-                before,
-                items,
-                after,
-                before:match("^(%s*)") or ""
+                span.kind, before, items, after, before:match("^(%s*)") or ""
             )
             local head: {string} = {}
             local tail: {string} = {}
@@ -719,11 +622,7 @@ local function apply_all_spans(
             else
                 local split_lines: {string}
                 split_lines = render_call_with_doc(
-                    span.kind,
-                    before,
-                    items,
-                    after,
-                    #span_lines == 3
+                    span.kind, before, items, after, #span_lines == 3
                 )
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
@@ -739,9 +638,15 @@ local function apply_all_spans(
                         table.insert(new_lines, split_lines[#split_lines] .. after)
                     end
                     result = {}
-                    for _, line_str in ipairs(head) do table.insert(result, line_str) end
-                    for _, line_str in ipairs(new_lines) do table.insert(result, line_str) end
-                    for _, line_str in ipairs(tail) do table.insert(result, line_str) end
+                    for _, line_str in ipairs(head) do table.insert(
+                       result, line_str
+                    ) end
+                    for _, line_str in ipairs(new_lines) do table.insert(
+                       result, line_str
+                    ) end
+                    for _, line_str in ipairs(tail) do table.insert(
+                       result, line_str
+                    ) end
                     for line = span.open_line, span.close_line do
                         replaced_lines[line] = true
                     end
@@ -753,13 +658,6 @@ local function apply_all_spans(
     return result
 end
 
-local FUNCTION_DEF_KINDS: {tl.NodeKind: boolean} = {
-    ["local_function"]  = true,
-    ["global_function"] = true,
-    ["record_function"] = true,
-    ["function"]        = true,
-}
-
 -- Walk the AST collecting Spans for function parameter lists.
 local function collect_signature_spans(
     node: parser.Node,
@@ -767,18 +665,20 @@ local function collect_signature_spans(
     fmt_off_lines: {integer: boolean},
     result: {Span}
 )
-    if FUNCTION_DEF_KINDS[node.kind] and node.args then
+    if ast_utils.is_function_def(node) and node.args then
         local args = node.args
         if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
-            and not has_multiline_descendant(args)
+            and not ast_utils.has_multiline_descendant(args)
         then
-            table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, "signature"))
+            table.insert(
+                result, Span.new(args.y, args.x, args.yend, args.xend, "signature")
+            )
         end
     end
     local function recurse(child: parser.Node)
         collect_signature_spans(child, lines, fmt_off_lines, result)
     end
-    walk_children(node, recurse)
+    ast_utils.walk_children(node, recurse)
 end
 
 -- Walk the AST collecting Spans for function call argument lists.
@@ -794,16 +694,18 @@ local function collect_call_spans(
         local args_line = lines[args.y]
         if args_line and args_line:sub(args.x, args.x) == "(" then
             if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
-                and not has_multiline_descendant(args)
+                and not ast_utils.has_multiline_descendant(args)
             then
-                table.insert(result, Span.new(args.y, args.x, args.yend, args.xend, "call"))
+                table.insert(
+                    result, Span.new(args.y, args.x, args.yend, args.xend, "call")
+                )
             end
         end
     end
     local function recurse(child: parser.Node)
         collect_call_spans(child, lines, fmt_off_lines, result)
     end
-    walk_children(node, recurse)
+    ast_utils.walk_children(node, recurse)
 end
 
 -- Walk only the immediate children of the AST root (top-level statements) and
@@ -846,9 +748,7 @@ end
 -- Sort contiguous blocks of top-level require declarations alphabetically by
 -- module path.  Lines inside fmt-off regions are left in place.
 local function sort_require_blocks(
-    lines: {string},
-    fmt_off_lines: {integer: boolean},
-    require_decls: {RequireDecl}
+    lines: {string}, fmt_off_lines: {integer: boolean}, require_decls: {RequireDecl}
 ): {string}
     local decl_by_start: {integer: RequireDecl} = {}
     for _, decl in ipairs(require_decls) do
@@ -876,7 +776,9 @@ local function sort_require_blocks(
                 end
                 current = next_decl
             end
-            local function by_module_path(first: RequireDecl, second: RequireDecl): boolean
+            local function by_module_path(
+                first: RequireDecl, second: RequireDecl
+            ): boolean
                 return first.module_path < second.module_path
             end
             table.sort(block, by_module_path)
@@ -892,16 +794,14 @@ local function sort_require_blocks(
 end
 
 local function build_formatter_context(
-    source: string,
-    filename: string,
-    ast: parser.Node
+    source: string, filename: string, ast: parser.Node
 ): FormatterContext
-    local source_blocks = blocks.collect_from_ast(ast)
+    local source_blocks = ast_utils.collect_block_spans(ast)
     local require_decls = collect_require_decls(ast)
     local tokens, _ = tl.lex(source, filename)
     local edits = collect_all_edits(tokens)
     local lines = split_preserving_trailing_newline(source)
-    local fmt_off_lines = collect_fmt_off_lines(lines, source_blocks)
+    local fmt_off_lines = ast_utils.collect_fmt_off_lines(lines, source_blocks)
 
     return FormatterContext.new(
         source,
@@ -916,9 +816,7 @@ local function build_formatter_context(
     )
 end
 
-local function run_lexical_whitespace_pass(
-    context: FormatterContext
-): {string}
+local function run_lexical_whitespace_pass(context: FormatterContext): {string}
     local result: {string} = {}
     for i, line_str in ipairs(context.lines) do
         if context.fmt_off_lines[i] then
@@ -931,8 +829,7 @@ local function run_lexical_whitespace_pass(
 end
 
 local function run_line_cleanup_pass(
-    context: FormatterContext,
-    lines: {string}
+    context: FormatterContext, lines: {string}
 ): {string}
     local result: {string} = {}
     for i, line_str in ipairs(lines) do
@@ -947,19 +844,14 @@ local function run_line_cleanup_pass(
     return result
 end
 
-local function run_reorder_pass(
-    context: FormatterContext,
-    lines: {string}
-): {string}
+local function run_reorder_pass(context: FormatterContext, lines: {string}): {string}
     -- Require sorting runs before span rewrites so the AST line numbers
     -- collected from the original source are still accurate.
     -- Token edits preserve line count; span rewrites may not.
     return sort_require_blocks(lines, context.fmt_off_lines, context.require_decls)
 end
 
-local function collect_structural_spans(
-    context: FormatterContext
-): {Span}
+local function collect_structural_spans(context: FormatterContext): {Span}
     local spans: {Span} = {}
     collect_signature_spans(context.ast, context.lines, context.fmt_off_lines, spans)
     collect_call_spans(context.ast, context.lines, context.fmt_off_lines, spans)
@@ -968,14 +860,14 @@ local function collect_structural_spans(
 end
 
 local function run_structural_span_pass(
-    context: FormatterContext,
-    lines: {string},
-    spans: {Span}
+    context: FormatterContext, lines: {string}, spans: {Span}
 ): {string}
     return apply_all_spans(lines, spans, context.fmt_off_lines)
 end
 
-local function run_final_cleanup_pass(_context: FormatterContext, lines: {string}): {string}
+local function run_final_cleanup_pass(
+    _context: FormatterContext, lines: {string}
+): {string}
     return collapse_blank_lines(lines)
 end
 
