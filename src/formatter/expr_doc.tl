@@ -1,5 +1,6 @@
 local parser = require("formatter.parser")
 local signature_doc = require("formatter.signature_doc")
+local table_doc = require("formatter.table_doc")
 
 local expr_doc = {}
 
@@ -84,39 +85,6 @@ local function maybe_parenthesize(
     end
 
     return rendered
-end
-
-local function render_compact_table(node: parser.Node): string
-    local parts: {string} = {}
-
-    for _, item in ipairs(node) do
-        local text: string
-        if item.key_parsed == "implicit" then
-            text = render_expr(item.value, 0)
-        elseif item.key_parsed == "short" then
-            local key_text = item.key.conststr or item.key.tk
-            if item.itemtype ~= nil then
-                text = key_text
-                    .. ": "
-                    .. assert(
-                        item.itemtype.source_text,
-                        "missing source_text for table item type"
-                    )
-                    .. " = "
-                    .. render_expr(item.value, 0)
-            else
-                text = key_text .. " = " .. render_expr(item.value, 0)
-            end
-        else
-            text = "["
-                .. render_expr(item.key, 0)
-                .. "] = "
-                .. render_expr(item.value, 0)
-        end
-        table.insert(parts, text)
-    end
-
-    return "{" .. table.concat(parts, ", ") .. "}"
 end
 
 local function render_compact_call_args(args: parser.Node): string
@@ -236,7 +204,11 @@ render_expr = function(node: parser.Node, parent_prec: integer): string
     elseif node.kind == "paren" then
         return "(" .. render_expr(node.e1, 0) .. ")"
     elseif node.kind == "literal_table" then
-        return render_compact_table(node)
+        return table_doc.render_table_text(
+            node, function(child: parser.Node): string
+                return render_expr(child, 0)
+            end
+        )
     elseif node.kind == "function" then
         return render_function_expr(node)
     elseif node.kind == "op" and node.op ~= nil then

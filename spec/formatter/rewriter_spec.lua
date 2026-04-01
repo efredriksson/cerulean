@@ -457,6 +457,15 @@ describe("formatter", function()
             key = foo(arg_one, arg_two),
          }
       ]]))
+
+      it("preserves source spelling for typed and anonymous-function table entries", helpers.format([[
+         local items = {callback: function(ctx: Scene): ResultType = function(ctx: Scene): ResultType return ctx.result end, value = ((left_value + right_value))}
+      ]], [[
+         local items = {
+             callback: function(ctx: Scene): ResultType = function(ctx: Scene): ResultType return ctx.result end,
+             value = ((left_value + right_value)),
+         }
+      ]]))
    end)
 
    describe("function call wrapping", function()

@@ -1,8 +1,9 @@
 local ast_utils = require("formatter.ast_utils")
 local call_doc = require("formatter.call_doc")
-local doc_builders = require("formatter.doc_builders")
+local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
 local signature_doc = require("formatter.signature_doc")
+local table_doc = require("formatter.table_doc")
 local tl = require("tl")
 
 local rewriter = {}
@@ -43,10 +44,9 @@ local record Span
     close_line: integer
     close_col:  integer
     kind: SpanKind
-    uses_ast_items: boolean
-    items: {string}
     call_args: parser.Node | nil
     signature_args: parser.Node | nil
+    table_node: parser.Node | nil
 end
 
 function Span.new(
@@ -55,10 +55,9 @@ function Span.new(
     close_line: integer,
     close_col: integer,
     kind: SpanKind,
-    uses_ast_items: boolean,
-    items: {string},
     call_args: parser.Node | nil,
-    signature_args: parser.Node | nil
+    signature_args: parser.Node | nil,
+    table_node: parser.Node | nil
 ): Span
     local self: Span = setmetatable({}, { __index = Span })
     self.open_line = open_line
@@ -66,10 +65,9 @@ function Span.new(
     self.close_line = close_line
     self.close_col = close_col
     self.kind = kind
-    self.uses_ast_items = uses_ast_items
-    self.items = items
     self.call_args = call_args
     self.signature_args = signature_args
+    self.table_node = table_node
     return self
 end
 
@@ -370,48 +368,6 @@ local function collapse_blank_lines(lines: {string}): {string}
     return result
 end
 
--- Split a parameter-list string by top-level commas (not inside ()[]{}
--- and not inside string literals), trimming each parameter.
-local function split_params(params_str: string): {string}
-    local params: {string} = {}
-    local depth = 0
-    local in_string = false
-    local string_char = ""
-    local start = 1
-    local i = 1
-    while i <= #params_str do
-        local ch = params_str:sub(i, i)
-        if in_string then
-            if ch == "\\" then
-                i = i + 1  -- skip escaped character
-            elseif ch == string_char then
-                in_string = false
-            end
-        else
-            if ch == '"' or ch == "'" then
-                in_string = true
-                string_char = ch
-            elseif ch == "(" or ch == "[" or ch == "{" then
-                depth = depth + 1
-            elseif ch == ")" or ch == "]" or ch == "}" then
-                depth = depth - 1
-            elseif ch == "," and depth == 0 then
-                local param = params_str:sub(start, i - 1):match("^%s*(.-)%s*$") or ""
-                if param ~= "" then
-                    table.insert(params, param)
-                end
-                start = i + 1
-            end
-        end
-        i = i + 1
-    end
-    local last = params_str:sub(start):match("^%s*(.-)%s*$") or ""
-    if last ~= "" then
-        table.insert(params, last)
-    end
-    return params
-end
-
 -- ── AST-based wrapping ────────────────────────────────────────────────────────
 
 -- Returns true when a multi-line table's last item line ends with a comma,
@@ -454,9 +410,7 @@ local function collect_table_spans(
         ) then
             table.insert(
                 result,
-                Span.new(
-                    node.y, node.x, node.yend, node.xend, "table", false, {}, nil, nil
-                )
+                Span.new(node.y, node.x, node.yend, node.xend, "table", nil, nil, node)
             )
         end
         -- Still recurse into children to find nested simple tables
@@ -585,7 +539,6 @@ local function apply_all_spans(
             elseif #line_str > 88 then
                 local before = line_str:sub(1, span.open_col - 1)
                 local after = line_str:sub(span.close_col + 1)
-                local span_content = line_str:sub(span.open_col, span.close_col)
                 local split_lines: {string}
                 if span.kind == "signature" and span.signature_args ~= nil then
                     split_lines = render_signature_with_doc(
@@ -595,20 +548,12 @@ local function apply_all_spans(
                     split_lines = render_call_with_doc(
                         span.call_args, before, after, true
                     )
-                else
-                    local items = span.uses_ast_items
-                        and span.items
-                        or doc_builders.extract_items_from_span_content(
-                            span_content, split_params
-                        )
-                    split_lines = doc_builders.render_construct(
-                        span.kind,
-                        before,
-                        items,
-                        after,
-                        before:match("^(%s*)") or "",
-                        false
+                elseif span.kind == "table" and span.table_node ~= nil then
+                    split_lines = table_doc.render_table(
+                        span.table_node, before, after, false, expr_doc.render_expr
                     )
+                else
+                    error("unsupported span kind: " .. span.kind)
                 end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
@@ -655,15 +600,12 @@ local function apply_all_spans(
                 compact_lines = render_compact_call_with_doc(
                     span.call_args, before, after
                 )
-            else
-                local items = span.uses_ast_items
-                    and span.items
-                    or doc_builders.extract_items_from_span_lines(
-                        span.kind, span_lines, split_params
-                    )
-                compact_lines = doc_builders.render_compact_construct(
-                    span.kind, before, items, after, before:match("^(%s*)") or ""
+            elseif span.kind == "table" and span.table_node ~= nil then
+                compact_lines = table_doc.render_table(
+                    span.table_node, before, after, true, expr_doc.render_expr
                 )
+            else
+                error("unsupported span kind: " .. span.kind)
             end
             local head: {string} = {}
             local tail: {string} = {}
@@ -687,20 +629,12 @@ local function apply_all_spans(
                     split_lines = render_call_with_doc(
                         span.call_args, before, after, #span_lines == 3
                     )
-                else
-                    local items = span.uses_ast_items
-                        and span.items
-                        or doc_builders.extract_items_from_span_lines(
-                            span.kind, span_lines, split_params
-                        )
-                    split_lines = doc_builders.render_construct(
-                        span.kind,
-                        before,
-                        items,
-                        after,
-                        before:match("^(%s*)") or "",
-                        span.kind == "call" and after ~= "" and not after:match("^,") and #span_lines == 3
+                elseif span.kind == "table" and span.table_node ~= nil then
+                    split_lines = table_doc.render_table(
+                        span.table_node, before, after, false, expr_doc.render_expr
                     )
+                else
+                    error("unsupported span kind: " .. span.kind)
                 end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
@@ -751,15 +685,7 @@ local function collect_signature_spans(
             table.insert(
                 result,
                 Span.new(
-                    args.y,
-                    args.x,
-                    args.yend,
-                    args.xend,
-                    "signature",
-                    false,
-                    {},
-                    nil,
-                    args
+                    args.y, args.x, args.yend, args.xend, "signature", nil, args, nil
                 )
             )
         end
@@ -788,15 +714,7 @@ local function collect_call_spans(
                 table.insert(
                     result,
                     Span.new(
-                        args.y,
-                        args.x,
-                        args.yend,
-                        args.xend,
-                        "call",
-                        false,
-                        {},
-                        args,
-                        nil
+                        args.y, args.x, args.yend, args.xend, "call", args, nil, nil
                     )
                 )
             end
