@@ -1,28 +1,65 @@
 require("tl").loader()
 
-local assert   = require("luassert")
-local parser   = require("formatter.parser")
+local parser = require("formatter.parser")
 local rewriter = require("formatter.rewriter")
+local assert = require("luassert")
 
 local helpers = {}
 
 -- Strips the common leading indentation from a [[...]] string so tests can
 -- indent their inline source for readability without affecting the content.
+local function is_empty_line(line)
+    return line:match("^%s*$") ~= nil
+end
+
+local function trim_outer_empty_lines(lines)
+    while #lines > 0 and is_empty_line(lines[1]) do
+        table.remove(lines, 1)
+    end
+
+    while #lines > 0 and is_empty_line(lines[#lines]) do
+        table.remove(lines, #lines)
+    end
+
+    return lines
+end
+
+local function split_lines(s)
+    local lines = {}
+    for line in (s .. "\n"):gmatch("([^\n]*)\n") do
+        table.insert(lines, line)
+    end
+    return lines
+end
+
 local function dedent(s)
-    s = s:gsub("^\n", "")
+    local lines = split_lines(s)
+    lines = trim_outer_empty_lines(lines)
+
     local min_indent = math.huge
-    for line in s:gmatch("[^\n]+") do
-        local indent = #(line:match("^%s*"))
-        if indent < min_indent then
-            min_indent = indent
+    for _, line in ipairs(lines) do
+        if not is_empty_line(line) then
+            local indent = #(line:match("^%s*"))
+            if indent < min_indent then
+                min_indent = indent
+            end
         end
     end
+
     if min_indent == math.huge then
-        return s
+        return "\n"
     end
-    local prefix = string.rep(" ", min_indent)
-    local result = s:gsub("^" .. prefix, ""):gsub("\n" .. prefix, "\n")
-    return (result:gsub("%s*$", "")) .. "\n"
+
+    local dedented = {}
+    for _, line in ipairs(lines) do
+        if is_empty_line(line) then
+            table.insert(dedented, "")
+        else
+            table.insert(dedented, line:sub(min_indent + 1))
+        end
+    end
+
+    return table.concat(dedented, "\n") .. "\n"
 end
 
 local function normalize_node(node)

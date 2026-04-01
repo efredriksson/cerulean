@@ -1,9 +1,11 @@
 local ast_utils = require("formatter.ast_utils")
+local block_doc = require("formatter.block_doc")
 local call_doc = require("formatter.call_doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
 local require_sort = require("formatter.require_sort")
 local signature_doc = require("formatter.signature_doc")
+local structural_render_analysis = require("formatter.structural_render_analysis")
 local table_doc = require("formatter.table_doc")
 local tl = require("tl")
 
@@ -584,7 +586,12 @@ local function apply_all_spans(
             local tail: {string} = {}
             for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
             for i = span.close_line + 1, #result do table.insert(tail, result[i]) end
-            if #compact_lines == 1 and #compact_lines[1] <= 88 then
+            local can_join_to_single_line = #compact_lines == 1 and #compact_lines[1] <= 88
+            if span.kind == "call" and after ~= "" and not after:match("^,") then
+                can_join_to_single_line = false
+            end
+
+            if can_join_to_single_line then
                 result = {}
                 for _, line_str in ipairs(head) do table.insert(result, line_str) end
                 table.insert(result, compact_lines[1])
@@ -766,6 +773,29 @@ local function run_structural_phase(
 
     local output_lines = run_lexical_whitespace_pass(context)
     output_lines = run_line_cleanup_pass(context, output_lines)
+
+    local cleaned_source = table.concat(output_lines, "\n")
+    local cleaned_ast, cleaned_parse_errors = parser.parse(cleaned_source, filename)
+    if #cleaned_parse_errors == 0 then
+        context = build_formatter_context(cleaned_source, filename, cleaned_ast)
+        output_lines = context.lines
+    end
+
+    if structural_render_analysis.can_render_block(
+       context.ast, output_lines, context.fmt_off_regions
+    ) then
+        local structurally_rendered = block_doc.render_block(context.ast)
+        if structurally_rendered ~= nil then
+            local rendered_source = table.concat(structurally_rendered, "\n") .. "\n"
+            local rendered_ast, parse_errors = parser.parse(rendered_source, filename)
+            if #parse_errors == 0 then
+                context = build_formatter_context(
+                    rendered_source, filename, rendered_ast
+                )
+                output_lines = context.lines
+            end
+        end
+    end
 
     local structural_spans = collect_structural_spans(context)
     output_lines = run_structural_span_pass(context, output_lines, structural_spans)

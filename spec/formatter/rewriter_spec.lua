@@ -249,6 +249,179 @@ describe("formatter", function()
       ))
    end)
 
+   describe("structural block rendering", function()
+      it("reindents a clean local function body with wrong space indentation", helpers.format([[
+         local function f()
+           local x =  1
+         end
+      ]], [[
+         local function f()
+             local x = 1
+         end
+      ]]))
+
+      it("reindents clean if elseif else blocks with wrong space indentation", helpers.format([[
+         local function f(flag: boolean)
+           if flag then
+             log("yes" )
+           elseif not flag then
+             log("maybe")
+           else
+             log("no")
+           end
+         end
+      ]], [[
+         local function f(flag: boolean)
+             if flag then
+                 log("yes")
+             elseif not flag then
+                 log("maybe")
+             else
+                 log("no")
+             end
+         end
+      ]]))
+
+      it("reindents a clean while block with wrong space indentation", helpers.format([[
+         local function f( )
+           while ready() do
+             tick()
+           end
+         end
+      ]], [[
+         local function f()
+             while ready() do
+                 tick()
+             end
+         end
+      ]]))
+
+      it("reindents a clean do block with wrong space indentation", helpers.format([[
+         local function f()
+           do
+                     tick()
+           end
+         end
+      ]], [[
+         local function f()
+             do
+                 tick()
+             end
+         end
+      ]]))
+
+      it("reindents a clean repeat block with wrong space indentation", helpers.format([[
+         local function f()
+           repeat
+             tick()
+           until done()
+         end
+      ]], [[
+         local function f()
+             repeat
+                 tick()
+             until done()
+         end
+      ]]))
+
+      it("reindents a clean numeric for block with wrong space indentation", helpers.format([[
+         local function f()
+           for i = 1,    3 do
+             tick(i)
+           end
+         end
+      ]], [[
+         local function f()
+             for i = 1, 3 do
+                 tick(i)
+             end
+         end
+      ]]))
+
+      it("reindents a clean generic for block with wrong space indentation", helpers.format([[
+         local function f(items: {string})
+           for _, item in ipairs(items) do
+             log(item)
+           end
+         end
+      ]], [[
+         local function f(items: {string})
+             for _, item in ipairs(items) do
+                 log(item)
+             end
+         end
+      ]]))
+
+      it("reindents clean assignment return and expression statements", helpers.format([[
+         local function f()
+           local x = 1
+           x = x + 1
+           log(x)
+           return x
+         end
+      ]], [[
+         local function f()
+             local x = 1
+             x = x + 1
+             log(x)
+             return x
+         end
+      ]]))
+
+      it("reindents nested clean blocks transitively", helpers.format([[
+         local function f(items: {string})
+           for _, item in ipairs(items) do
+             if active(item) then
+               log(item)
+             end
+           end
+         end
+      ]], [[
+         local function f(items: {string})
+             for _, item in ipairs(items) do
+                 if active(item) then
+                     log(item)
+                 end
+             end
+         end
+      ]]))
+
+      it("keeps wrong space indentation when a comment blocks structural rendering", helpers.check([[
+         local function f()
+           local x = 1 -- keep this comment
+           return x
+         end
+      ]]))
+
+      it("keeps wrong space indentation when blank line gaps block structural rendering", helpers.format([[
+         local function f()
+           local x = 1
+
+
+           return x
+         end
+      ]], [[
+         local function f()
+           local x = 1
+
+           return x
+         end
+      ]]))
+
+      it("keeps wrong space indentation for an unsupported method definition", helpers.check([[
+         function Obj:method()
+           log(self)
+         end
+      ]]))
+
+      it("keeps wrong space indentation for an unsupported const declaration", helpers.check([[
+         local function f()
+           local x <const> = 1
+           return x
+         end
+      ]]))
+   end)
+
    describe("blank line normalisation", function()
       it("collapses two consecutive blank lines to one", helpers.format([[
          local x = 1
@@ -349,10 +522,15 @@ describe("formatter", function()
          local b = require("b.module")
       ]], { skip_ast_equivalence = true }))
 
-      it("does not sort requires inside a function body", helpers.check([[
+      it("does not sort requires inside a function body", helpers.format([[
          local function setup()
             local b = require("b")
             local a = require("a")
+         end
+      ]], [[
+         local function setup()
+             local b = require("b")
+             local a = require("a")
          end
       ]]))
 
