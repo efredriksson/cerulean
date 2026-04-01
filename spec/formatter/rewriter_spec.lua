@@ -540,6 +540,37 @@ describe("formatter", function()
          -- local function foo(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherLongType)
       ]]))
 
+      it("joins a wrapped call containing nested call and table arguments when they are already compact", helpers.format([[
+         local x = f(g(1, 2),
+            {alpha = 1, beta = 2})
+      ]],[[
+         local x = f(g(1, 2), {alpha = 1, beta = 2})
+      ]]))
+
+      it("does not change a wrapped call whose arguments include inline comments", helpers.check([[
+         local x = f(
+            alpha, -- keep alpha grouped here
+            beta
+         )
+      ]]))
+
+      it("does not change a wrapped table whose entries include inline comments", helpers.check([[
+         local x = {
+            alpha, -- keep alpha grouped here
+            beta
+         }
+      ]]))
+
+      it("does not collapse a wrapped call when a string literal contains comment text", helpers.check([[
+         local x = f("--",
+            beta)
+      ]]))
+
+      it("does not collapse a wrapped table when a string literal contains comment text", helpers.check([[
+         local x = {"--",
+            beta}
+      ]]))
+
       it("wraps a long anonymous function signature", helpers.format([[
          local callback = function(param_one: LongTypeName, param_two: AnotherLongType, param_three: YetAnotherType): ReturnValue
          end
