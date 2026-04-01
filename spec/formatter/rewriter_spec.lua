@@ -323,6 +323,14 @@ describe("formatter", function()
          local type B = require("b")
       ]], { skip_ast_equivalence = true }))
 
+      it("sorts typed local requires and renders them from AST", helpers.format([[
+         local b: BType = require( "b" )
+         local a: AType = require( "a" )
+      ]], [[
+         local a: AType = require("a")
+         local b: BType = require("b")
+      ]], { skip_ast_equivalence = true }))
+
       it("sorts requires with non-standard spacing inside the call parens", helpers.format([[
          local b = require( "b.module" )
          local a = require( "a.module" )
@@ -331,16 +339,14 @@ describe("formatter", function()
          local b = require("b.module")
       ]], { skip_ast_equivalence = true }))
 
-      it("sorts multi-line require declarations as a unit", helpers.format([[
+      it("sorts multi-line require declarations and renders them structurally", helpers.format([[
          local b =
              require("b.module")
          local a =
              require("a.module")
       ]], [[
-         local a =
-             require("a.module")
-         local b =
-             require("b.module")
+         local a = require("a.module")
+         local b = require("b.module")
       ]], { skip_ast_equivalence = true }))
 
       it("does not sort requires inside a function body", helpers.check([[
@@ -360,6 +366,11 @@ describe("formatter", function()
          local b = require("b")
          local a = require("a" .. ".module")
          local c = require("c")
+      ]]))
+
+      it("excludes a require with an inline comment from the sort block", helpers.check([[
+         local b = require("b") -- keep this where it is
+         local a = require("a")
       ]]))
 
    end)

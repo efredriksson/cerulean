@@ -47,6 +47,30 @@ local function split_preserving_trailing_newline(source: string): {string}
     return lines
 end
 
+local function render_require_decl(decl: RequireDecl, indent: string): string
+    local node = decl.node
+    if node.kind == "local_declaration"
+        and node.vars ~= nil
+        and #node.vars == 1
+        and node.exps ~= nil
+        and #node.exps == 1
+    then
+        local text = "local " .. node.vars[1].tk
+        if node.decltuple ~= nil and node.decltuple.source_text ~= nil then
+            text = text .. node.decltuple.source_text
+        end
+        return indent .. text .. " = " .. expr_doc.render_expr(node.exps[1])
+    elseif node.kind == "local_type" and node.var ~= nil and node.value ~= nil then
+        return indent
+            .. "local type "
+            .. node.var.tk
+            .. " = "
+            .. expr_doc.render_expr(node.value)
+    end
+
+    error("unsupported require declaration kind: " .. node.kind)
+end
+
 local function collect_require_decls(ast: parser.Node): {RequireDecl}
     local result: {RequireDecl} = {}
     for _, node in ipairs(ast) do
@@ -77,8 +101,19 @@ local function collect_require_decls(ast: parser.Node): {RequireDecl}
     return result
 end
 
+local function has_comment(
+    lines: {string}, first_line: integer, last_line: integer
+): boolean
+    for line = first_line, last_line do
+        if lines[line] and lines[line]:find("%-%-") then
+            return true
+        end
+    end
+    return false
+end
+
 local function collect_require_blocks(
-    ast: parser.Node, fmt_off_regions: ast_utils.FmtOffRegions
+    ast: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
 ): {RequireBlock}
     local decls = collect_require_decls(ast)
     local result: {RequireBlock} = {}
@@ -104,8 +139,9 @@ local function collect_require_blocks(
         local has_fmt_off = fmt_off_regions:includes_range(
             decl.first_line, decl.last_line
         )
+        local decl_has_comment = has_comment(lines, decl.first_line, decl.last_line)
 
-        if has_fmt_off then
+        if has_fmt_off or decl_has_comment then
             push_block()
             previous_decl = nil
         elseif previous_decl ~= nil then
@@ -127,36 +163,6 @@ local function collect_require_blocks(
 
     push_block()
     return result
-end
-
-local function render_require_decl_line(
-    decl: RequireDecl, lines: {string}
-): string | nil
-    local node = decl.node
-    local indent = (lines[decl.first_line] or ""):match("^(%s*)") or ""
-
-    if decl.first_line ~= decl.last_line then
-        return nil
-    elseif node.kind == "local_declaration"
-        and node.vars ~= nil
-        and #node.vars == 1
-        and node.exps ~= nil
-        and #node.exps == 1
-    then
-        local text = "local " .. node.vars[1].tk
-        if node.decltuple ~= nil and node.decltuple.source_text ~= nil then
-            text = text .. node.decltuple.source_text
-        end
-        return indent .. text .. " = " .. expr_doc.render_expr(node.exps[1])
-    elseif node.kind == "local_type" and node.var ~= nil and node.value ~= nil then
-        return indent
-            .. "local type "
-            .. node.var.tk
-            .. " = "
-            .. expr_doc.render_expr(node.value)
-    end
-
-    return nil
 end
 
 local function sort_require_blocks(
@@ -181,14 +187,8 @@ local function sort_require_blocks(
         table.sort(sorted_decls, by_module_path)
 
         for _, decl in ipairs(sorted_decls) do
-            local rendered_line = render_require_decl_line(decl, lines)
-            if rendered_line ~= nil then
-                table.insert(result, rendered_line)
-            else
-                for line = decl.first_line, decl.last_line do
-                    table.insert(result, lines[line])
-                end
-            end
+            local indent = (lines[decl.first_line] or ""):match("^(%s*)") or ""
+            table.insert(result, render_require_decl(decl, indent))
         end
 
         next_line = block.last_line + 1
@@ -210,7 +210,7 @@ function require_sort.rewrite(source: string, filename: string): string, {tl.Err
     local lines = split_preserving_trailing_newline(source)
     local source_blocks = ast_utils.collect_block_spans(ast)
     local fmt_off_regions = ast_utils.collect_fmt_off_regions(lines, source_blocks)
-    local require_blocks = collect_require_blocks(ast, fmt_off_regions)
+    local require_blocks = collect_require_blocks(ast, lines, fmt_off_regions)
     local output_lines = sort_require_blocks(lines, require_blocks)
 
     return table.concat(output_lines, "\n"), {}
