@@ -6,8 +6,19 @@ local record BlockSpan
     close_line: integer
 end
 
+local record FmtOffRegion
+    start_line: integer
+    end_line: integer
+end
+
+local record FmtOffRegions
+    regions: {FmtOffRegion}
+end
+
 local ast_utils = {
     BlockSpan = BlockSpan,
+    FmtOffRegion = FmtOffRegion,
+    FmtOffRegions = FmtOffRegions,
 }
 
 function BlockSpan.new(open_line: integer, close_line: integer): BlockSpan
@@ -15,6 +26,59 @@ function BlockSpan.new(open_line: integer, close_line: integer): BlockSpan
     self.open_line = open_line
     self.close_line = close_line
     return self
+end
+
+function FmtOffRegion.new(start_line: integer, end_line: integer): FmtOffRegion
+    local self: FmtOffRegion = setmetatable({}, { __index = FmtOffRegion })
+    self.start_line = start_line
+    self.end_line = end_line
+    return self
+end
+
+function FmtOffRegion:includes_line(line_number: integer): boolean
+    return line_number >= self.start_line and line_number <= self.end_line
+end
+
+function FmtOffRegion:includes_range(start_line: integer, end_line: integer): boolean
+    return start_line <= self.end_line and self.start_line <= end_line
+end
+
+function FmtOffRegion:includes_node(node: parser.Node): boolean
+    local end_line = node.yend or node.y
+    return self:includes_range(node.y, end_line)
+end
+
+function FmtOffRegions.new(regions: {FmtOffRegion}): FmtOffRegions
+    local self: FmtOffRegions = setmetatable({}, { __index = FmtOffRegions })
+    self.regions = regions
+    return self
+end
+
+function FmtOffRegions:includes_line(line_number: integer): boolean
+    for _, region in ipairs(self.regions) do
+        if region:includes_line(line_number) then
+            return true
+        end
+    end
+    return false
+end
+
+function FmtOffRegions:includes_range(start_line: integer, end_line: integer): boolean
+    for _, region in ipairs(self.regions) do
+        if region:includes_range(start_line, end_line) then
+            return true
+        end
+    end
+    return false
+end
+
+function FmtOffRegions:includes_node(node: parser.Node): boolean
+    for _, region in ipairs(self.regions) do
+        if region:includes_node(node) then
+            return true
+        end
+    end
+    return false
 end
 
 -- fmt: off
@@ -110,10 +174,10 @@ function ast_utils.find_enclosing_block_end(
     return innermost_end
 end
 
-function ast_utils.collect_fmt_off_lines(
+function ast_utils.collect_fmt_off_regions(
     source_lines: {string}, block_spans: {BlockSpan}
-): {integer: boolean}
-    local fmt_off_lines: {integer: boolean} = {}
+): FmtOffRegions
+    local regions: {FmtOffRegion} = {}
     local formatting_off = false
     local off_start = 0
     local region_end = 0
@@ -129,17 +193,24 @@ function ast_utils.collect_fmt_off_lines(
 
         if formatting_off then
             if line_number >= region_end then
+                if off_start <= region_end - 1 then
+                    table.insert(regions, FmtOffRegion.new(off_start, region_end - 1))
+                end
                 formatting_off = false
             else
-                fmt_off_lines[line_number] = true
                 if line_number > off_start and line_str:match("%-%-%s*fmt:%s*on") then
+                    table.insert(regions, FmtOffRegion.new(off_start, line_number))
                     formatting_off = false
                 end
             end
         end
     end
 
-    return fmt_off_lines
+    if formatting_off and off_start <= #source_lines then
+        table.insert(regions, FmtOffRegion.new(off_start, #source_lines))
+    end
+
+    return FmtOffRegions.new(regions)
 end
 
 function ast_utils.has_multiline_descendant(node: parser.Node): boolean

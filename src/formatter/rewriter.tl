@@ -87,7 +87,7 @@ local record FormatterContext
     tokens: {tl.Token}
     edits: {Edit}
     lines: {string}
-    fmt_off_lines: {integer: boolean}
+    fmt_off_regions: ast_utils.FmtOffRegions
 end
 
 function FormatterContext.new(
@@ -95,14 +95,14 @@ function FormatterContext.new(
     tokens: {tl.Token},
     edits: {Edit},
     lines: {string},
-    fmt_off_lines: {integer: boolean}
+    fmt_off_regions: ast_utils.FmtOffRegions
 ): FormatterContext
     local self: FormatterContext = setmetatable({}, { __index = FormatterContext })
     self.ast = ast
     self.tokens = tokens
     self.edits = edits
     self.lines = lines
-    self.fmt_off_lines = fmt_off_lines
+    self.fmt_off_regions = fmt_off_regions
     return self
 end
 
@@ -363,19 +363,19 @@ end
 local function collect_table_spans(
     node: parser.Node,
     lines: {string},
-    fmt_off_lines: {integer: boolean},
+    fmt_off_regions: ast_utils.FmtOffRegions,
     result: {Span}
 )
     if node.kind == "literal_table" then
         local is_safe = true
-        for line = node.y, node.yend do
-            if fmt_off_lines[line] then
-                is_safe = false
-                break
-            end
-            if lines[line] and lines[line]:find("%-%-") then
-                is_safe = false
-                break
+        if fmt_off_regions:includes_node(node) then
+            is_safe = false
+        else
+            for line = node.y, node.yend do
+                if lines[line] and lines[line]:find("%-%-") then
+                    is_safe = false
+                    break
+                end
             end
         end
         if is_safe and not ast_utils.has_multiline_descendant(node) and not has_magic_trailing_comma(
@@ -390,7 +390,7 @@ local function collect_table_spans(
     end
 
     local function recurse(child: parser.Node)
-        collect_table_spans(child, lines, fmt_off_lines, result)
+        collect_table_spans(child, lines, fmt_off_regions, result)
     end
     ast_utils.walk_children(node, recurse)
 end
@@ -458,12 +458,12 @@ local function span_range_is_unsafe(
     open_line: integer,
     close_line: integer,
     lines: {string},
-    fmt_off_lines: {integer: boolean}
+    fmt_off_regions: ast_utils.FmtOffRegions
 ): boolean
+    if fmt_off_regions:includes_range(open_line, close_line) then
+        return true
+    end
     for line = open_line, close_line do
-        if fmt_off_lines[line] then
-            return true
-        end
         if lines[line] and lines[line]:find("%-%-") then
             return true
         end
@@ -477,7 +477,7 @@ end
 -- of subsequent spans. Each span carries a kind tag to select the correct
 -- join/split functions.
 local function apply_all_spans(
-    lines: {string}, spans: {Span}, fmt_off_lines: {integer: boolean}
+    lines: {string}, spans: {Span}, fmt_off_regions: ast_utils.FmtOffRegions
 ): {string}
     -- Process bottom-to-top (highest open_line first).  For spans on the same
     -- line, process leftmost (outermost) first so the outer span wraps and
@@ -500,7 +500,7 @@ local function apply_all_spans(
     for _, span in ipairs(spans) do
         if span_overlaps_replaced(replaced_lines, span) then
             -- stale span: its lines were replaced by an earlier multi-line rewrite
-        elseif fmt_off_lines[span.open_line] then
+        elseif fmt_off_regions:includes_range(span.open_line, span.close_line) then
             -- skip
         elseif span.open_line == span.close_line then
             local line_str = result[span.open_line]
@@ -647,12 +647,12 @@ end
 local function collect_signature_spans(
     node: parser.Node,
     lines: {string},
-    fmt_off_lines: {integer: boolean},
+    fmt_off_regions: ast_utils.FmtOffRegions,
     result: {Span}
 )
     if ast_utils.is_function_def(node) and node.args then
         local args = node.args
-        if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
+        if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_regions)
             and not ast_utils.has_multiline_descendant(args)
         then
             table.insert(
@@ -664,7 +664,7 @@ local function collect_signature_spans(
         end
     end
     local function recurse(child: parser.Node)
-        collect_signature_spans(child, lines, fmt_off_lines, result)
+        collect_signature_spans(child, lines, fmt_off_regions, result)
     end
     ast_utils.walk_children(node, recurse)
 end
@@ -674,14 +674,14 @@ end
 local function collect_call_spans(
     node: parser.Node,
     lines: {string},
-    fmt_off_lines: {integer: boolean},
+    fmt_off_regions: ast_utils.FmtOffRegions,
     result: {Span}
 )
     if node.kind == "op" and node.op ~= nil and node.op.op == "@funcall" and node.e2 ~= nil then
         local args = node.e2
         local args_line = lines[args.y]
         if args_line and args_line:sub(args.x, args.x) == "(" then
-            if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_lines)
+            if not span_range_is_unsafe(args.y, args.yend, lines, fmt_off_regions)
                 and not ast_utils.has_multiline_descendant(args)
             then
                 table.insert(
@@ -694,7 +694,7 @@ local function collect_call_spans(
         end
     end
     local function recurse(child: parser.Node)
-        collect_call_spans(child, lines, fmt_off_lines, result)
+        collect_call_spans(child, lines, fmt_off_regions, result)
     end
     ast_utils.walk_children(node, recurse)
 end
@@ -706,15 +706,15 @@ local function build_formatter_context(
     local tokens, _ = tl.lex(source, filename)
     local edits = collect_all_edits(tokens)
     local lines = split_preserving_trailing_newline(source)
-    local fmt_off_lines = ast_utils.collect_fmt_off_lines(lines, source_blocks)
+    local fmt_off_regions = ast_utils.collect_fmt_off_regions(lines, source_blocks)
 
-    return FormatterContext.new(ast, tokens, edits, lines, fmt_off_lines)
+    return FormatterContext.new(ast, tokens, edits, lines, fmt_off_regions)
 end
 
 local function run_lexical_whitespace_pass(context: FormatterContext): {string}
     local result: {string} = {}
     for i, line_str in ipairs(context.lines) do
-        if context.fmt_off_lines[i] then
+        if context.fmt_off_regions:includes_line(i) then
             table.insert(result, line_str)
         else
             table.insert(result, apply_edits_to_line(line_str, i, context.edits))
@@ -728,7 +728,7 @@ local function run_line_cleanup_pass(
 ): {string}
     local result: {string} = {}
     for i, line_str in ipairs(lines) do
-        if context.fmt_off_lines[i] then
+        if context.fmt_off_regions:includes_line(i) then
             table.insert(result, line_str)
         else
             local cleaned = expand_tabs(line_str)
@@ -741,16 +741,16 @@ end
 
 local function collect_structural_spans(context: FormatterContext): {Span}
     local spans: {Span} = {}
-    collect_signature_spans(context.ast, context.lines, context.fmt_off_lines, spans)
-    collect_call_spans(context.ast, context.lines, context.fmt_off_lines, spans)
-    collect_table_spans(context.ast, context.lines, context.fmt_off_lines, spans)
+    collect_signature_spans(context.ast, context.lines, context.fmt_off_regions, spans)
+    collect_call_spans(context.ast, context.lines, context.fmt_off_regions, spans)
+    collect_table_spans(context.ast, context.lines, context.fmt_off_regions, spans)
     return spans
 end
 
 local function run_structural_span_pass(
     context: FormatterContext, lines: {string}, spans: {Span}
 ): {string}
-    return apply_all_spans(lines, spans, context.fmt_off_lines)
+    return apply_all_spans(lines, spans, context.fmt_off_regions)
 end
 
 local function run_final_cleanup_pass(

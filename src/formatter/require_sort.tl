@@ -78,7 +78,7 @@ local function collect_require_decls(ast: parser.Node): {RequireDecl}
 end
 
 local function collect_require_blocks(
-    ast: parser.Node, fmt_off_lines: {integer: boolean}
+    ast: parser.Node, fmt_off_regions: ast_utils.FmtOffRegions
 ): {RequireBlock}
     local decls = collect_require_decls(ast)
     local result: {RequireBlock} = {}
@@ -101,13 +101,9 @@ local function collect_require_blocks(
 
     local previous_decl: RequireDecl | nil = nil
     for _, decl in ipairs(decls) do
-        local has_fmt_off = false
-        for line = decl.first_line, decl.last_line do
-            if fmt_off_lines[line] then
-                has_fmt_off = true
-                break
-            end
-        end
+        local has_fmt_off = fmt_off_regions:includes_range(
+            decl.first_line, decl.last_line
+        )
 
         if has_fmt_off then
             push_block()
@@ -213,8 +209,8 @@ function require_sort.rewrite(source: string, filename: string): string, {tl.Err
 
     local lines = split_preserving_trailing_newline(source)
     local source_blocks = ast_utils.collect_block_spans(ast)
-    local fmt_off_lines = ast_utils.collect_fmt_off_lines(lines, source_blocks)
-    local require_blocks = collect_require_blocks(ast, fmt_off_lines)
+    local fmt_off_regions = ast_utils.collect_fmt_off_regions(lines, source_blocks)
+    local require_blocks = collect_require_blocks(ast, fmt_off_regions)
     local output_lines = sort_require_blocks(lines, require_blocks)
 
     return table.concat(output_lines, "\n"), {}
