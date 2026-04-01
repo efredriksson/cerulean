@@ -80,11 +80,20 @@ local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
 end
 
 local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil
-    if stmt.var == nil or stmt.value == nil or stmt.value.kind ~= "op" then
+    if stmt.var == nil or stmt.value == nil or stmt.value.kind ~= "newtype" then
         return nil
     end
 
-    return doc.text("local type " .. stmt.var.tk .. " = " .. expr_doc.render_expr(stmt.value))
+    if stmt.value.newtype == nil or stmt.value.newtype.def == nil then
+        return nil
+    end
+
+    local type_text = stmt.value.newtype.def.source_text
+    if type_text == nil then
+        return nil
+    end
+
+    return doc.text("local type " .. stmt.var.tk .. " = " .. type_text)
 end
 
 local function render_function_name(node: parser.Node): string | nil
@@ -279,7 +288,7 @@ function stmt_doc.render_statement_doc(
         return render_assignment_doc(node)
     elseif node.kind == "local_declaration" and end_line == node.y then
         return render_local_declaration_doc(node)
-    elseif node.kind == "local_type" and end_line == node.y then
+    elseif node.kind == "local_type" then
         return render_local_type_doc(node)
     elseif (node.kind == "local_function" or node.kind == "global_function")
         and end_line > node.y

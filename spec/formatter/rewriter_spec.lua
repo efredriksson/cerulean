@@ -420,6 +420,74 @@ describe("formatter", function()
            return x
          end
       ]]))
+
+      it("reindents a function body with a local type and multiline if condition", helpers.format([[
+         local function f(ready: boolean, active: boolean)
+           local type Result = string | number
+           if ready
+               and active
+           then
+             return
+           end
+         end
+      ]], [[
+         local function f(ready: boolean, active: boolean)
+             local type Result = string | number
+             if ready and active then
+                 return
+             end
+         end
+      ]]))
+
+      it("reindents a function body with break in a multiline while condition", helpers.format([[
+         local function f()
+           while ready()
+               and active()
+           do
+             break
+           end
+         end
+      ]], [[
+         local function f()
+             while ready() and active() do
+                 break
+             end
+         end
+      ]]))
+
+      it("reindents a function body with a typed local and multiline if condition", helpers.format([[
+         local function f()
+           local current: ResultType = compute_result()
+           if ready()
+               and active()
+           then
+             log(current)
+           end
+         end
+      ]], [[
+         local function f()
+             local current: ResultType = compute_result()
+             if ready() and active() then
+                 log(current)
+             end
+         end
+      ]]))
+
+      it("reindents a function body with a richer return expression under a multiline while condition", helpers.format([[
+         local function f()
+           while ready()
+               and active()
+           do
+             return left_value + right_value * compute_result()
+           end
+         end
+      ]], [[
+         local function f()
+             while ready() and active() do
+                 return left_value + right_value * compute_result()
+             end
+         end
+      ]]))
    end)
 
    describe("top-level structural block rendering", function()
