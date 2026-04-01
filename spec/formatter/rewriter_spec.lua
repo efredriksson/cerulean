@@ -327,8 +327,8 @@ describe("formatter", function()
          local b = require( "b.module" )
          local a = require( "a.module" )
       ]], [[
-         local a = require( "a.module" )
-         local b = require( "b.module" )
+         local a = require("a.module")
+         local b = require("b.module")
       ]], { skip_ast_equivalence = true }))
 
       it("sorts multi-line require declarations as a unit", helpers.format([[

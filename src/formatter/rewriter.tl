@@ -2,6 +2,7 @@ local ast_utils = require("formatter.ast_utils")
 local call_doc = require("formatter.call_doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
+local require_sort = require("formatter.require_sort")
 local signature_doc = require("formatter.signature_doc")
 local table_doc = require("formatter.table_doc")
 local tl = require("tl")
@@ -81,28 +82,8 @@ function Rewrite.new(
     return self
 end
 
-local record RequireDecl
-    first_line:  integer
-    last_line:   integer
-    module_path: string
-end
-
-function RequireDecl.new(
-    first_line: integer, last_line: integer, module_path: string
-): RequireDecl
-    local self: RequireDecl = setmetatable({}, { __index = RequireDecl })
-    self.first_line = first_line
-    self.last_line = last_line
-    self.module_path = module_path
-    return self
-end
-
 local record FormatterContext
-    source: string
-    filename: string
     ast: parser.Node
-    source_blocks: {ast_utils.BlockSpan}
-    require_decls: {RequireDecl}
     tokens: {tl.Token}
     edits: {Edit}
     lines: {string}
@@ -110,22 +91,14 @@ local record FormatterContext
 end
 
 function FormatterContext.new(
-    source: string,
-    filename: string,
     ast: parser.Node,
-    source_blocks: {ast_utils.BlockSpan},
-    require_decls: {RequireDecl},
     tokens: {tl.Token},
     edits: {Edit},
     lines: {string},
     fmt_off_lines: {integer: boolean}
 ): FormatterContext
     local self: FormatterContext = setmetatable({}, { __index = FormatterContext })
-    self.source = source
-    self.filename = filename
     self.ast = ast
-    self.source_blocks = source_blocks
-    self.require_decls = require_decls
     self.tokens = tokens
     self.edits = edits
     self.lines = lines
@@ -726,112 +699,16 @@ local function collect_call_spans(
     ast_utils.walk_children(node, recurse)
 end
 
--- Walk only the immediate children of the AST root (top-level statements) and
--- return a RequireDecl for each local_declaration or local_type whose sole
--- expression is a bare require("<path>") call.  Requires inside function
--- bodies are ignored because only the top-level list is walked.
-local function collect_require_decls(ast: parser.Node): {RequireDecl}
-    local result: {RequireDecl} = {}
-    for _, node in ipairs(ast) do
-        local call_node: parser.Node
-        if node.kind == "local_declaration"
-            and node.exps ~= nil
-            and node.exps[1] ~= nil
-        then
-            call_node = node.exps[1]
-        elseif node.kind == "local_type" and node.value ~= nil then
-            call_node = node.value
-        end
-        if call_node ~= nil
-            and call_node.kind == "op"
-            and call_node.op ~= nil
-            and call_node.op.op == "@funcall"
-            and call_node.e1 ~= nil
-            and call_node.e1.tk == "require"
-            and call_node.e2 ~= nil
-            and #call_node.e2 == 1
-            and call_node.e2[1].kind == "string"
-        then
-            local module_path = call_node.e2[1].conststr or ""
-            -- Use the closing line of the argument list as last_line so that
-            -- multi-line declarations (local x =\n    require("...")) are
-            -- captured as a range and sorted as a unit.
-            local last_line = call_node.e2.yend or call_node.e2.y or node.y
-            table.insert(result, RequireDecl.new(node.y, last_line, module_path))
-        end
-    end
-    return result
-end
-
--- Sort contiguous blocks of top-level require declarations alphabetically by
--- module path.  Lines inside fmt-off regions are left in place.
-local function sort_require_blocks(
-    lines: {string}, fmt_off_lines: {integer: boolean}, require_decls: {RequireDecl}
-): {string}
-    local decl_by_start: {integer: RequireDecl} = {}
-    for _, decl in ipairs(require_decls) do
-        decl_by_start[decl.first_line] = decl
-    end
-
-    local result: {string} = {}
-    local i = 1
-    while i <= #lines do
-        local decl = decl_by_start[i]
-        if fmt_off_lines[i] or decl == nil then
-            table.insert(result, lines[i])
-            i = i + 1
-        else
-            local block: {RequireDecl} = {}
-            local block_end = 0
-            local current = decl
-            while current ~= nil do
-                table.insert(block, current)
-                block_end = current.last_line
-                local next_line = current.last_line + 1
-                local next_decl = decl_by_start[next_line]
-                if next_decl == nil or fmt_off_lines[next_line] then
-                    break
-                end
-                current = next_decl
-            end
-            local function by_module_path(
-                first: RequireDecl, second: RequireDecl
-            ): boolean
-                return first.module_path < second.module_path
-            end
-            table.sort(block, by_module_path)
-            for _, sorted_decl in ipairs(block) do
-                for line = sorted_decl.first_line, sorted_decl.last_line do
-                    table.insert(result, lines[line])
-                end
-            end
-            i = block_end + 1
-        end
-    end
-    return result
-end
-
 local function build_formatter_context(
     source: string, filename: string, ast: parser.Node
 ): FormatterContext
     local source_blocks = ast_utils.collect_block_spans(ast)
-    local require_decls = collect_require_decls(ast)
     local tokens, _ = tl.lex(source, filename)
     local edits = collect_all_edits(tokens)
     local lines = split_preserving_trailing_newline(source)
     local fmt_off_lines = ast_utils.collect_fmt_off_lines(lines, source_blocks)
 
-    return FormatterContext.new(
-        source,
-        filename,
-        ast,
-        source_blocks,
-        require_decls,
-        tokens,
-        edits,
-        lines,
-        fmt_off_lines
-    )
+    return FormatterContext.new(ast, tokens, edits, lines, fmt_off_lines)
 end
 
 local function run_lexical_whitespace_pass(context: FormatterContext): {string}
@@ -862,13 +739,6 @@ local function run_line_cleanup_pass(
     return result
 end
 
-local function run_reorder_pass(context: FormatterContext, lines: {string}): {string}
-    -- Require sorting runs before span rewrites so the AST line numbers
-    -- collected from the original source are still accurate.
-    -- Token edits preserve line count; span rewrites may not.
-    return sort_require_blocks(lines, context.fmt_off_lines, context.require_decls)
-end
-
 local function collect_structural_spans(context: FormatterContext): {Span}
     local spans: {Span} = {}
     collect_signature_spans(context.ast, context.lines, context.fmt_off_lines, spans)
@@ -889,24 +759,41 @@ local function run_final_cleanup_pass(
     return collapse_blank_lines(lines)
 end
 
+local function run_structural_phase(
+    source: string, filename: string, ast: parser.Node
+): string
+    local context = build_formatter_context(source, filename, ast)
+
+    local output_lines = run_lexical_whitespace_pass(context)
+    output_lines = run_line_cleanup_pass(context, output_lines)
+
+    local structural_spans = collect_structural_spans(context)
+    output_lines = run_structural_span_pass(context, output_lines, structural_spans)
+    output_lines = run_final_cleanup_pass(context, output_lines)
+
+    return table.concat(output_lines, "\n")
+end
+
+local function run_require_sort_phase(source: string, filename: string): Rewrite
+    local output, parse_errors = require_sort.rewrite(source, filename)
+    return Rewrite.new(output, output ~= source, parse_errors)
+end
+
 function rewriter.rewrite(source: string, filename: string): Rewrite
     local ast, parse_errors = parser.parse(source, filename)
     if #parse_errors > 0 then
         return Rewrite.new(source, false, parse_errors)
     end
 
-    local context = build_formatter_context(source, filename, ast)
+    local intermediate = run_structural_phase(source, filename, ast)
+    local reorder_rewrite = run_require_sort_phase(intermediate, filename)
+    if #reorder_rewrite.parse_errors > 0 then
+        return Rewrite.new(
+            intermediate, intermediate ~= source, reorder_rewrite.parse_errors
+        )
+    end
 
-    local output_lines = run_lexical_whitespace_pass(context)
-    output_lines = run_line_cleanup_pass(context, output_lines)
-    output_lines = run_reorder_pass(context, output_lines)
-
-    local structural_spans = collect_structural_spans(context)
-    output_lines = run_structural_span_pass(context, output_lines, structural_spans)
-    output_lines = run_final_cleanup_pass(context, output_lines)
-
-    local output = table.concat(output_lines, "\n")
-    return Rewrite.new(output, output ~= source, {})
+    return Rewrite.new(reorder_rewrite.output, reorder_rewrite.output ~= source, {})
 end
 
 return rewriter
