@@ -18,7 +18,7 @@ function DelimitedSequenceOptions.new(
     trailing_break_separator: boolean
 ): DelimitedSequenceOptions
     local self: DelimitedSequenceOptions = setmetatable(
-        {}, { __index = DelimitedSequenceOptions }
+        {}, {__index = DelimitedSequenceOptions}
     )
     self.open_delim = open_delim
     self.close_delim = close_delim
@@ -27,35 +27,49 @@ function DelimitedSequenceOptions.new(
     return self
 end
 
+local function build_text_item_docs(items: {string}): {doc.Doc}
+    local result: {doc.Doc} = {}
+    for _, item in ipairs(items) do
+        table.insert(result, doc.text(item))
+    end
+    return result
+end
+
 local function build_item_docs(
-    items: {string}, trailing_break_separator: boolean
+    item_docs: {doc.Doc}, trailing_break_separator: boolean
 ): {doc.Doc}
-    local item_docs: {doc.Doc} = {}
-    for i, item in ipairs(items) do
+    local result: {doc.Doc} = {}
+    for i, item_doc in ipairs(item_docs) do
         local item_parts: {doc.Doc} = {
-            doc.text(item),
+            item_doc,
         }
-        if i < #items then
+        if i < #item_docs then
             table.insert(item_parts, doc.text(","))
             table.insert(item_parts, doc.line(" "))
         elseif trailing_break_separator then
             table.insert(item_parts, doc.break_text(","))
         end
-        table.insert(item_docs, doc.concat(item_parts))
+        table.insert(result, doc.concat(item_parts))
     end
-    return item_docs
+    return result
 end
 
 local function build_delimited_sequence_doc(
-    items: {string}, opts: DelimitedSequenceOptions, compact_when_possible: boolean
+    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions, compact_when_possible: boolean
 ): doc.Doc
-    if #items < 2 then
-        return doc.text(
-            opts.open_delim .. table.concat(items, ", ") .. opts.close_delim
-        )
+    if #item_docs == 0 then
+        return doc.text(opts.open_delim .. opts.close_delim)
+    elseif #item_docs == 1 then
+        return doc.concat({
+            doc.text(opts.open_delim),
+            item_docs[1],
+            doc.text(opts.close_delim),
+        })
     end
 
-    local item_doc = doc.concat(build_item_docs(items, opts.trailing_break_separator))
+    local item_doc = doc.concat(
+        build_item_docs(item_docs, opts.trailing_break_separator)
+    )
     if compact_when_possible then
         item_doc = doc.group(item_doc)
     end
@@ -76,15 +90,15 @@ local function render_doc(node: doc.Doc, indent_prefix: string): {string}
 end
 
 local function build_compact_delimited_sequence_doc(
-    items: {string}, opts: DelimitedSequenceOptions
+    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
 ): doc.Doc
     local parts: {doc.Doc} = {
         doc.text(opts.open_delim),
     }
 
-    for i, item in ipairs(items) do
-        table.insert(parts, doc.text(item))
-        if i < #items then
+    for i, item_doc in ipairs(item_docs) do
+        table.insert(parts, item_doc)
+        if i < #item_docs then
             table.insert(parts, doc.text(", "))
         end
     end
@@ -188,7 +202,11 @@ function doc_builders.render_compact_construct(
         prefix,
         suffix,
         render_doc(
-            build_compact_delimited_sequence_doc(items, sequence_opts), indent_prefix
+            build_compact_delimited_sequence_doc(
+                build_text_item_docs(items),
+                sequence_opts
+            ),
+            indent_prefix
         )
     )
 end
@@ -222,16 +240,31 @@ function doc_builders.render_construct(
             lines = compact_lines
         else
             lines = render_doc(
-                build_delimited_sequence_doc(items, sequence_opts, true), indent_prefix
+                build_delimited_sequence_doc(
+                    build_text_item_docs(items),
+                    sequence_opts,
+                    true
+                ),
+                indent_prefix
             )
         end
     elseif kind == "call" and suffix ~= "" then
         lines = render_doc(
-            build_delimited_sequence_doc(items, sequence_opts, false), indent_prefix
+            build_delimited_sequence_doc(
+                build_text_item_docs(items),
+                sequence_opts,
+                false
+            ),
+            indent_prefix
         )
     else
         lines = render_doc(
-            build_delimited_sequence_doc(items, sequence_opts, true), indent_prefix
+            build_delimited_sequence_doc(
+                build_text_item_docs(items),
+                sequence_opts,
+                true
+            ),
+            indent_prefix
         )
     end
 

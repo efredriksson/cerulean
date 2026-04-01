@@ -89,7 +89,8 @@ local record parser
         tokens: {tl.Token},
         errs: {tl.Error},
         filename?: string,
-        parse_lang?: tl.ParseLang
+        parse_lang?: tl.ParseLang,
+        source_lines?: {string}
     ): Node, {string}
     parse: function(
         input: string,
@@ -288,6 +289,7 @@ local record ParseState
    errs: {Error}
    filename: string
    end_alignment_hint: Error
+   source_lines: {string}
 
    required_modules: {string}
    parse_lang: ParseLang
@@ -318,6 +320,7 @@ end
 local record ArgumentInfo
    i: integer
    type: Type
+   name: string
    is_va: boolean
    is_self: boolean
    opt: boolean
@@ -447,6 +450,78 @@ local function new_type(ps: ParseState, i: integer, typename: TypeName): Type
    return t
 end
 
+local function split_source_lines(input: string): {string}
+   local lines: {string} = {}
+   local start = 1
+
+   while true do
+      local newline = input:find("\n", start, true)
+      if newline == nil then
+         table.insert(lines, input:sub(start))
+         break
+      end
+
+      table.insert(lines, input:sub(start, newline - 1))
+      start = newline + 1
+   end
+
+   if #lines == 0 then
+      table.insert(lines, "")
+   end
+
+   return lines
+end
+
+local function slice_source_until(
+    lines: {string},
+    start_line: integer,
+    start_col: integer,
+    end_line: integer,
+    end_col_exclusive: integer
+): string
+   local final_line = end_line
+   local final_col = end_col_exclusive - 1
+
+   if final_col < 1 then
+      final_line = end_line - 1
+      final_col = #lines[final_line]
+   end
+
+   if final_line < start_line then
+      return ""
+   elseif start_line == final_line then
+      return lines[start_line]:sub(start_col, final_col)
+   end
+
+   local parts: {string} = {}
+   table.insert(parts, lines[start_line]:sub(start_col))
+   for line = start_line + 1, final_line - 1 do
+      table.insert(parts, lines[line])
+   end
+   table.insert(parts, lines[final_line]:sub(1, final_col))
+   return table.concat(parts, "\n")
+end
+
+local function capture_type_source_text(
+    ps: ParseState, start_i: integer, end_i: integer
+): string
+   if ps.source_lines == nil or ps.tokens[start_i] == nil or ps.tokens[end_i] == nil then
+      return ""
+   end
+
+   local start_token = ps.tokens[start_i]
+   local end_token = ps.tokens[end_i]
+   local text = slice_source_until(
+      ps.source_lines,
+      start_token.y,
+      start_token.x,
+      end_token.y,
+      end_token.x
+   )
+
+   return text:match("^(.-)%s*$") or ""
+end
+
 local function new_first_order_type(
     ps: ParseState,
     i: integer,
@@ -520,6 +595,7 @@ local function skip(
       filename = ps.filename,
       tokens = ps.tokens,
       errs = {},
+      source_lines = ps.source_lines,
       required_modules = {},
       parse_lang = ps.parse_lang,
    }
@@ -635,6 +711,7 @@ local function parse_table_item(
             filename = ps.filename,
             tokens = ps.tokens,
             errs = {},
+            source_lines = ps.source_lines,
             required_modules = ps.required_modules,
             parse_lang = ps.parse_lang,
          }
@@ -759,6 +836,7 @@ local function parse_trying_list<T>(
       filename = ps.filename,
       tokens = ps.tokens,
       errs = {},
+      source_lines = ps.source_lines,
       required_modules = ps.required_modules,
       parse_lang = ps.parse_lang
    }
@@ -959,11 +1037,15 @@ local function parse_base_type(
 end
 
 parse_type = function(ps: ParseState, i: integer): integer, FirstClassType, integer
+   local start_i = i
    if ps.tokens[i].tk == "(" then
       i = i + 1
       local t: Type
       i, t = parse_type(ps, i)
       i = verify_tk(ps, i, ")")
+      if t then
+         t.source_text = capture_type_source_text(ps, start_i, i)
+      end
       return i, t
    end
 
@@ -986,6 +1068,7 @@ parse_type = function(ps: ParseState, i: integer): integer, FirstClassType, inte
       end
       bt = u
    end
+   bt.source_text = capture_type_source_text(ps, start_i, i)
    return i, bt
 end
 
@@ -994,6 +1077,7 @@ parse_type_list = function(
     i: integer,
     mode: ParseTypeListMode
 ): integer, TupleType
+   local start_i = i
    local t, list = new_tuple(ps, i)
 
    local first_token = ps.tokens[i].tk
@@ -1029,6 +1113,10 @@ parse_type_list = function(
 
    if optional_paren then
       i = verify_tk(ps, i, ")")
+   end
+
+   if i > start_i then
+      t.source_text = capture_type_source_text(ps, start_i, i)
    end
 
    return i, t
@@ -1524,13 +1612,14 @@ local function parse_argument_type(
    local argument_name: string = nil
 
    if ps.tokens[i].kind == "identifier" then
-      argument_name = ps.tokens[i].tk
       if ps.tokens[i + 1].tk == "?" then
          opt = i + 1
          if ps.tokens[i + 2].tk == ":" then
+            argument_name = ps.tokens[i].tk
             i = i + 3
          end
       elseif ps.tokens[i + 1].tk == ":" then
+         argument_name = ps.tokens[i].tk
          i = i + 2
       end
    elseif ps.tokens[i].kind == "?" then
@@ -1576,7 +1665,14 @@ local function parse_argument_type(
       end
    end
 
-   return i, { i = i, type = typ, is_va = is_va, is_self = is_self, opt = (opt > 0) or is_va }, 0
+   return i, {
+      i = i,
+      type = typ,
+      name = argument_name,
+      is_va = is_va,
+      is_self = is_self,
+      opt = (opt > 0) or is_va,
+   }, 0
 end
 
 parse_argument_type_list = function(
@@ -1586,10 +1682,12 @@ parse_argument_type_list = function(
    local ars: {ArgumentInfo} = {}
    i = parse_bracket_list(ps, i, ars, "(", ")", "sep", parse_argument_type)
    local t, list = new_tuple(ps, i)
+   t.argnames = {}
    local n = #ars
    local min_arity = 0
    for l, ar in ipairs(ars) do
       list[l] = ar.type
+      t.argnames[l] = ar.name
       if ar.is_va and l < n then
          fail(ps, ar.i, "'...' can only be last argument")
       end
@@ -2880,13 +2978,15 @@ parser.parse_program = function(
     tokens: {Token},
     errs: {Error},
     filename?: string,
-    parse_lang?: ParseLang
+    parse_lang?: ParseLang,
+    source_lines?: {string}
 ): Node, {string}
    errs = errs or {}
    local ps: ParseState = {
       tokens = tokens,
       errs = errs,
       filename = filename or "",
+      source_lines = source_lines or {},
       required_modules = {},
       parse_lang = parse_lang,
    }
@@ -2911,11 +3011,13 @@ parser.parse = function(
     parse_lang?: ParseLang
 ): Node, {tl.Error}, {string}
    local tokens, errs = tl.lex(input, filename)
+   local source_lines = split_source_lines(input)
    local node, required_modules = parser.parse_program(
        tokens,
        errs,
        filename,
-       parse_lang
+       parse_lang,
+       source_lines
    )
    return node, errs, required_modules
 end

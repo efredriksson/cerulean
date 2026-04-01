@@ -58,6 +58,7 @@ local record tl
       typeid: integer       -- unique identifier
       inferred_at: Where    -- for error messages
       needs_compat: boolean -- for Lua compatibilty
+      source_text: string | nil
    end
 
    record GenericType is Type where self.typename == "generic"
@@ -207,6 +208,7 @@ local record tl
       where self.typename == "tuple"
 
       is_va: boolean
+      argnames: {string}
       tuple: {Type}
    end
 

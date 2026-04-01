@@ -1,6 +1,8 @@
 local ast_utils = require("formatter.ast_utils")
+local call_doc = require("formatter.call_doc")
 local doc_builders = require("formatter.doc_builders")
 local parser = require("formatter.parser")
+local signature_doc = require("formatter.signature_doc")
 local tl = require("tl")
 
 local rewriter = {}
@@ -41,6 +43,10 @@ local record Span
     close_line: integer
     close_col:  integer
     kind: SpanKind
+    uses_ast_items: boolean
+    items: {string}
+    call_args: parser.Node | nil
+    signature_args: parser.Node | nil
 end
 
 function Span.new(
@@ -48,7 +54,11 @@ function Span.new(
     open_col: integer,
     close_line: integer,
     close_col: integer,
-    kind: SpanKind
+    kind: SpanKind,
+    uses_ast_items: boolean,
+    items: {string},
+    call_args: parser.Node | nil,
+    signature_args: parser.Node | nil
 ): Span
     local self: Span = setmetatable({}, { __index = Span })
     self.open_line = open_line
@@ -56,6 +66,10 @@ function Span.new(
     self.close_line = close_line
     self.close_col = close_col
     self.kind = kind
+    self.uses_ast_items = uses_ast_items
+    self.items = items
+    self.call_args = call_args
+    self.signature_args = signature_args
     return self
 end
 
@@ -439,7 +453,10 @@ local function collect_table_spans(
            node, lines
         ) then
             table.insert(
-                result, Span.new(node.y, node.x, node.yend, node.xend, "table")
+                result,
+                Span.new(
+                    node.y, node.x, node.yend, node.xend, "table", false, {}, nil, nil
+                )
             )
         end
         -- Still recurse into children to find nested simple tables
@@ -467,20 +484,31 @@ local function extract_span_lines(lines: {string}, span: Span): {string}
 end
 
 local function render_call_with_doc(
-    kind: SpanKind,
-    before: string,
-    items: {string},
-    after: string,
-    was_already_compact: boolean
+    args: parser.Node, before: string, after: string, was_already_compact: boolean
 ): {string}
-    local indent_prefix = before:match("^(%s*)") or ""
-    local prefer_trailing_compact = kind == "call"
-        and
-        after ~= "" and not after:match("^,") and was_already_compact
+    local prefer_trailing_compact = after ~= ""
+        and not after:match("^,")
+        and was_already_compact
 
-    return doc_builders.render_construct(
-        kind, before, items, after, indent_prefix, prefer_trailing_compact
-    )
+    return call_doc.render_call(args, before, after, false, prefer_trailing_compact)
+end
+
+local function render_compact_call_with_doc(
+    args: parser.Node, before: string, after: string
+): {string}
+    return call_doc.render_call(args, before, after, true, false)
+end
+
+local function render_signature_with_doc(
+    before: string, args: parser.Node, after: string
+): {string}
+    return signature_doc.render_signature(args, before, after, false)
+end
+
+local function render_compact_signature_with_doc(
+    before: string, args: parser.Node, after: string
+): {string}
+    return signature_doc.render_signature(args, before, after, true)
 end
 
 -- Returns true when any original line in the span's range was replaced by an
@@ -558,13 +586,30 @@ local function apply_all_spans(
                 local before = line_str:sub(1, span.open_col - 1)
                 local after = line_str:sub(span.close_col + 1)
                 local span_content = line_str:sub(span.open_col, span.close_col)
-                local items = doc_builders.extract_items_from_span_content(
-                    span_content, split_params
-                )
                 local split_lines: {string}
-                split_lines = render_call_with_doc(
-                    span.kind, before, items, after, true
-                )
+                if span.kind == "signature" and span.signature_args ~= nil then
+                    split_lines = render_signature_with_doc(
+                        before, span.signature_args, after
+                    )
+                elseif span.kind == "call" and span.call_args ~= nil then
+                    split_lines = render_call_with_doc(
+                        span.call_args, before, after, true
+                    )
+                else
+                    local items = span.uses_ast_items
+                        and span.items
+                        or doc_builders.extract_items_from_span_content(
+                            span_content, split_params
+                        )
+                    split_lines = doc_builders.render_construct(
+                        span.kind,
+                        before,
+                        items,
+                        after,
+                        before:match("^(%s*)") or "",
+                        false
+                    )
+                end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
                     if span.kind == "signature" or span.kind == "table" or span.kind == "call" then
@@ -599,14 +644,27 @@ local function apply_all_spans(
             end
         else
             local span_lines = extract_span_lines(result, span)
-            local items = doc_builders.extract_items_from_span_lines(
-                span.kind, span_lines, split_params
-            )
             local before = result[span.open_line]:sub(1, span.open_col - 1)
             local after = result[span.close_line]:sub(span.close_col + 1)
-            local compact_lines = doc_builders.render_compact_construct(
-                span.kind, before, items, after, before:match("^(%s*)") or ""
-            )
+            local compact_lines: {string}
+            if span.kind == "signature" and span.signature_args ~= nil then
+                compact_lines = render_compact_signature_with_doc(
+                    before, span.signature_args, after
+                )
+            elseif span.kind == "call" and span.call_args ~= nil then
+                compact_lines = render_compact_call_with_doc(
+                    span.call_args, before, after
+                )
+            else
+                local items = span.uses_ast_items
+                    and span.items
+                    or doc_builders.extract_items_from_span_lines(
+                        span.kind, span_lines, split_params
+                    )
+                compact_lines = doc_builders.render_compact_construct(
+                    span.kind, before, items, after, before:match("^(%s*)") or ""
+                )
+            end
             local head: {string} = {}
             local tail: {string} = {}
             for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
@@ -621,9 +679,29 @@ local function apply_all_spans(
                 end
             else
                 local split_lines: {string}
-                split_lines = render_call_with_doc(
-                    span.kind, before, items, after, #span_lines == 3
-                )
+                if span.kind == "signature" and span.signature_args ~= nil then
+                    split_lines = render_signature_with_doc(
+                        before, span.signature_args, after
+                    )
+                elseif span.kind == "call" and span.call_args ~= nil then
+                    split_lines = render_call_with_doc(
+                        span.call_args, before, after, #span_lines == 3
+                    )
+                else
+                    local items = span.uses_ast_items
+                        and span.items
+                        or doc_builders.extract_items_from_span_lines(
+                            span.kind, span_lines, split_params
+                        )
+                    split_lines = doc_builders.render_construct(
+                        span.kind,
+                        before,
+                        items,
+                        after,
+                        before:match("^(%s*)") or "",
+                        span.kind == "call" and after ~= "" and not after:match("^,") and #span_lines == 3
+                    )
+                end
                 if #split_lines > 1 then
                     local new_lines: {string} = {}
                     if span.kind == "signature" or span.kind == "table" or span.kind == "call" then
@@ -671,7 +749,18 @@ local function collect_signature_spans(
             and not ast_utils.has_multiline_descendant(args)
         then
             table.insert(
-                result, Span.new(args.y, args.x, args.yend, args.xend, "signature")
+                result,
+                Span.new(
+                    args.y,
+                    args.x,
+                    args.yend,
+                    args.xend,
+                    "signature",
+                    false,
+                    {},
+                    nil,
+                    args
+                )
             )
         end
     end
@@ -697,7 +786,18 @@ local function collect_call_spans(
                 and not ast_utils.has_multiline_descendant(args)
             then
                 table.insert(
-                    result, Span.new(args.y, args.x, args.yend, args.xend, "call")
+                    result,
+                    Span.new(
+                        args.y,
+                        args.x,
+                        args.yend,
+                        args.xend,
+                        "call",
+                        false,
+                        {},
+                        args,
+                        nil
+                    )
                 )
             end
         end

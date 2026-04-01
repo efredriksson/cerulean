@@ -205,6 +205,28 @@ describe("formatter", function()
          ): ReturnType
          end
       ]]))
+
+      it("preserves optional and vararg parameters when wrapping a signature", helpers.format([[
+         function f(required: RequiredType, optional_param?: OptionalTypeName, ...: VariadicTypeName): ReturnType
+         end
+      ]],[[
+         function f(
+             required: RequiredType, optional_param?: OptionalTypeName, ...: VariadicTypeName
+         ): ReturnType
+         end
+      ]]))
+
+      it("preserves source spelling for parenthesized and function parameter types", helpers.format([[
+         function f(left: (Alpha | Beta), callback: function(ctx: Scene, enabled: boolean): ResultType, right: ExtremelyVerboseTypeName)
+         end
+      ]],[[
+         function f(
+             left: (Alpha | Beta),
+             callback: function(ctx: Scene, enabled: boolean): ResultType,
+             right: ExtremelyVerboseTypeName
+         )
+         end
+      ]]))
    end)
 
    describe("indentation", function()
@@ -507,6 +529,34 @@ describe("formatter", function()
          local formatted = string.format(
             "%.1f", elapsed_milliseconds_long_value, maximum_precision
          ) .. "ms"
+      ]]))
+
+      it("preserves source spelling for parenthesized and complex call arguments", helpers.format([[
+         local result = process.deep_call(((left_value + right_value)), function(ctx: Scene, enabled: boolean): ResultType return ctx.result end, trailing_argument_with_a_very_long_name)
+      ]], [[
+         local result = process.deep_call(
+             ((left_value + right_value)),
+             function(ctx: Scene, enabled: boolean): ResultType return ctx.result end,
+             trailing_argument_with_a_very_long_name
+         )
+      ]]))
+
+      it("preserves anonymous function arguments with a local declaration body", helpers.format([[
+         local result = process.deep_call(function() local current_value: ResultType = compute_result() end, trailing_argument_with_a_very_long_name)
+      ]], [[
+         local result = process.deep_call(
+             function() local current_value: ResultType = compute_result() end,
+             trailing_argument_with_a_very_long_name
+         )
+      ]]))
+
+      it("preserves anonymous function arguments with an assignment body", helpers.format([[
+         local result = process.deep_call(function() current_value = compute_result() end, trailing_argument_with_a_very_long_name)
+      ]], [[
+         local result = process.deep_call(
+             function() current_value = compute_result() end,
+             trailing_argument_with_a_very_long_name
+         )
       ]]))
 
       it("does not collapse an expanded call whose closing paren has trailing content", helpers.check([[
