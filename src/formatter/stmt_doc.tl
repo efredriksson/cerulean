@@ -5,7 +5,13 @@ local signature_doc = require("formatter.signature_doc")
 
 local stmt_doc = {}
 
-local type RenderBlock = function(parser.Node): doc.Doc | nil
+local interface StatementLayout
+    preserve_blank_line_after: boolean
+    body_layout: any
+    if_block_layouts: {any} | nil
+end
+
+local type RenderBlock = function(parser.Node, any): doc.Doc | nil
 
 local function node_end_line(node: parser.Node): integer
     return node.yend or node.y
@@ -64,8 +70,10 @@ local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
         end
         table.insert(vars, var_node.tk)
     end
-    for _, exp_node in ipairs(stmt.exps) do
-        table.insert(exps, expr_doc.render_expr(exp_node))
+    if stmt.exps ~= nil then
+        for _, exp_node in ipairs(stmt.exps) do
+            table.insert(exps, expr_doc.render_expr(exp_node))
+        end
     end
 
     local result = "local " .. table.concat(vars, ", ")
@@ -97,17 +105,49 @@ local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil
 end
 
 local function render_function_name(node: parser.Node): string | nil
+    local function render_function_owner(owner: parser.Node): string | nil
+        if owner.kind == "identifier"
+            or owner.kind == "type_identifier"
+            or owner.kind == "variable"
+        then
+            return owner.tk
+        elseif owner.kind == "op"
+            and owner.op ~= nil
+            and owner.op.op == "."
+            and owner.e1 ~= nil
+            and owner.e2 ~= nil
+        then
+            local left = render_function_owner(owner.e1)
+            if left == nil then
+                return nil
+            end
+            return left .. "." .. owner.e2.tk
+        end
+
+        return nil
+    end
+
     if node.kind == "local_function" and node.name ~= nil then
         return "local function " .. node.name.tk
     elseif node.kind == "global_function" and node.name ~= nil and not node.is_method then
         return "function " .. node.name.tk
+    elseif node.kind == "record_function"
+        and node.fn_owner ~= nil
+        and node.name ~= nil
+    then
+        local owner = render_function_owner(node.fn_owner)
+        if owner == nil then
+            return nil
+        end
+        local separator = node.is_method and ":" or "."
+        return "function " .. owner .. separator .. node.name.tk
     end
 
     return nil
 end
 
 local function render_function_definition_doc(
-    node: parser.Node, render_block: RenderBlock
+    node: parser.Node, render_block: RenderBlock, layout: any
 ): doc.Doc | nil
     if node.args == nil or node.body == nil or #node.body == 0 then
         return nil
@@ -118,7 +158,17 @@ local function render_function_definition_doc(
         return nil
     end
 
-    local body_doc = render_block(node.body)
+    local typed_layout: StatementLayout | nil = nil
+    if layout ~= nil then
+        typed_layout = layout as StatementLayout
+    end
+    local body_layout: any = nil
+    if typed_layout ~= nil then
+        local non_nil_layout = typed_layout as StatementLayout
+        body_layout = non_nil_layout.body_layout
+    end
+
+    local body_doc = render_block(node.body, body_layout)
     if body_doc == nil then
         return nil
     end
@@ -131,10 +181,15 @@ local function render_function_definition_doc(
 end
 
 local function render_if_doc(
-    node: parser.Node, render_block: RenderBlock
+    node: parser.Node, render_block: RenderBlock, layout: any
 ): doc.Doc | nil
     if node.if_blocks == nil then
         return nil
+    end
+
+    local typed_layout: StatementLayout | nil = nil
+    if layout ~= nil then
+        typed_layout = layout as StatementLayout
     end
 
     local parts: {doc.Doc} = {}
@@ -142,7 +197,15 @@ local function render_if_doc(
         if if_block.body == nil then
             return nil
         end
-        local body_doc = render_block(if_block.body)
+        local if_block_layout: any = nil
+        if typed_layout ~= nil then
+            local non_nil_layout = typed_layout as StatementLayout
+            if non_nil_layout.if_block_layouts ~= nil then
+                local if_block_layouts = non_nil_layout.if_block_layouts as {any}
+                if_block_layout = if_block_layouts[index]
+            end
+        end
+        local body_doc = render_block(if_block.body, if_block_layout)
         if body_doc == nil then
             return nil
         end
@@ -174,13 +237,23 @@ local function render_if_doc(
 end
 
 local function render_while_doc(
-    node: parser.Node, render_block: RenderBlock
+    node: parser.Node, render_block: RenderBlock, layout: any
 ): doc.Doc | nil
     if node.exp == nil or node.body == nil or #node.body == 0 then
         return nil
     end
 
-    local body_doc = render_block(node.body)
+    local typed_layout: StatementLayout | nil = nil
+    if layout ~= nil then
+        typed_layout = layout as StatementLayout
+    end
+    local body_layout: any = nil
+    if typed_layout ~= nil then
+        local non_nil_layout = typed_layout as StatementLayout
+        body_layout = non_nil_layout.body_layout
+    end
+
+    local body_doc = render_block(node.body, body_layout)
     if body_doc == nil then
         return nil
     end
@@ -191,13 +264,23 @@ local function render_while_doc(
 end
 
 local function render_fornum_doc(
-    node: parser.Node, render_block: RenderBlock
+    node: parser.Node, render_block: RenderBlock, layout: any
 ): doc.Doc | nil
     if node.var == nil or node.from == nil or node.to == nil or node.body == nil or #node.body == 0 then
         return nil
     end
 
-    local body_doc = render_block(node.body)
+    local typed_layout: StatementLayout | nil = nil
+    if layout ~= nil then
+        typed_layout = layout as StatementLayout
+    end
+    local body_layout: any = nil
+    if typed_layout ~= nil then
+        local non_nil_layout = typed_layout as StatementLayout
+        body_layout = non_nil_layout.body_layout
+    end
+
+    local body_doc = render_block(node.body, body_layout)
     if body_doc == nil then
         return nil
     end
@@ -216,7 +299,7 @@ local function render_fornum_doc(
 end
 
 local function render_forin_doc(
-    node: parser.Node, render_block: RenderBlock
+    node: parser.Node, render_block: RenderBlock, layout: any
 ): doc.Doc | nil
     if node.vars == nil or node.exps == nil or node.body == nil or #node.body == 0 then
         return nil
@@ -231,7 +314,17 @@ local function render_forin_doc(
         table.insert(exps, expr_doc.render_expr(exp_node))
     end
 
-    local body_doc = render_block(node.body)
+    local typed_layout: StatementLayout | nil = nil
+    if layout ~= nil then
+        typed_layout = layout as StatementLayout
+    end
+    local body_layout: any = nil
+    if typed_layout ~= nil then
+        local non_nil_layout = typed_layout as StatementLayout
+        body_layout = non_nil_layout.body_layout
+    end
+
+    local body_doc = render_block(node.body, body_layout)
     if body_doc == nil then
         return nil
     end
@@ -246,13 +339,23 @@ local function render_forin_doc(
 end
 
 local function render_repeat_doc(
-    node: parser.Node, render_block: RenderBlock
+    node: parser.Node, render_block: RenderBlock, layout: any
 ): doc.Doc | nil
     if node.body == nil or node.exp == nil or #node.body == 0 then
         return nil
     end
 
-    local body_doc = render_block(node.body)
+    local typed_layout: StatementLayout | nil = nil
+    if layout ~= nil then
+        typed_layout = layout as StatementLayout
+    end
+    local body_layout: any = nil
+    if typed_layout ~= nil then
+        local non_nil_layout = typed_layout as StatementLayout
+        body_layout = non_nil_layout.body_layout
+    end
+
+    local body_doc = render_block(node.body, body_layout)
     if body_doc == nil then
         return nil
     end
@@ -263,13 +366,23 @@ local function render_repeat_doc(
 end
 
 local function render_do_doc(
-    node: parser.Node, render_block: RenderBlock
+    node: parser.Node, render_block: RenderBlock, layout: any
 ): doc.Doc | nil
     if node.body == nil or #node.body == 0 then
         return nil
     end
 
-    local body_doc = render_block(node.body)
+    local typed_layout: StatementLayout | nil = nil
+    if layout ~= nil then
+        typed_layout = layout as StatementLayout
+    end
+    local body_layout: any = nil
+    if typed_layout ~= nil then
+        local non_nil_layout = typed_layout as StatementLayout
+        body_layout = non_nil_layout.body_layout
+    end
+
+    local body_doc = render_block(node.body, body_layout)
     if body_doc == nil then
         return nil
     end
@@ -278,7 +391,7 @@ local function render_do_doc(
 end
 
 function stmt_doc.render_statement_doc(
-    node: parser.Node, render_block: RenderBlock
+    node: parser.Node, render_block: RenderBlock, layout: any
 ): doc.Doc | nil
     local end_line = node_end_line(node)
 
@@ -290,22 +403,26 @@ function stmt_doc.render_statement_doc(
         return render_local_declaration_doc(node)
     elseif node.kind == "local_type" then
         return render_local_type_doc(node)
-    elseif (node.kind == "local_function" or node.kind == "global_function")
+    elseif (
+        node.kind == "local_function"
+        or node.kind == "global_function"
+        or node.kind == "record_function"
+    )
         and end_line > node.y
     then
-        return render_function_definition_doc(node, render_block)
+        return render_function_definition_doc(node, render_block, layout)
     elseif node.kind == "if" and end_line > node.y then
-        return render_if_doc(node, render_block)
+        return render_if_doc(node, render_block, layout)
     elseif node.kind == "while" and end_line > node.y then
-        return render_while_doc(node, render_block)
+        return render_while_doc(node, render_block, layout)
     elseif node.kind == "fornum" and end_line > node.y then
-        return render_fornum_doc(node, render_block)
+        return render_fornum_doc(node, render_block, layout)
     elseif node.kind == "forin" and end_line > node.y then
-        return render_forin_doc(node, render_block)
+        return render_forin_doc(node, render_block, layout)
     elseif node.kind == "repeat" and end_line > node.y then
-        return render_repeat_doc(node, render_block)
+        return render_repeat_doc(node, render_block, layout)
     elseif node.kind == "do" and end_line > node.y then
-        return render_do_doc(node, render_block)
+        return render_do_doc(node, render_block, layout)
     elseif node.kind == "break" then
         return doc.text("break")
     elseif node.kind == "op" and end_line == node.y then

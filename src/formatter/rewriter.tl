@@ -763,7 +763,17 @@ end
 local function run_final_cleanup_pass(
     _context: FormatterContext, lines: {string}
 ): {string}
-    return collapse_blank_lines(lines)
+    local cleaned_lines: {string} = {}
+    for _, line_str in ipairs(lines) do
+        local cleaned = strip_trailing_spaces(line_str)
+        if cleaned:match("^%s*$") then
+            table.insert(cleaned_lines, "")
+        else
+            table.insert(cleaned_lines, cleaned)
+        end
+    end
+
+    return collapse_blank_lines(cleaned_lines)
 end
 
 local function top_level_block_has_nested_structure(block: parser.Node): boolean
@@ -791,11 +801,17 @@ local function run_structural_phase(
         output_lines = context.lines
     end
 
-    if top_level_block_has_nested_structure(context.ast)
-        and structural_render_analysis.can_render_block(
-           context.ast, output_lines, context.fmt_off_regions
-        ) then
-        local structurally_rendered = block_doc.render_block(context.ast)
+    local structural_layout: any = nil
+    if top_level_block_has_nested_structure(context.ast) then
+        structural_layout = structural_render_analysis.analyze_block(
+            context.ast, output_lines, context.fmt_off_regions
+        )
+    end
+
+    if structural_layout ~= nil then
+        local structurally_rendered = block_doc.render_block(
+            context.ast, structural_layout
+        )
         if structurally_rendered ~= nil then
             local rendered_source = table.concat(structurally_rendered, "\n") .. "\n"
             local rendered_ast, parse_errors = parser.parse(rendered_source, filename)

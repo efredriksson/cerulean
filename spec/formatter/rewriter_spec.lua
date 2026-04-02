@@ -402,15 +402,41 @@ describe("formatter", function()
          end
       ]], [[
          local function f()
-           local x = 1
+             local x = 1
 
-           return x
+             return x
          end
       ]]))
 
-      it("keeps wrong space indentation for an unsupported method definition", helpers.check([[
-         function Obj:method()
-           log(self)
+      it("reindents a colon method definition with a clean block body", helpers.format([[
+         function Obj:method(flag: boolean)
+           if flag then
+             log(self)
+           end
+         end
+      ]], [[
+         function Obj:method(flag: boolean)
+             if flag then
+                 log(self)
+             end
+         end
+      ]]))
+
+      it("reindents a dotted record function with nested clean blocks", helpers.format([[
+         function Obj.build(items: {string})
+           for _, item in ipairs(items) do
+             if active(item) then
+               log(item)
+             end
+           end
+         end
+      ]], [[
+         function Obj.build(items: {string})
+             for _, item in ipairs(items) do
+                 if active(item) then
+                     log(item)
+                 end
+             end
          end
       ]]))
 
@@ -488,6 +514,11 @@ describe("formatter", function()
              end
          end
       ]]))
+
+      it("reindents a clean function body while preserving a single blank line", helpers.format(
+         "local function f()\n  local x = 1\n\n  return x\nend\n",
+         "local function f()\n    local x = 1\n\n    return x\nend\n"
+      ))
    end)
 
    describe("top-level structural block rendering", function()
@@ -598,6 +629,11 @@ describe("formatter", function()
             self.x, self.x + self.width, other.x, other.x + other.width
          ) and interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
       ]]))
+
+      it("reindents a top-level block while preserving a single blank line", helpers.format(
+         "local ready = true\n\nif ready then\n  tick()\nend\nreturn ready\n",
+         "local ready = true\n\nif ready then\n    tick()\nend\nreturn ready\n"
+      ))
    end)
 
    describe("blank line normalisation", function()
