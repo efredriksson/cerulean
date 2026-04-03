@@ -138,12 +138,24 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     local declaration_keyword: string
     local record_def: tl.RecordLikeType
     local is_type_declaration = stmt.is_type_declaration
-    if def.typename == "interface" then
+    local typeargs_str = ""
+    if def is tl.GenericType then
+        local parts: {string} = {}
+        for _, typearg in ipairs(def.typeargs) do
+            table.insert(parts, typearg.typearg)
+        end
+        typeargs_str = "<" .. table.concat(parts, ", ") .. ">"
+        def = def.t
+        if def == nil then
+            return nil
+        end
+    end
+    if def is tl.InterfaceType then
         declaration_keyword = "interface"
-        record_def = def as tl.InterfaceType
-    elseif def.typename == "record" then
+        record_def = def
+    elseif def is tl.RecordType then
         declaration_keyword = "record"
-        record_def = def as tl.RecordType
+        record_def = def
     else
         return nil
     end
@@ -188,8 +200,8 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     local header_parts: {doc.Doc} = {
         doc.text(
             is_type_declaration
-                and ("local type " .. stmt.var.tk .. " = " .. declaration_keyword)
-                or ("local " .. declaration_keyword .. " " .. stmt.var.tk)
+                and ("local type " .. stmt.var.tk .. typeargs_str .. " = " .. declaration_keyword)
+                or ("local " .. declaration_keyword .. " " .. stmt.var.tk .. typeargs_str)
         ),
     }
     if record_def.interface_list ~= nil and #record_def.interface_list > 0 then
@@ -253,7 +265,7 @@ local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil
     end
 
     local def = stmt.value.newtype.def
-    if def.typename == "record" or def.typename == "interface" then
+    if def.typename == "record" or def.typename == "interface" or def.typename == "generic" then
         return render_local_record_doc(stmt)
     end
 
@@ -288,10 +300,21 @@ local function render_function_name(node: parser.Node): string | nil
         return nil
     end
 
+    local function render_function_typeargs(fn_node: parser.Node): string
+        if fn_node.typeargs == nil or #fn_node.typeargs == 0 then
+            return ""
+        end
+        local parts: {string} = {}
+        for _, typearg in ipairs(fn_node.typeargs) do
+            table.insert(parts, typearg.typearg)
+        end
+        return "<" .. table.concat(parts, ", ") .. ">"
+    end
+
     if node.kind == "local_function" and node.name ~= nil then
-        return "local function " .. node.name.tk
+        return "local function " .. node.name.tk .. render_function_typeargs(node)
     elseif node.kind == "global_function" and node.name ~= nil and not node.is_method then
-        return "function " .. node.name.tk
+        return "function " .. node.name.tk .. render_function_typeargs(node)
     elseif node.kind == "record_function"
         and node.fn_owner ~= nil
         and node.name ~= nil
@@ -301,7 +324,7 @@ local function render_function_name(node: parser.Node): string | nil
             return nil
         end
         local separator = node.is_method and ":" or "."
-        return "function " .. owner .. separator .. node.name.tk
+        return "function " .. owner .. separator .. node.name.tk .. render_function_typeargs(node)
     end
 
     return nil

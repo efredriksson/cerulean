@@ -504,5 +504,65 @@ describe("formatter structural block rendering", function()
              draw: function(self)
          end
       ]]))
+
+      it("reindents a generic local record while preserving its type parameter", helpers.format([[
+         local record Box<T>
+           value: T
+         end
+      ]], [[
+         local record Box<T>
+             value: T
+         end
+      ]]))
+
+      it("reindents a generic local record with multiple type parameters", helpers.format([[
+         local record Pair<A, B>
+           first: A
+           second: B
+         end
+      ]], [[
+         local record Pair<A, B>
+             first: A
+             second: B
+         end
+      ]]))
+
+      it("reindents a generic local record with an interface", helpers.format([[
+         local record Container<T> is Iterable
+           items: {T}
+         end
+      ]], [[
+         local record Container<T> is Iterable
+             items: {T}
+         end
+      ]]))
+
+      it("reindents a generic local interface while preserving its type parameter", helpers.format([[
+         local interface Mapper<T, U>
+           map: function(self, T): U
+         end
+      ]], [[
+         local interface Mapper<T, U>
+             map: function(self, T): U
+         end
+      ]]))
+   end)
+
+   describe("generic functions", function()
+      it("preserves type parameters on a local function", helpers.check([[
+         local function identity<T>(value: T): T
+             return value
+         end
+      ]]))
+
+      it("reindents a generic record function body while preserving its type parameter", helpers.format([[
+         function M.get<T>(n: integer): T
+           return store[n]
+         end
+      ]], [[
+         function M.get<T>(n: integer): T
+             return store[n]
+         end
+      ]]))
    end)
 end)

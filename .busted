@@ -1,6 +1,6 @@
 return {
    default = {
       ["auto-insulate"] = false,
-      lpath = "./src/?.lua;",
+      lpath = "./src/?.lua;./src/formatter/?.lua;",
    }
 }

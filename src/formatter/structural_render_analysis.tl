@@ -226,8 +226,14 @@ local function local_type_is_ast_renderable(stmt: parser.Node): boolean
         return false
     end
     local def = stmt.value.newtype.def
-    if def.typename == "generic" then
+    if def == nil then
         return false
+    end
+    if def is tl.GenericType then
+        def = def.t
+        if def == nil then
+            return false
+        end
     end
     if def.typename ~= "record" and def.typename ~= "interface" then
         return true
