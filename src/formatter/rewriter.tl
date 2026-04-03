@@ -4,6 +4,7 @@ local ast_utils = require("formatter.ast_utils")
 local block_doc = require("formatter.block_doc")
 local call_doc = require("formatter.call_doc")
 local expr_doc = require("formatter.expr_doc")
+local fmt_logger = require("formatter.fmt_logger")
 local parser = require("formatter.parser")
 local require_sort = require("formatter.require_sort")
 local signature_doc = require("formatter.signature_doc")
@@ -503,16 +504,28 @@ local function apply_all_spans(
 
     for _, span in ipairs(spans) do
         if span_overlaps_replaced(replaced_lines, span) then
-            -- stale span: its lines were replaced by an earlier multi-line rewrite
+            fmt_logger.debug(
+                "[span] line %s %s: skipped (stale)",
+                tostring(span.open_line),
+                span.kind
+            )
         elseif fmt_off_regions:includes_range(span.open_line, span.close_line) then
-            -- skip
+            fmt_logger.debug(
+                "[span] line %s %s: skipped (fmt:off)",
+                tostring(span.open_line),
+                span.kind
+            )
         elseif span.open_line == span.close_line then
             local line_str = result[span.open_line]
             -- Skip spans whose open_col is beyond the current line length.
             -- This happens when an enclosing span on the same line was already
             -- processed and replaced the original long line with a shorter one.
             if span.open_col > #line_str then
-                -- stale span, skip
+                fmt_logger.debug(
+                    "[span] line %s %s: skipped (open_col beyond line after earlier rewrite)",
+                    tostring(span.open_line),
+                    span.kind
+                )
             elseif #line_str > 88 then
                 local before = line_str:sub(1, span.open_col - 1)
                 local after = line_str:sub(span.close_col + 1)
@@ -533,6 +546,13 @@ local function apply_all_spans(
                     error("unsupported span kind: " .. span.kind)
                 end
                 if #split_lines > 1 then
+                    fmt_logger.debug(
+                        "[span] line %s %s: split to %s lines (was %s chars)",
+                        tostring(span.open_line),
+                        span.kind,
+                        tostring(#split_lines),
+                        tostring(#line_str)
+                    )
                     local new_lines: {string} = {}
                     if span.kind == "signature" or span.kind == "table" or span.kind == "call" then
                         for _, new_line in ipairs(split_lines) do
@@ -562,6 +582,13 @@ local function apply_all_spans(
                        result, tail_line
                     ) end
                     replaced_lines[span.open_line] = true
+                else
+                    fmt_logger.debug(
+                        "[span] line %s %s: fits, no-op (%s chars)",
+                        tostring(span.open_line),
+                        span.kind,
+                        tostring(#line_str)
+                    )
                 end
             end
         else
@@ -594,6 +621,13 @@ local function apply_all_spans(
             end
 
             if can_join_to_single_line then
+                fmt_logger.debug(
+                    "[span] lines %s-%s %s: joined to %s chars",
+                    tostring(span.open_line),
+                    tostring(span.close_line),
+                    span.kind,
+                    tostring(#compact_lines[1])
+                )
                 result = {}
                 for _, line_str in ipairs(head) do table.insert(result, line_str) end
                 table.insert(result, compact_lines[1])
@@ -619,6 +653,13 @@ local function apply_all_spans(
                     error("unsupported span kind: " .. span.kind)
                 end
                 if #split_lines > 1 then
+                    fmt_logger.debug(
+                        "[span] lines %s-%s %s: re-split to %s lines",
+                        tostring(span.open_line),
+                        tostring(span.close_line),
+                        span.kind,
+                        tostring(#split_lines)
+                    )
                     local new_lines: {string} = {}
                     if span.kind == "signature" or span.kind == "table" or span.kind == "call" then
                         for _, new_line in ipairs(split_lines) do
@@ -644,6 +685,13 @@ local function apply_all_spans(
                     for line = span.open_line, span.close_line do
                         replaced_lines[line] = true
                     end
+                else
+                    fmt_logger.debug(
+                        "[span] lines %s-%s %s: already correct shape, no-op",
+                        tostring(span.open_line),
+                        tostring(span.close_line),
+                        span.kind
+                    )
                 end
             end
         end
@@ -778,16 +826,6 @@ local function run_final_cleanup_pass(
     return collapse_blank_lines(cleaned_lines)
 end
 
-local function top_level_block_has_nested_structure(block: parser.Node): boolean
-    for _, stmt in ipairs(block) do
-        if stmt.body ~= nil or stmt.if_blocks ~= nil then
-            return true
-        end
-    end
-
-    return false
-end
-
 local function run_structural_phase(
     source: string, filename: string, ast: parser.Node
 ): string
@@ -803,14 +841,11 @@ local function run_structural_phase(
         output_lines = context.lines
     end
 
-    local structural_layout: any = nil
-    if top_level_block_has_nested_structure(context.ast) then
-        structural_layout = structural_render_analysis.analyze_block(
-            context.ast, output_lines, context.fmt_off_regions
-        )
-    end
+    local structural_layout = structural_render_analysis.analyze_block(
+        context.ast, output_lines, context.fmt_off_regions
+    )
 
-    if structural_layout ~= nil then
+    if not structural_layout is nil then
         local structurally_rendered = block_doc.render_block(
             context.ast, structural_layout
         )

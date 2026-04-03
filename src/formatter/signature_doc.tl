@@ -172,9 +172,8 @@ function signature_doc.render_signature_text(
 
     local result = "(" .. table.concat(parts, ", ") .. ")"
     local rets_source_text: string = ""
-    if rets ~= nil then
-        local non_nil_rets = rets as tl.TupleType
-        rets_source_text = non_nil_rets.source_text or ""
+    if not (rets is nil) then
+        rets_source_text = rets.source_text or ""
     end
 
     if rets_source_text ~= "" then

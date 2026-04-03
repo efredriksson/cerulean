@@ -4,16 +4,14 @@ local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
 local signature_doc = require("formatter.signature_doc")
+local structural_render_analysis = require("formatter.structural_render_analysis")
+
+local type BlockLayout = structural_render_analysis.BlockLayout
+local type StatementLayout = structural_render_analysis.StatementLayout
 
 local stmt_doc = {}
 
-local interface StatementLayout
-    preserve_blank_line_after: boolean
-    body_layout: any
-    if_block_layouts: {any} | nil
-end
-
-local type RenderBlock = function(parser.Node, any): doc.Doc | nil
+local type RenderBlock = function(parser.Node, BlockLayout | nil): doc.Doc | nil
 
 local function node_end_line(node: parser.Node): integer
     return node.yend or node.y
@@ -160,24 +158,24 @@ local function render_function_name(node: parser.Node): string | nil
 end
 
 local function render_function_definition_doc(
-    node: parser.Node, render_block: RenderBlock, layout: any
+    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.args == nil or node.body == nil or #node.body == 0 then
         return nil
     end
 
     local name_prefix = render_function_name(node)
-    if name_prefix == nil then
+    if name_prefix is nil then
         return nil
     end
 
     local typed_layout: StatementLayout | nil = nil
-    if layout ~= nil then
-        typed_layout = layout as StatementLayout
+    if not (layout is nil) then
+        typed_layout = layout
     end
-    local body_layout: any = nil
-    if typed_layout ~= nil then
-        local non_nil_layout = typed_layout as StatementLayout
+    local body_layout: BlockLayout | nil = nil
+    if not (typed_layout is nil) then
+        local non_nil_layout = typed_layout
         body_layout = non_nil_layout.body_layout
     end
 
@@ -194,15 +192,10 @@ local function render_function_definition_doc(
 end
 
 local function render_if_doc(
-    node: parser.Node, render_block: RenderBlock, layout: any
+    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.if_blocks == nil then
         return nil
-    end
-
-    local typed_layout: StatementLayout | nil = nil
-    if layout ~= nil then
-        typed_layout = layout as StatementLayout
     end
 
     local parts: {doc.Doc} = {}
@@ -210,11 +203,10 @@ local function render_if_doc(
         if if_block.body == nil then
             return nil
         end
-        local if_block_layout: any = nil
-        if typed_layout ~= nil then
-            local non_nil_layout = typed_layout as StatementLayout
-            if non_nil_layout.if_block_layouts ~= nil then
-                local if_block_layouts = non_nil_layout.if_block_layouts as {any}
+        local if_block_layout: BlockLayout | nil = nil
+        if not layout is nil then
+            local if_block_layouts = layout.if_block_layouts
+            if not if_block_layouts is nil then
                 if_block_layout = if_block_layouts[index]
             end
         end
@@ -250,19 +242,19 @@ local function render_if_doc(
 end
 
 local function render_while_doc(
-    node: parser.Node, render_block: RenderBlock, layout: any
+    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.exp == nil or node.body == nil or #node.body == 0 then
         return nil
     end
 
     local typed_layout: StatementLayout | nil = nil
-    if layout ~= nil then
-        typed_layout = layout as StatementLayout
+    if not (layout is nil) then
+        typed_layout = layout
     end
-    local body_layout: any = nil
-    if typed_layout ~= nil then
-        local non_nil_layout = typed_layout as StatementLayout
+    local body_layout: BlockLayout | nil = nil
+    if not typed_layout is nil then
+        local non_nil_layout = typed_layout
         body_layout = non_nil_layout.body_layout
     end
 
@@ -277,19 +269,19 @@ local function render_while_doc(
 end
 
 local function render_fornum_doc(
-    node: parser.Node, render_block: RenderBlock, layout: any
+    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.var == nil or node.from == nil or node.to == nil or node.body == nil or #node.body == 0 then
         return nil
     end
 
     local typed_layout: StatementLayout | nil = nil
-    if layout ~= nil then
-        typed_layout = layout as StatementLayout
+    if not (layout is nil) then
+        typed_layout = layout
     end
-    local body_layout: any = nil
-    if typed_layout ~= nil then
-        local non_nil_layout = typed_layout as StatementLayout
+    local body_layout: BlockLayout | nil = nil
+    if not (typed_layout is nil) then
+        local non_nil_layout = typed_layout
         body_layout = non_nil_layout.body_layout
     end
 
@@ -312,7 +304,7 @@ local function render_fornum_doc(
 end
 
 local function render_forin_doc(
-    node: parser.Node, render_block: RenderBlock, layout: any
+    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.vars == nil or node.exps == nil or node.body == nil or #node.body == 0 then
         return nil
@@ -328,12 +320,12 @@ local function render_forin_doc(
     end
 
     local typed_layout: StatementLayout | nil = nil
-    if layout ~= nil then
-        typed_layout = layout as StatementLayout
+    if not (layout is nil) then
+        typed_layout = layout
     end
-    local body_layout: any = nil
-    if typed_layout ~= nil then
-        local non_nil_layout = typed_layout as StatementLayout
+    local body_layout: BlockLayout | nil = nil
+    if not (typed_layout is nil) then
+        local non_nil_layout = typed_layout
         body_layout = non_nil_layout.body_layout
     end
 
@@ -352,19 +344,19 @@ local function render_forin_doc(
 end
 
 local function render_repeat_doc(
-    node: parser.Node, render_block: RenderBlock, layout: any
+    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.body == nil or node.exp == nil or #node.body == 0 then
         return nil
     end
 
     local typed_layout: StatementLayout | nil = nil
-    if layout ~= nil then
-        typed_layout = layout as StatementLayout
+    if not (layout is nil) then
+        typed_layout = layout
     end
-    local body_layout: any = nil
-    if typed_layout ~= nil then
-        local non_nil_layout = typed_layout as StatementLayout
+    local body_layout: BlockLayout | nil = nil
+    if not (typed_layout is nil) then
+        local non_nil_layout = typed_layout
         body_layout = non_nil_layout.body_layout
     end
 
@@ -379,19 +371,19 @@ local function render_repeat_doc(
 end
 
 local function render_do_doc(
-    node: parser.Node, render_block: RenderBlock, layout: any
+    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.body == nil or #node.body == 0 then
         return nil
     end
 
     local typed_layout: StatementLayout | nil = nil
-    if layout ~= nil then
-        typed_layout = layout as StatementLayout
+    if not (layout is nil) then
+        typed_layout = layout
     end
-    local body_layout: any = nil
-    if typed_layout ~= nil then
-        local non_nil_layout = typed_layout as StatementLayout
+    local body_layout: BlockLayout | nil = nil
+    if not (typed_layout is nil) then
+        local non_nil_layout = typed_layout
         body_layout = non_nil_layout.body_layout
     end
 
@@ -404,7 +396,7 @@ local function render_do_doc(
 end
 
 function stmt_doc.render_statement_doc(
-    node: parser.Node, render_block: RenderBlock, layout: any
+    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
 ): doc.Doc | nil
     local end_line = node_end_line(node)
 

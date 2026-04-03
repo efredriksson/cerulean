@@ -2,19 +2,22 @@
 -- Rejects blocks with comments, fmt:off, unsupported statement shapes,
 -- multi-statement anonymous functions in expressions, or multi-line conditions.
 local ast_utils = require("formatter.ast_utils")
+local fmt_logger = require("formatter.fmt_logger")
 local parser = require("formatter.parser")
 
 local record StatementLayout
     preserve_blank_line_after: boolean
-    body_layout: any
-    if_block_layouts: {any} | nil
+    body_layout: BlockLayout
+    if_block_layouts: {BlockLayout} | nil
 end
 
 local record BlockLayout
     statements: {StatementLayout}
 end
 
-local structural_render_analysis = {}
+local structural_render_analysis = {
+    BlockLayout = BlockLayout, StatementLayout = StatementLayout
+}
 
 function StatementLayout.new(): StatementLayout
     local self: StatementLayout = setmetatable({}, { __index = StatementLayout })
@@ -190,7 +193,17 @@ local function stmt_is_safe_source_shape(stmt: parser.Node): boolean
     return false
 end
 
-function structural_render_analysis.analyze_block(
+local function top_level_block_has_nested_structure(block: parser.Node): boolean
+    for _, stmt in ipairs(block) do
+        if stmt.body ~= nil or stmt.if_blocks ~= nil then
+            return true
+        end
+    end
+
+    return false
+end
+
+function structural_render_analysis._analyze_block(
     block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
 ): BlockLayout | nil
     if #block == 0 then
@@ -202,48 +215,83 @@ function structural_render_analysis.analyze_block(
     for _, stmt in ipairs(block) do
         local stmt_end = max_source_line(stmt)
         if fmt_off_regions:includes_range(stmt.y, stmt_end) then
+            fmt_logger.info(
+                "[structural] blocked at line %s: fmt:off covers %s",
+                tostring(stmt.y),
+                stmt.kind
+            )
             return nil
         end
         if has_comment(lines, stmt.y, stmt_end) then
+            fmt_logger.info(
+                "[structural] blocked at line %s: comment in %s",
+                tostring(stmt.y),
+                stmt.kind
+            )
             return nil
         end
-        if previous_end ~= nil and stmt.y > (previous_end as integer) + 1 then
+        if not (previous_end is nil) and stmt.y > previous_end + 1 then
             if not has_non_empty_line_between(
-               lines, (previous_end as integer) + 1, stmt.y - 1
+               lines, previous_end + 1, stmt.y - 1
             ) then
                 local empty_line_count = count_empty_lines_between(
-                    lines, (previous_end as integer) + 1, stmt.y - 1
+                    lines, previous_end + 1, stmt.y - 1
                 )
                 if empty_line_count >= 1 and #statement_layouts > 0 then
                     statement_layouts[#statement_layouts].preserve_blank_line_after = true
                 else
+                    fmt_logger.info(
+                        "[structural] blocked at line %s: unexpected gap before %s",
+                        tostring(stmt.y),
+                        stmt.kind
+                    )
                     return nil
                 end
             end
         end
         if not stmt_is_safe_source_shape(stmt) then
+            fmt_logger.info(
+                "[structural] blocked at line %s: %s has unsafe source shape",
+                tostring(stmt.y),
+                stmt.kind
+            )
             return nil
         end
         local statement_layout = StatementLayout.new()
         if stmt.body ~= nil then
-            local body_layout = structural_render_analysis.analyze_block(
+            local body_layout = structural_render_analysis._analyze_block(
                 stmt.body, lines, fmt_off_regions
             )
             if body_layout == nil then
+                fmt_logger.info(
+                    "[structural] blocked at line %s: %s body blocked structural rendering",
+                    tostring(stmt.y),
+                    stmt.kind
+                )
                 return nil
             end
             statement_layout.body_layout = body_layout
         end
         if stmt.if_blocks ~= nil then
-            local if_block_layouts: {any} = {}
+            local if_block_layouts: {BlockLayout} = {}
             for _, if_block in ipairs(stmt.if_blocks) do
                 if if_block.body == nil then
+                    fmt_logger.info(
+                        "[structural] blocked at line %s: if block at line %s has no body",
+                        tostring(stmt.y),
+                        tostring(if_block.y)
+                    )
                     return nil
                 end
-                local if_block_layout = structural_render_analysis.analyze_block(
+                local if_block_layout = structural_render_analysis._analyze_block(
                     if_block.body, lines, fmt_off_regions
                 )
-                if if_block_layout == nil then
+                if if_block_layout is nil then
+                    fmt_logger.info(
+                        "[structural] blocked at line %s: if block body at line %s blocked structural rendering",
+                        tostring(stmt.y),
+                        tostring(if_block.y)
+                    )
                     return nil
                 end
                 table.insert(if_block_layouts, if_block_layout)
@@ -257,12 +305,15 @@ function structural_render_analysis.analyze_block(
     return BlockLayout.new(statement_layouts)
 end
 
-function structural_render_analysis.can_render_block(
+function structural_render_analysis.analyze_block(
     block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
-): boolean
-    return structural_render_analysis.analyze_block(
-       block, lines, fmt_off_regions
-    ) ~= nil
+): BlockLayout | nil
+    if not top_level_block_has_nested_structure(block) then
+        fmt_logger.info("[structural] blocked by not having nested structure at top-level")
+        return nil
+    end
+
+    return structural_render_analysis._analyze_block(block, lines, fmt_off_regions)
 end
 
 return structural_render_analysis

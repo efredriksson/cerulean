@@ -146,9 +146,8 @@ local function collect_require_blocks(
         if has_fmt_off or decl_has_comment then
             push_block()
             previous_decl = nil
-        elseif previous_decl ~= nil then
-            local non_nil_previous_decl = previous_decl as RequireDecl
-            if decl.first_line == non_nil_previous_decl.last_line + 1 then
+        elseif not (previous_decl is nil) then
+            if decl.first_line == previous_decl.last_line + 1 then
                 table.insert(current_block, decl)
                 previous_decl = decl
             else
