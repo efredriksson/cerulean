@@ -439,6 +439,26 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("reindents a local record while preserving its interfaces", helpers.format([[
+         local record S
+           test: function()
+         end
+
+         local record B is S
+           prev: S
+           next: S
+         end
+      ]], [[
+         local record S
+             test: function()
+         end
+
+         local record B is S
+             prev: S
+             next: S
+         end
+      ]]))
+
       it("preserves a local record with interfaces and type parameters", helpers.check([[
          local record A
              label: string

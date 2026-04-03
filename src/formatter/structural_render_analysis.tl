@@ -211,7 +211,6 @@ local function local_type_is_structurally_renderable(
     end
 
     if first_line:find("<", 1, true) ~= nil
-        or first_line:match("%s+is%s+") ~= nil
         or first_line:match("%s+where%s+") ~= nil
     then
         return false

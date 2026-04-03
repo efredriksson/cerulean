@@ -138,19 +138,75 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     if not (def is tl.RecordType) then
         return nil
     end
+    local record_def = def
+
+    local function render_record_interface_doc(iface: tl.Type): doc.Doc | nil
+        if iface.source_text ~= nil and iface.source_text ~= "" then
+            return doc.text(iface.source_text)
+        end
+
+        if iface is tl.NominalType then
+            local parts: {doc.Doc} = {
+                doc.text(table.concat(iface.names, ".")),
+            }
+            if iface.typevals ~= nil and #iface.typevals > 0 then
+                table.insert(parts, doc.text("<"))
+                for index, typeval in ipairs(iface.typevals) do
+                    if typeval.source_text == nil or typeval.source_text == "" then
+                        return nil
+                    end
+                    table.insert(parts, doc.text(typeval.source_text))
+                    if index < #iface.typevals then
+                        table.insert(parts, doc.text(", "))
+                    end
+                end
+                table.insert(parts, doc.text(">"))
+            end
+            return doc.concat(parts)
+        elseif iface is tl.ArrayType then
+            if iface.elements == nil or iface.elements.source_text == nil then
+                return nil
+            end
+            return doc.concat({
+                doc.text("{"),
+                doc.text(iface.elements.source_text),
+                doc.text("}"),
+            })
+        end
+
+        return nil
+    end
+
+    local header_parts: {doc.Doc} = {
+        doc.text("local record " .. stmt.var.tk),
+    }
+    if record_def.interface_list ~= nil and #record_def.interface_list > 0 then
+        table.insert(header_parts, doc.text(" is "))
+        for index, iface in ipairs(record_def.interface_list) do
+            local iface_doc = render_record_interface_doc(iface)
+            if iface_doc == nil then
+                return nil
+            end
+            table.insert(header_parts, iface_doc)
+            if index < #record_def.interface_list then
+                table.insert(header_parts, doc.text(", "))
+            end
+        end
+    end
+
     local field_docs: {doc.Doc} = {}
-    for i, field_name in ipairs(def.field_order) do
-        local field_type = def.fields[field_name]
+    for i, field_name in ipairs(record_def.field_order) do
+        local field_type = record_def.fields[field_name]
         if field_type == nil or field_type.source_text == nil then
             return nil
         end
         table.insert(field_docs, doc.text(field_name .. ": " .. field_type.source_text))
-        if i < #def.field_order then
+        if i < #record_def.field_order then
             table.insert(field_docs, doc.line(""))
         end
     end
     return doc.concat({
-        doc.text("local record " .. stmt.var.tk),
+        doc.concat(header_parts),
         doc.indent(4, doc.concat({
             doc.line(""),
             doc.concat(field_docs),
