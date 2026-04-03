@@ -1,6 +1,7 @@
 local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
+local table_doc = require("formatter.table_doc")
 
 local call_doc = {}
 
@@ -20,15 +21,6 @@ function DelimitedSequenceOptions.new(
     self.close_delim = close_delim
     self.compact_indent_amount = compact_indent_amount
     return self
-end
-
-local function build_call_item_docs(args: parser.Node): {doc.Doc}
-    local result: {doc.Doc} = {}
-    for _, arg_node in ipairs(args) do
-        table.insert(result, doc.text(expr_doc.render_expr(arg_node)))
-    end
-
-    return result
 end
 
 local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
@@ -121,6 +113,21 @@ local function build_trailing_call_doc(item_docs: {doc.Doc}): doc.Doc
     })
 end
 
+local function build_call_arg_doc(node: parser.Node): doc.Doc
+    if node.kind == "literal_table" then
+        return doc.group(table_doc.build_table_doc(node, expr_doc.render_expr))
+    end
+    return doc.text(expr_doc.render_expr(node))
+end
+
+local function build_call_arg_item_docs(args: parser.Node): {doc.Doc}
+    local result: {doc.Doc} = {}
+    for _, arg_node in ipairs(args) do
+        table.insert(result, build_call_arg_doc(arg_node))
+    end
+    return result
+end
+
 local function render_doc(node: doc.Doc, indent_prefix: string): {string}
     return node:render(88, 0, #indent_prefix, true)
 end
@@ -154,7 +161,7 @@ function call_doc.render_call(
 ): {string}
     local opts = DelimitedSequenceOptions.new("(", ")", 4)
     local indent_prefix = prefix:match("^(%s*)") or ""
-    local item_docs = build_call_item_docs(args)
+    local item_docs = build_call_arg_item_docs(args)
 
     local lines: {string}
     if compact or #item_docs < 2 then
@@ -183,6 +190,16 @@ function call_doc.render_call(
     end
 
     return wrap_construct_lines(prefix, suffix, lines)
+end
+
+function call_doc.build_call_expr_doc(node: parser.Node): doc.Doc
+    local callee_text = expr_doc.render_expr(node.e1)
+    local item_docs = build_call_arg_item_docs(node.e2)
+    local opts = DelimitedSequenceOptions.new("(", ")", 4)
+    return doc.concat({
+        doc.text(callee_text),
+        build_delimited_sequence_doc(item_docs, opts, true),
+    })
 end
 
 return call_doc

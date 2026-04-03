@@ -519,6 +519,44 @@ describe("formatter", function()
          "local function f()\n  local x = 1\n\n  return x\nend\n",
          "local function f()\n    local x = 1\n\n    return x\nend\n"
       ))
+
+      it("reindents a function body with a multiline local call rhs", helpers.format([[
+         local function setup()
+           local selected = foo.new_selection(
+             some_settings.long_field_name,
+             minimum_value_long,
+             maximum_value_long
+           )
+           return selected
+         end
+      ]], [[
+         local function setup()
+             local selected = foo.new_selection(
+                 some_settings.long_field_name, minimum_value_long, maximum_value_long
+             )
+             return selected
+         end
+      ]]))
+
+      it("reindents a function body with a multiline return call with a table arg", helpers.format([[
+         local function setup()
+           return foo.new(
+             {first_option_name = first_option_value, second_option_name = second_option_value, third_option_name = third_option_value},
+             done_callback
+           )
+         end
+      ]], [[
+         local function setup()
+             return foo.new(
+                 {
+                     first_option_name = first_option_value,
+                     second_option_name = second_option_value,
+                     third_option_name = third_option_value,
+                 },
+                 done_callback
+             )
+         end
+      ]]))
    end)
 
    describe("top-level structural block rendering", function()

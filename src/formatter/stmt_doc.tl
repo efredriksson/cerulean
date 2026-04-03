@@ -1,3 +1,4 @@
+local call_doc = require("formatter.call_doc")
 local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
@@ -31,18 +32,26 @@ local function block_with_indent(
     })
 end
 
-local function render_return_doc(stmt: parser.Node): doc.Doc
-    local parts: {string} = {}
-    if stmt.exps ~= nil then
-        for _, exp_node in ipairs(stmt.exps) do
-            table.insert(parts, expr_doc.render_expr(exp_node))
-        end
+local function build_exp_doc(node: parser.Node): doc.Doc
+    if node.kind == "op" and node.op ~= nil and node.op.op == "@funcall" then
+        return call_doc.build_call_expr_doc(node)
     end
+    return doc.text(expr_doc.render_expr(node))
+end
 
-    if #parts == 0 then
+local function render_return_doc(stmt: parser.Node): doc.Doc
+    if stmt.exps == nil or #stmt.exps == 0 then
         return doc.text("return")
     end
 
+    if #stmt.exps == 1 then
+        return doc.concat({doc.text("return "), build_exp_doc(stmt.exps[1])})
+    end
+
+    local parts: {string} = {}
+    for _, exp_node in ipairs(stmt.exps) do
+        table.insert(parts, expr_doc.render_expr(exp_node))
+    end
     return doc.text("return " .. table.concat(parts, ", "))
 end
 
@@ -62,7 +71,6 @@ end
 
 local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
     local vars: {string} = {}
-    local exps: {string} = {}
 
     for _, var_node in ipairs(stmt.vars) do
         if var_node.attribute ~= nil then
@@ -70,21 +78,25 @@ local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
         end
         table.insert(vars, var_node.tk)
     end
-    if stmt.exps ~= nil then
-        for _, exp_node in ipairs(stmt.exps) do
-            table.insert(exps, expr_doc.render_expr(exp_node))
-        end
-    end
 
-    local result = "local " .. table.concat(vars, ", ")
+    local prefix = "local " .. table.concat(vars, ", ")
     if stmt.decltuple ~= nil and stmt.decltuple.source_text ~= nil then
-        result = result .. stmt.decltuple.source_text
-    end
-    if #exps > 0 then
-        result = result .. " = " .. table.concat(exps, ", ")
+        prefix = prefix .. stmt.decltuple.source_text
     end
 
-    return doc.text(result)
+    if stmt.exps == nil or #stmt.exps == 0 then
+        return doc.text(prefix)
+    end
+
+    if #stmt.exps == 1 then
+        return doc.concat({doc.text(prefix .. " = "), build_exp_doc(stmt.exps[1])})
+    end
+
+    local exps: {string} = {}
+    for _, exp_node in ipairs(stmt.exps) do
+        table.insert(exps, expr_doc.render_expr(exp_node))
+    end
+    return doc.text(prefix .. " = " .. table.concat(exps, ", "))
 end
 
 local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil

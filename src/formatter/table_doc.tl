@@ -155,6 +155,13 @@ local function wrap_construct_lines(
     return result
 end
 
+function table_doc.build_table_doc(
+    node: parser.Node, render_expr: function(parser.Node): string
+): doc.Doc
+    local opts = DelimitedSequenceOptions.new("{", "}", 4)
+    return build_delimited_sequence_doc(build_table_item_docs(node, render_expr), opts)
+end
+
 function table_doc.render_table(
     node: parser.Node,
     prefix: string,
@@ -166,16 +173,16 @@ function table_doc.render_table(
     local indent_prefix = prefix:match("^(%s*)") or ""
     local item_docs = build_table_item_docs(node, render_expr)
 
-    local lines: {string}
-    if compact or #item_docs < 2 then
-        lines = render_doc(
-            build_compact_delimited_sequence_doc(item_docs, opts), indent_prefix
-        )
+    local table_doc_node: doc.Doc
+    if compact then
+        table_doc_node = build_compact_delimited_sequence_doc(item_docs, opts)
     else
-        lines = render_doc(build_delimited_sequence_doc(item_docs, opts), indent_prefix)
+        table_doc_node = build_delimited_sequence_doc(item_docs, opts)
     end
 
-    return wrap_construct_lines(prefix, suffix, lines)
+    return wrap_construct_lines(
+        prefix, suffix, render_doc(table_doc_node, indent_prefix)
+    )
 end
 
 return table_doc
