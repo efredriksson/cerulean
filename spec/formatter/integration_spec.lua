@@ -1,6 +1,6 @@
 local helpers = require("spec.formatter.helpers")
 
-describe("formatter", function()
+describe("formatter integration", function()
 
 
    describe("fmt: off / fmt: on", function()
@@ -62,10 +62,5 @@ describe("formatter", function()
             local x = 1
       ]]))
    end)
-
-
-
-
-
 
 end)
