@@ -428,5 +428,33 @@ describe("formatter structural block rendering", function()
          "local ready = true\n\nif ready then\n    tick()\nend\nreturn ready\n"
       ))
    end)
+   describe("top-level locals", function()
+      it("indents in local record", helpers.format([[
+         local record MyRecord
+           data: string
+         end
+      ]], [[
+         local record MyRecord
+             data: string
+         end
+      ]]))
 
+      it("preserves a local record with interfaces and type parameters", helpers.check([[
+         local record A
+             label: string
+         end
+
+         local record AImpl<T> is A
+             label: string
+         end
+      ]]))
+
+      it("preserves a local record with metamethod declarations", helpers.check([[
+         local record Point
+             x: number
+             y: number
+             metamethod __tostring: function(Point): string
+         end
+      ]]))
+   end)
 end)

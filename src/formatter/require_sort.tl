@@ -1,6 +1,7 @@
 -- Alphabetically re-orders consecutive top-level local require declarations.
 -- Only sorts contiguous groups; stops at the first non-require statement.
 local ast_utils = require("formatter.ast_utils")
+local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
 local tl = require("tl")
@@ -49,7 +50,7 @@ local function split_preserving_trailing_newline(source: string): {string}
     return lines
 end
 
-local function render_require_decl(decl: RequireDecl, indent: string): string
+local function render_require_decl(decl: RequireDecl, indent: string): doc.Doc
     local node = decl.node
     if node.kind == "local_declaration"
         and node.vars ~= nil
@@ -61,13 +62,12 @@ local function render_require_decl(decl: RequireDecl, indent: string): string
         if node.decltuple ~= nil and node.decltuple.source_text ~= nil then
             text = text .. node.decltuple.source_text
         end
-        return indent .. text .. " = " .. expr_doc.render_expr(node.exps[1])
+        return doc.concat({
+            doc.text(indent .. text .. " = "), expr_doc.render_expr(node.exps[1])
+        })
     elseif node.kind == "local_type" and node.var ~= nil and node.value ~= nil then
-        return indent
-            .. "local type "
-            .. node.var.tk
-            .. " = "
-            .. expr_doc.render_expr(node.value)
+        local lhs = doc.text(indent .. "local type " .. node.var.tk .. " = ")
+        return doc.concat({lhs, expr_doc.render_expr(node.value)})
     end
 
     error("unsupported require declaration kind: " .. node.kind)
@@ -189,7 +189,12 @@ local function sort_require_blocks(
 
         for _, decl in ipairs(sorted_decls) do
             local indent = (lines[decl.first_line] or ""):match("^(%s*)") or ""
-            table.insert(result, render_require_decl(decl, indent))
+            table.insert(
+                result,
+                table.concat(
+                    render_require_decl(decl, indent):render(88, 0, 0, true), "\n"
+                )
+            )
         end
 
         next_line = block.last_line + 1

@@ -5,6 +5,7 @@ local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
 local signature_doc = require("formatter.signature_doc")
 local structural_render_analysis = require("formatter.structural_render_analysis")
+local tl = require("tl")
 
 local type BlockLayout = structural_render_analysis.BlockLayout
 local type StatementLayout = structural_render_analysis.StatementLayout
@@ -17,17 +18,32 @@ local function node_end_line(node: parser.Node): integer
     return node.yend or node.y
 end
 
-local function block_with_indent(
-    header_text: string, body: doc.Doc, footer_text: string
+local function function_with_indent(
+    name_prefix: string, signature: doc.Doc, body: doc.Doc
 ): doc.Doc
     return doc.concat({
-        doc.text(header_text),
+        doc.text(name_prefix),
+        signature,
         doc.indent(4, doc.concat({
             doc.line(""),
             body,
         })),
         doc.line(""),
-        doc.text(footer_text),
+        doc.text("end"),
+    })
+end
+
+local function block_with_indent(
+    header: doc.Doc, body: doc.Doc, footer: doc.Doc
+): doc.Doc
+    return doc.concat({
+        header,
+        doc.indent(4, doc.concat({
+            doc.line(""),
+            body,
+        })),
+        doc.line(""),
+        footer,
     })
 end
 
@@ -35,7 +51,7 @@ local function build_exp_doc(node: parser.Node): doc.Doc
     if node.kind == "op" and node.op ~= nil and node.op.op == "@funcall" then
         return call_doc.build_call_expr_doc(node)
     end
-    return doc.text(expr_doc.render_expr(node))
+    return expr_doc.render_expr(node)
 end
 
 local function render_return_doc(stmt: parser.Node): doc.Doc
@@ -47,25 +63,34 @@ local function render_return_doc(stmt: parser.Node): doc.Doc
         return doc.concat({doc.text("return "), build_exp_doc(stmt.exps[1])})
     end
 
-    local parts: {string} = {}
-    for _, exp_node in ipairs(stmt.exps) do
+    local parts: {doc.Doc} = {}
+    for i, exp_node in ipairs(stmt.exps) do
         table.insert(parts, expr_doc.render_expr(exp_node))
+        if i < #stmt.exps then
+            table.insert(parts, doc.text(", "))
+        end
     end
-    return doc.text("return " .. table.concat(parts, ", "))
+    return doc.concat({doc.text("return "), doc.concat(parts)})
 end
 
 local function render_assignment_doc(stmt: parser.Node): doc.Doc
-    local vars: {string} = {}
-    local exps: {string} = {}
+    local vars: {doc.Doc} = {}
+    local exps: {doc.Doc} = {}
 
-    for _, var_node in ipairs(stmt.vars) do
+    for i, var_node in ipairs(stmt.vars) do
         table.insert(vars, expr_doc.render_expr(var_node))
+        if i < #stmt.vars then
+            table.insert(vars, doc.text(", "))
+        end
     end
-    for _, exp_node in ipairs(stmt.exps) do
+    for i, exp_node in ipairs(stmt.exps) do
         table.insert(exps, expr_doc.render_expr(exp_node))
+        if i < #stmt.exps then
+            table.insert(exps, doc.text(", "))
+        end
     end
 
-    return doc.text(table.concat(vars, ", ") .. " = " .. table.concat(exps, ", "))
+    return doc.concat({doc.concat(vars), doc.text(" = "), doc.concat(exps)})
 end
 
 local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
@@ -91,11 +116,48 @@ local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
         return doc.concat({doc.text(prefix .. " = "), build_exp_doc(stmt.exps[1])})
     end
 
-    local exps: {string} = {}
-    for _, exp_node in ipairs(stmt.exps) do
+    local exps: {doc.Doc} = {}
+    for i, exp_node in ipairs(stmt.exps) do
         table.insert(exps, expr_doc.render_expr(exp_node))
+        if i < #stmt.exps then
+            table.insert(exps, doc.text(", "))
+        end
     end
-    return doc.text(prefix .. " = " .. table.concat(exps, ", "))
+    return doc.concat({doc.text(prefix .. " = "), doc.concat(exps)})
+end
+
+local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
+    if stmt.var == nil or stmt.value == nil then
+        return nil
+    end
+    local newtype = stmt.value.newtype
+    if newtype == nil then
+        return nil
+    end
+    local def = newtype.def
+    if not (def is tl.RecordType) then
+        return nil
+    end
+    local field_docs: {doc.Doc} = {}
+    for i, field_name in ipairs(def.field_order) do
+        local field_type = def.fields[field_name]
+        if field_type == nil or field_type.source_text == nil then
+            return nil
+        end
+        table.insert(field_docs, doc.text(field_name .. ": " .. field_type.source_text))
+        if i < #def.field_order then
+            table.insert(field_docs, doc.line(""))
+        end
+    end
+    return doc.concat({
+        doc.text("local record " .. stmt.var.tk),
+        doc.indent(4, doc.concat({
+            doc.line(""),
+            doc.concat(field_docs),
+        })),
+        doc.line(""),
+        doc.text("end"),
+    })
 end
 
 local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil
@@ -108,11 +170,11 @@ local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil
     end
 
     local type_text = stmt.value.newtype.def.source_text
-    if type_text == nil then
-        return nil
+    if type_text ~= nil then
+        return doc.text("local type " .. stmt.var.tk .. " = " .. type_text)
     end
 
-    return doc.text("local type " .. stmt.var.tk .. " = " .. type_text)
+    return render_local_record_doc(stmt)
 end
 
 local function render_function_name(node: parser.Node): string | nil
@@ -184,11 +246,11 @@ local function render_function_definition_doc(
         return nil
     end
 
-    return block_with_indent(
-        name_prefix .. signature_doc.render_signature_text(node.args, node.rets),
-        body_doc,
-        "end"
-    )
+    local sig_doc = signature_doc.render_signature_doc(node.args, true)
+    if node.rets ~= nil and node.rets.source_text ~= nil and node.rets.source_text ~= "" then
+        sig_doc = doc.concat({sig_doc, doc.text(node.rets.source_text)})
+    end
+    return function_with_indent(name_prefix, sig_doc, body_doc)
 end
 
 local function render_if_doc(
@@ -215,21 +277,30 @@ local function render_if_doc(
             return nil
         end
 
-        local header_text: string
-        if if_block.exp ~= nil then
-            if index == 1 then
-                header_text = "if " .. expr_doc.render_expr(if_block.exp) .. " then"
+        local function get_head_text(): doc.Doc
+            if if_block.exp ~= nil then
+                if index == 1 then
+                    return doc.concat({
+                        doc.text("if "),
+                        expr_doc.render_expr(if_block.exp),
+                        doc.text(" then"),
+                    })
+                else
+                    return doc.concat({
+                        doc.text("elseif "),
+                        expr_doc.render_expr(if_block.exp),
+                        doc.text(" then"),
+                    })
+                end
             else
-                header_text = "elseif " .. expr_doc.render_expr(if_block.exp) .. " then"
+                return doc.text("else")
             end
-        else
-            header_text = "else"
         end
 
         if index > 1 then
             table.insert(parts, doc.line(""))
         end
-        table.insert(parts, doc.text(header_text))
+        table.insert(parts, get_head_text())
         table.insert(parts, doc.indent(4, doc.concat({
             doc.line(""),
             body_doc,
@@ -263,9 +334,10 @@ local function render_while_doc(
         return nil
     end
 
-    return block_with_indent(
-        "while " .. expr_doc.render_expr(node.exp) .. " do", body_doc, "end"
-    )
+    local header = doc.concat({
+        doc.text("while "), expr_doc.render_expr(node.exp), doc.text(" do")
+    })
+    return block_with_indent(header, body_doc, doc.text("end"))
 end
 
 local function render_fornum_doc(
@@ -290,17 +362,20 @@ local function render_fornum_doc(
         return nil
     end
 
-    local header = "for "
-        .. node.var.tk
-        .. " = "
-        .. expr_doc.render_expr(node.from)
-        .. ", "
-        .. expr_doc.render_expr(node.to)
+    local pre_header = doc.text("for " .. node.var.tk .. " = ")
+    local header = doc.concat({
+        pre_header,
+        expr_doc.render_expr(node.from),
+        doc.text(", "),
+        expr_doc.render_expr(node.to),
+    })
     if node.step ~= nil then
-        header = header .. ", " .. expr_doc.render_expr(node.step)
+        header = doc.concat({header, doc.text(", "), expr_doc.render_expr(node.step)})
     end
 
-    return block_with_indent(header .. " do", body_doc, "end")
+    return block_with_indent(
+        doc.concat({header, doc.text(" do")}), body_doc, doc.text("end")
+    )
 end
 
 local function render_forin_doc(
@@ -310,13 +385,19 @@ local function render_forin_doc(
         return nil
     end
 
-    local vars: {string} = {}
-    local exps: {string} = {}
-    for _, var_node in ipairs(node.vars) do
-        table.insert(vars, var_node.tk)
+    local vars: {doc.Doc} = {}
+    local exps: {doc.Doc} = {}
+    for i, var_node in ipairs(node.vars) do
+        table.insert(vars, doc.text(var_node.tk))
+        if i < #node.vars then
+            table.insert(vars, doc.text(", "))
+        end
     end
-    for _, exp_node in ipairs(node.exps) do
+    for i, exp_node in ipairs(node.exps) do
         table.insert(exps, expr_doc.render_expr(exp_node))
+        if i < #node.exps then
+            table.insert(exps, doc.text(", "))
+        end
     end
 
     local typed_layout: StatementLayout | nil = nil
@@ -334,13 +415,14 @@ local function render_forin_doc(
         return nil
     end
 
-    local header = "for "
-        .. table.concat(vars, ", ")
-        .. " in "
-        .. table.concat(exps, ", ")
-        .. " do"
-
-    return block_with_indent(header, body_doc, "end")
+    local header = doc.concat({
+        doc.text("for "),
+        doc.concat(vars),
+        doc.text(" in "),
+        doc.concat(exps),
+        doc.text(" do"),
+    })
+    return block_with_indent(header, body_doc, doc.text("end"))
 end
 
 local function render_repeat_doc(
@@ -361,12 +443,14 @@ local function render_repeat_doc(
     end
 
     local body_doc = render_block(node.body, body_layout)
-    if body_doc == nil then
+    if body_doc is nil then
         return nil
     end
 
     return block_with_indent(
-        "repeat", body_doc, "until " .. expr_doc.render_expr(node.exp)
+        doc.text("repeat"), body_doc, doc.concat({
+            doc.text("until "), expr_doc.render_expr(node.exp)
+        })
     )
 end
 
@@ -392,7 +476,7 @@ local function render_do_doc(
         return nil
     end
 
-    return block_with_indent("do", body_doc, "end")
+    return block_with_indent(doc.text("do"), body_doc, doc.text("end"))
 end
 
 function stmt_doc.render_statement_doc(
@@ -431,7 +515,7 @@ function stmt_doc.render_statement_doc(
     elseif node.kind == "break" then
         return doc.text("break")
     elseif node.kind == "op" and end_line == node.y then
-        return doc.text(expr_doc.render_expr(node))
+        return expr_doc.render_expr(node)
     end
 
     return nil

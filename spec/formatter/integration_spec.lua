@@ -63,6 +63,15 @@ describe("formatter integration", function()
          -- another comment
       ]]))
 
+      it("preserves leading unattached comments before a structurally renderable block", helpers.check([[
+         -- This ...
+         local record A
+             data: string
+         end
+
+         return A
+      ]]))
+
       it("fmt: off at top level freezes to end of file", helpers.check([[
          -- fmt: off
          local x = {1,  2,  3}

@@ -182,23 +182,26 @@ function signature_doc.render_signature_text(
     return result
 end
 
+function signature_doc.render_signature_doc(
+    args: parser.Node, compact: boolean
+): doc.Doc
+    local opts = DelimitedSequenceOptions.new("(", ")", 4)
+    local item_docs = build_signature_item_docs(args)
+
+    if compact or #item_docs < 2 then
+        return build_compact_delimited_sequence_doc(item_docs, opts)
+    else
+        return build_delimited_sequence_doc(item_docs, opts)
+    end
+end
+
 function signature_doc.render_signature(
     args: parser.Node, prefix: string, suffix: string, compact: boolean
 ): {string}
-    local opts = DelimitedSequenceOptions.new("(", ")", 4)
     local indent_prefix = prefix:match("^(%s*)") or ""
-    local item_docs = build_signature_item_docs(args)
+    local sig_doc = signature_doc.render_signature_doc(args, compact)
 
-    local lines: {string}
-    if compact or #item_docs < 2 then
-        lines = render_doc(
-            build_compact_delimited_sequence_doc(item_docs, opts), indent_prefix
-        )
-    else
-        lines = render_doc(build_delimited_sequence_doc(item_docs, opts), indent_prefix)
-    end
-
-    return wrap_construct_lines(prefix, suffix, lines)
+    return wrap_construct_lines(prefix, suffix, render_doc(sig_doc, indent_prefix))
 end
 
 return signature_doc

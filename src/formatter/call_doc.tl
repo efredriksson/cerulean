@@ -118,7 +118,7 @@ local function build_call_arg_doc(node: parser.Node): doc.Doc
     if node.kind == "literal_table" then
         return doc.group(table_doc.build_table_doc(node, expr_doc.render_expr))
     end
-    return doc.text(expr_doc.render_expr(node))
+    return expr_doc.render_expr(node)
 end
 
 local function build_call_arg_item_docs(args: parser.Node): {doc.Doc}
@@ -194,11 +194,11 @@ function call_doc.render_call(
 end
 
 function call_doc.build_call_expr_doc(node: parser.Node): doc.Doc
-    local callee_text = expr_doc.render_expr(node.e1)
+    local callee_doc = expr_doc.render_expr(node.e1)
     local item_docs = build_call_arg_item_docs(node.e2)
     local opts = DelimitedSequenceOptions.new("(", ")", 4)
     return doc.concat({
-        doc.text(callee_text),
+        callee_doc,
         build_delimited_sequence_doc(item_docs, opts, true),
     })
 end

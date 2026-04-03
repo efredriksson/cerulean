@@ -92,9 +92,11 @@ describe("formatter lexical transforms", function()
          local x = 1
       ]]))
 
-      it("does not touch operators where the next token is on the next line", helpers.check([[
+      it("does not touch operators where the next token is on the next line", helpers.format([[
          local x = 1 +
             2
+      ]], [[
+         local x = 1 + 2
       ]]))
    end)
 

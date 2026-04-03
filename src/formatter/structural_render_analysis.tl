@@ -140,7 +140,127 @@ local function exps_contain_multiline_table(exps: {parser.Node}): boolean
     return false
 end
 
-local function stmt_is_safe_source_shape(stmt: parser.Node): boolean
+local function exps_contain_multiline_function(exps: {parser.Node}): boolean
+    for _, exp in ipairs(exps) do
+        if exp.kind == "function" and exp.yend ~= nil and exp.yend > exp.y then
+            return true
+        end
+    end
+    return false
+end
+
+local function table_has_magic_trailing_comma(
+    node: parser.Node, lines: {string}
+): boolean
+    if node.yend == nil or node.yend <= node.y then
+        return false
+    end
+    local last_body_line = lines[node.yend - 1]
+    return last_body_line ~= nil and last_body_line:match(",%s*$") ~= nil
+end
+
+local function stmt_exps_contain_magic_trailing_comma_table(
+    stmt: parser.Node, lines: {string}
+): boolean
+    local exps = stmt.exps
+    if exps == nil then
+        return false
+    end
+    for _, exp in ipairs(exps) do
+        if exp.kind == "literal_table" and table_has_magic_trailing_comma(
+           exp, lines
+        ) then
+            return true
+        end
+    end
+    return false
+end
+
+local function block_has_unattached_comments(block: parser.Node): boolean
+    return block.unattached_comments ~= nil and #block.unattached_comments > 0
+end
+
+local function top_level_block_has_leading_prelude(
+    block: parser.Node, lines: {string}
+): boolean
+    if block.x ~= 1 or #block == 0 then
+        return false
+    end
+
+    local first_stmt = block[1]
+    for line = 1, first_stmt.y - 1 do
+        local line_str = lines[line]
+        if line_str ~= nil and line_str:match("%S") ~= nil then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function local_type_is_structurally_renderable(
+    stmt: parser.Node, lines: {string}
+): boolean
+    if stmt.value == nil or stmt.value.kind ~= "newtype" or stmt.value.newtype == nil then
+        return false
+    end
+
+    local first_line = lines[stmt.y] or ""
+    if first_line:match("^%s*local%s+record%s+") == nil then
+        return true
+    end
+
+    if first_line:find("<", 1, true) ~= nil
+        or first_line:match("%s+is%s+") ~= nil
+        or first_line:match("%s+where%s+") ~= nil
+    then
+        return false
+    end
+
+    local last_line = max_source_line(stmt)
+    for line = stmt.y + 1, last_line - 1 do
+        local line_str = lines[line]
+        if line_str ~= nil and line_str:match("^%s*metamethod%s+") ~= nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function return_has_fragile_multiline_call_trailing_content(
+    stmt: parser.Node, lines: {string}
+): boolean
+    if stmt.kind ~= "return" or stmt.exps == nil then
+        return false
+    end
+
+    local found = false
+    for _, exp in ipairs(stmt.exps) do
+        ast_utils.walk_descendants(exp, function(child: parser.Node)
+            if found then
+                return
+            end
+
+            if child.kind == "op" and child.op ~= nil and child.op.op == "@funcall" and child.e2 ~= nil then
+                local args = child.e2
+                if args.yend ~= nil and args.yend > args.y then
+                    local close_line = lines[args.yend]
+                    if close_line ~= nil and close_line:sub(args.xend + 1):match("%S") ~= nil then
+                        found = true
+                    end
+                end
+            end
+        end)
+        if found then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function stmt_is_safe_source_shape(stmt: parser.Node, lines: {string}): boolean
     if stmt.kind == "return" then
         return stmt.exps == nil or not exps_contain_multi_statement_function(stmt.exps)
     elseif stmt.kind == "assignment" then
@@ -148,8 +268,9 @@ local function stmt_is_safe_source_shape(stmt: parser.Node): boolean
     elseif stmt.kind == "local_declaration" then
         return (stmt.exps == nil or not exps_contain_multi_statement_function(stmt.exps))
             and (stmt.exps == nil or not exps_contain_multiline_table(stmt.exps))
+            and (stmt.exps == nil or not exps_contain_multiline_function(stmt.exps))
     elseif stmt.kind == "local_type" then
-        return stmt.value ~= nil
+        return local_type_is_structurally_renderable(stmt, lines)
     elseif stmt.kind == "op" then
         return node_is_single_line(stmt) and not node_contains_multi_statement_function(stmt)
     elseif stmt.kind == "break" then
@@ -193,20 +314,18 @@ local function stmt_is_safe_source_shape(stmt: parser.Node): boolean
     return false
 end
 
-local function top_level_block_has_nested_structure(block: parser.Node): boolean
-    for _, stmt in ipairs(block) do
-        if stmt.body ~= nil or stmt.if_blocks ~= nil then
-            return true
-        end
-    end
-
-    return false
-end
-
 function structural_render_analysis._analyze_block(
     block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
 ): BlockLayout | nil
     if #block == 0 then
+        return nil
+    end
+    if block_has_unattached_comments(block) then
+        fmt_logger.info("[structural] blocked: block has unattached comments")
+        return nil
+    end
+    if top_level_block_has_leading_prelude(block, lines) then
+        fmt_logger.info("[structural] blocked: top-level block has leading prelude")
         return nil
     end
 
@@ -249,11 +368,28 @@ function structural_render_analysis._analyze_block(
                 end
             end
         end
-        if not stmt_is_safe_source_shape(stmt) then
+        if not stmt_is_safe_source_shape(stmt, lines) then
             fmt_logger.info(
                 "[structural] blocked at line %s: %s has unsafe source shape",
                 tostring(stmt.y),
                 stmt.kind
+            )
+            return nil
+        end
+        if stmt_exps_contain_magic_trailing_comma_table(stmt, lines) then
+            fmt_logger.info(
+                "[structural] blocked at line %s: %s has magic trailing comma table",
+                tostring(stmt.y),
+                stmt.kind
+            )
+            return nil
+        end
+        if #block == 1 and return_has_fragile_multiline_call_trailing_content(
+           stmt, lines
+        ) then
+            fmt_logger.info(
+                "[structural] blocked at line %s: single return has multiline call trailing content",
+                tostring(stmt.y)
             )
             return nil
         end
@@ -308,11 +444,6 @@ end
 function structural_render_analysis.analyze_block(
     block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
 ): BlockLayout | nil
-    if not top_level_block_has_nested_structure(block) then
-        fmt_logger.info("[structural] blocked by not having nested structure at top-level")
-        return nil
-    end
-
     return structural_render_analysis._analyze_block(block, lines, fmt_off_regions)
 end
 

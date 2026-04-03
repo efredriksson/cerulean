@@ -23,49 +23,35 @@ function DelimitedSequenceOptions.new(
 end
 
 local function build_table_item_text(
-    item: parser.Node, render_expr: function(parser.Node): string
-): string
+    item: parser.Node, render_expr: function(parser.Node): doc.Doc
+): doc.Doc
     if item.key_parsed == "implicit" then
         return render_expr(item.value)
     elseif item.key_parsed == "short" then
         local key_text = item.key.conststr or item.key.tk
         if item.itemtype ~= nil then
-            return key_text
+            return doc.concat({doc.text(key_text
                 .. ": "
                 .. assert(
                     item.itemtype.source_text, "missing source_text for table item type"
                 )
-                .. " = "
-                .. render_expr(item.value)
+                .. " = "), render_expr(item.value)})
         end
-        return key_text .. " = " .. render_expr(item.value)
+        return doc.concat({doc.text(key_text .. " = "), render_expr(item.value)})
     end
 
-    return "["
-        .. render_expr(item.key)
-        .. "] = "
-        .. render_expr(item.value)
-end
-
-function table_doc.render_table_text(
-    node: parser.Node, render_expr: function(parser.Node): string
-): string
-    local parts: {string} = {}
-
-    for _, item in ipairs(node) do
-        table.insert(parts, build_table_item_text(item, render_expr))
-    end
-
-    return "{" .. table.concat(parts, ", ") .. "}"
+    return doc.concat({
+        doc.text("["), render_expr(item.key), doc.text("] = "), render_expr(item.value)
+    })
 end
 
 local function build_table_item_docs(
-    node: parser.Node, render_expr: function(parser.Node): string
+    node: parser.Node, render_expr: function(parser.Node): doc.Doc
 ): {doc.Doc}
     local result: {doc.Doc} = {}
 
     for _, item in ipairs(node) do
-        table.insert(result, doc.text(build_table_item_text(item, render_expr)))
+        table.insert(result, build_table_item_text(item, render_expr))
     end
 
     return result
@@ -157,7 +143,7 @@ local function wrap_construct_lines(
 end
 
 function table_doc.build_table_doc(
-    node: parser.Node, render_expr: function(parser.Node): string
+    node: parser.Node, render_expr: function(parser.Node): doc.Doc
 ): doc.Doc
     local opts = DelimitedSequenceOptions.new("{", "}", 4)
     return build_delimited_sequence_doc(build_table_item_docs(node, render_expr), opts)
@@ -168,7 +154,7 @@ function table_doc.render_table(
     prefix: string,
     suffix: string,
     compact: boolean,
-    render_expr: function(parser.Node): string
+    render_expr: function(parser.Node): doc.Doc
 ): {string}
     local opts = DelimitedSequenceOptions.new("{", "}", 4)
     local indent_prefix = prefix:match("^(%s*)") or ""
