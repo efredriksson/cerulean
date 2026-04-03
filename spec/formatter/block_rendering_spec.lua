@@ -476,5 +476,33 @@ describe("formatter structural block rendering", function()
              metamethod __tostring: function(Point): string
          end
       ]]))
+
+      it("reindents an interface while preserving its interfaces and where clause", helpers.format([[
+         local interface Base
+           kind: string
+         end
+
+         local interface A is Base where self.kind == "a"
+           name: string
+         end
+      ]], [[
+         local interface Base
+             kind: string
+         end
+
+         local interface A is Base where self.kind == "a"
+             name: string
+         end
+      ]]))
+
+      it("reindents a local type interface while preserving its declaration spelling", helpers.format([[
+         local type A = interface
+           draw: function(self)
+         end
+      ]], [[
+         local type A = interface
+             draw: function(self)
+         end
+      ]]))
    end)
 end)

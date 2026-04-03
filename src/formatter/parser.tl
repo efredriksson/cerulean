@@ -81,6 +81,7 @@ local record parser
         opt:                            boolean
         debug_type:                     tl.Type
         is_self:                        boolean
+        is_type_declaration:            boolean
         f:                              string
         -- fmt: on
     end
@@ -2694,6 +2695,7 @@ parse_type_declaration = function(
    i, typeargs = parse_typeargs_if_any(ps, i)
 
    asgn.var = var
+   asgn.is_type_declaration = true
 
    if node_name == "global_type" and ps.tokens[i].tk ~= "=" then
       return i, asgn
@@ -2745,6 +2747,7 @@ local function parse_type_constructor(
    local asgn: Node = new_node(ps, i, node_name)
    local nt: Node = new_node(ps, i, "newtype")
    asgn.value = nt
+   asgn.is_type_declaration = false
    local istart = i
    local def: Type
 

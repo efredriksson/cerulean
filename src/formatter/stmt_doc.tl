@@ -135,10 +135,18 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
         return nil
     end
     local def = newtype.def
-    if not (def is tl.RecordType) then
+    local declaration_keyword: string
+    local record_def: tl.RecordLikeType
+    local is_type_declaration = stmt.is_type_declaration
+    if def.typename == "interface" then
+        declaration_keyword = "interface"
+        record_def = def as tl.InterfaceType
+    elseif def.typename == "record" then
+        declaration_keyword = "record"
+        record_def = def as tl.RecordType
+    else
         return nil
     end
-    local record_def = def
 
     local function render_record_interface_doc(iface: tl.Type): doc.Doc | nil
         if iface.source_text ~= nil and iface.source_text ~= "" then
@@ -178,7 +186,11 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     end
 
     local header_parts: {doc.Doc} = {
-        doc.text("local record " .. stmt.var.tk),
+        doc.text(
+            is_type_declaration
+                and ("local type " .. stmt.var.tk .. " = " .. declaration_keyword)
+                or ("local " .. declaration_keyword .. " " .. stmt.var.tk)
+        ),
     }
     if record_def.interface_list ~= nil and #record_def.interface_list > 0 then
         table.insert(header_parts, doc.text(" is "))
@@ -192,6 +204,21 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
                 table.insert(header_parts, doc.text(", "))
             end
         end
+    end
+    if declaration_keyword == "interface"
+        and record_def.meta_fields ~= nil
+        and record_def.meta_fields["__is"] ~= nil
+    then
+        local where_function = record_def.meta_fields["__is"]
+        if not (where_function is tl.FunctionType) or where_function.macroexp == nil then
+            return nil
+        end
+        local where_macroexp = where_function.macroexp as parser.Node
+        if where_macroexp.exp == nil then
+            return nil
+        end
+        table.insert(header_parts, doc.text(" where "))
+        table.insert(header_parts, expr_doc.render_expr(where_macroexp.exp))
     end
 
     local field_docs: {doc.Doc} = {}
@@ -223,6 +250,11 @@ local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil
 
     if stmt.value.newtype == nil or stmt.value.newtype.def == nil then
         return nil
+    end
+
+    local def = stmt.value.newtype.def
+    if def.typename == "record" or def.typename == "interface" then
+        return render_local_record_doc(stmt)
     end
 
     local type_text = stmt.value.newtype.def.source_text

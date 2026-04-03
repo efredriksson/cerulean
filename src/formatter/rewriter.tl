@@ -841,9 +841,12 @@ local function run_structural_phase(
         output_lines = context.lines
     end
 
-    local structural_layout = structural_render_analysis.analyze_block(
-        context.ast, output_lines, context.fmt_off_regions
-    )
+    local structural_layout: structural_render_analysis.BlockLayout | nil = nil
+    if structural_render_analysis.can_use_block_doc_formatter(
+       context.ast, output_lines, context.fmt_off_regions
+    ) then
+        structural_layout = structural_render_analysis.analyze_block_layout(context.ast)
+    end
 
     if not structural_layout is nil then
         local structurally_rendered = block_doc.render_block(

@@ -4,6 +4,7 @@
 local ast_utils = require("formatter.ast_utils")
 local fmt_logger = require("formatter.fmt_logger")
 local parser = require("formatter.parser")
+local tl = require("tl")
 
 local record StatementLayout
     preserve_blank_line_after: boolean
@@ -55,6 +56,28 @@ local function max_source_line(node: parser.Node): integer
         end
     end)
 
+    return max_line
+end
+
+local function max_statement_source_line(node: parser.Node): integer
+    local max_line = node.y
+
+    local function consider(child: parser.Node)
+        local child_end = node_child_end_line(child)
+        if child_end > max_line then
+            max_line = child_end
+        end
+
+        if child.kind == "op" and child.op ~= nil and child.op.op == "@funcall" and child.e2 ~= nil then
+            local args_end = max_source_line(child.e2)
+            if args_end > child.e2.y and args_end + 1 > max_line then
+                max_line = args_end + 1
+            end
+        end
+    end
+
+    consider(node)
+    ast_utils.walk_descendants(node, consider)
     return max_line
 end
 
@@ -198,28 +221,28 @@ local function top_level_block_has_leading_prelude(
     return false
 end
 
-local function local_type_is_structurally_renderable(
-    stmt: parser.Node, lines: {string}
-): boolean
+local function local_type_is_ast_renderable(stmt: parser.Node): boolean
     if stmt.value == nil or stmt.value.kind ~= "newtype" or stmt.value.newtype == nil then
         return false
     end
-
-    local first_line = lines[stmt.y] or ""
-    if first_line:match("^%s*local%s+record%s+") == nil then
+    local def = stmt.value.newtype.def
+    if def.typename == "generic" then
+        return false
+    end
+    if def.typename ~= "record" and def.typename ~= "interface" then
         return true
     end
 
-    if first_line:find("<", 1, true) ~= nil
-        or first_line:match("%s+where%s+") ~= nil
-    then
-        return false
-    end
-
-    local last_line = max_source_line(stmt)
-    for line = stmt.y + 1, last_line - 1 do
-        local line_str = lines[line]
-        if line_str ~= nil and line_str:match("^%s*metamethod%s+") ~= nil then
+    local record_like = def as tl.RecordLikeType
+    if record_like.meta_field_order ~= nil and #record_like.meta_field_order > 0 then
+        if def.typename ~= "interface" then
+            return false
+        end
+        if #record_like.meta_field_order ~= 1 or record_like.meta_field_order[1] ~= "__is" then
+            return false
+        end
+        local where_function = record_like.meta_fields["__is"]
+        if where_function == nil then
             return false
         end
     end
@@ -259,7 +282,7 @@ local function return_has_fragile_multiline_call_trailing_content(
     return false
 end
 
-local function stmt_is_safe_source_shape(stmt: parser.Node, lines: {string}): boolean
+local function stmt_is_ast_renderable(stmt: parser.Node): boolean
     if stmt.kind == "return" then
         return stmt.exps == nil or not exps_contain_multi_statement_function(stmt.exps)
     elseif stmt.kind == "assignment" then
@@ -269,7 +292,7 @@ local function stmt_is_safe_source_shape(stmt: parser.Node, lines: {string}): bo
             and (stmt.exps == nil or not exps_contain_multiline_table(stmt.exps))
             and (stmt.exps == nil or not exps_contain_multiline_function(stmt.exps))
     elseif stmt.kind == "local_type" then
-        return local_type_is_structurally_renderable(stmt, lines)
+        return local_type_is_ast_renderable(stmt)
     elseif stmt.kind == "op" then
         return node_is_single_line(stmt) and not node_contains_multi_statement_function(stmt)
     elseif stmt.kind == "break" then
@@ -313,61 +336,19 @@ local function stmt_is_safe_source_shape(stmt: parser.Node, lines: {string}): bo
     return false
 end
 
-function structural_render_analysis._analyze_block(
-    block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
-): BlockLayout | nil
+local function build_block_layout(block: parser.Node): BlockLayout | nil
     if #block == 0 then
-        return nil
-    end
-    if block_has_unattached_comments(block) then
-        fmt_logger.info("[structural] blocked: block has unattached comments")
-        return nil
-    end
-    if top_level_block_has_leading_prelude(block, lines) then
-        fmt_logger.info("[structural] blocked: top-level block has leading prelude")
         return nil
     end
 
     local previous_end: integer | nil = nil
     local statement_layouts: {StatementLayout} = {}
     for _, stmt in ipairs(block) do
-        local stmt_end = max_source_line(stmt)
-        if fmt_off_regions:includes_range(stmt.y, stmt_end) then
-            fmt_logger.info(
-                "[structural] blocked at line %s: fmt:off covers %s",
-                tostring(stmt.y),
-                stmt.kind
-            )
-            return nil
-        end
-        if has_comment(lines, stmt.y, stmt_end) then
-            fmt_logger.info(
-                "[structural] blocked at line %s: comment in %s",
-                tostring(stmt.y),
-                stmt.kind
-            )
-            return nil
-        end
+        local stmt_end = max_statement_source_line(stmt)
         if not (previous_end is nil) and stmt.y > previous_end + 1 then
-            if not has_non_empty_line_between(
-               lines, previous_end + 1, stmt.y - 1
-            ) then
-                local empty_line_count = count_empty_lines_between(
-                    lines, previous_end + 1, stmt.y - 1
-                )
-                if empty_line_count >= 1 and #statement_layouts > 0 then
-                    statement_layouts[#statement_layouts].preserve_blank_line_after = true
-                else
-                    fmt_logger.info(
-                        "[structural] blocked at line %s: unexpected gap before %s",
-                        tostring(stmt.y),
-                        stmt.kind
-                    )
-                    return nil
-                end
-            end
+            statement_layouts[#statement_layouts].preserve_blank_line_after = true
         end
-        if not stmt_is_safe_source_shape(stmt, lines) then
+        if not stmt_is_ast_renderable(stmt) then
             fmt_logger.info(
                 "[structural] blocked at line %s: %s has unsafe source shape",
                 tostring(stmt.y),
@@ -375,34 +356,10 @@ function structural_render_analysis._analyze_block(
             )
             return nil
         end
-        if stmt_exps_contain_magic_trailing_comma_table(stmt, lines) then
-            fmt_logger.info(
-                "[structural] blocked at line %s: %s has magic trailing comma table",
-                tostring(stmt.y),
-                stmt.kind
-            )
-            return nil
-        end
-        if #block == 1 and return_has_fragile_multiline_call_trailing_content(
-           stmt, lines
-        ) then
-            fmt_logger.info(
-                "[structural] blocked at line %s: single return has multiline call trailing content",
-                tostring(stmt.y)
-            )
-            return nil
-        end
         local statement_layout = StatementLayout.new()
         if stmt.body ~= nil then
-            local body_layout = structural_render_analysis._analyze_block(
-                stmt.body, lines, fmt_off_regions
-            )
+            local body_layout = build_block_layout(stmt.body)
             if body_layout == nil then
-                fmt_logger.info(
-                    "[structural] blocked at line %s: %s body blocked structural rendering",
-                    tostring(stmt.y),
-                    stmt.kind
-                )
                 return nil
             end
             statement_layout.body_layout = body_layout
@@ -418,15 +375,8 @@ function structural_render_analysis._analyze_block(
                     )
                     return nil
                 end
-                local if_block_layout = structural_render_analysis._analyze_block(
-                    if_block.body, lines, fmt_off_regions
-                )
+                local if_block_layout = build_block_layout(if_block.body)
                 if if_block_layout is nil then
-                    fmt_logger.info(
-                        "[structural] blocked at line %s: if block body at line %s blocked structural rendering",
-                        tostring(stmt.y),
-                        tostring(if_block.y)
-                    )
                     return nil
                 end
                 table.insert(if_block_layouts, if_block_layout)
@@ -440,10 +390,119 @@ function structural_render_analysis._analyze_block(
     return BlockLayout.new(statement_layouts)
 end
 
-function structural_render_analysis.analyze_block(
+local function block_is_structurally_eligible(
     block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
-): BlockLayout | nil
-    return structural_render_analysis._analyze_block(block, lines, fmt_off_regions)
+): boolean
+    if #block == 0 then
+        return false
+    end
+    if block_has_unattached_comments(block) then
+        fmt_logger.info("[structural] blocked: block has unattached comments")
+        return false
+    end
+    if top_level_block_has_leading_prelude(block, lines) then
+        fmt_logger.info("[structural] blocked: top-level block has leading prelude")
+        return false
+    end
+
+    local previous_end: integer | nil = nil
+    for _, stmt in ipairs(block) do
+        local stmt_end = max_statement_source_line(stmt)
+        if fmt_off_regions:includes_range(stmt.y, stmt_end) then
+            fmt_logger.info(
+                "[structural] blocked at line %s: fmt:off covers %s",
+                tostring(stmt.y),
+                stmt.kind
+            )
+            return false
+        end
+        if has_comment(lines, stmt.y, stmt_end) then
+            fmt_logger.info(
+                "[structural] blocked at line %s: comment in %s",
+                tostring(stmt.y),
+                stmt.kind
+            )
+            return false
+        end
+        if not (previous_end is nil) and stmt.y > previous_end + 1 then
+            if has_non_empty_line_between(lines, previous_end + 1, stmt.y - 1) then
+                fmt_logger.info(
+                    "[structural] blocked at line %s: unexpected gap before %s",
+                    tostring(stmt.y),
+                    stmt.kind
+                )
+                return false
+            end
+            local empty_line_count = count_empty_lines_between(
+                lines, previous_end + 1, stmt.y - 1
+            )
+            if empty_line_count < 1 then
+                fmt_logger.info(
+                    "[structural] blocked at line %s: unexpected gap before %s",
+                    tostring(stmt.y),
+                    stmt.kind
+                )
+                return false
+            end
+        end
+        if stmt_exps_contain_magic_trailing_comma_table(stmt, lines) then
+            fmt_logger.info(
+                "[structural] blocked at line %s: %s has magic trailing comma table",
+                tostring(stmt.y),
+                stmt.kind
+            )
+            return false
+        end
+        if #block == 1 and return_has_fragile_multiline_call_trailing_content(
+           stmt, lines
+        ) then
+            fmt_logger.info(
+                "[structural] blocked at line %s: single return has multiline call trailing content",
+                tostring(stmt.y)
+            )
+            return false
+        end
+        if stmt.body ~= nil and not block_is_structurally_eligible(
+           stmt.body, lines, fmt_off_regions
+        ) then
+            fmt_logger.info(
+                "[structural] blocked at line %s: %s body blocked structural rendering",
+                tostring(stmt.y),
+                stmt.kind
+            )
+            return false
+        end
+        if stmt.if_blocks ~= nil then
+            for _, if_block in ipairs(stmt.if_blocks) do
+                if not block_is_structurally_eligible(
+                   if_block.body, lines, fmt_off_regions
+                ) then
+                    fmt_logger.info(
+                        "[structural] blocked at line %s: if block body at line %s blocked structural rendering",
+                        tostring(stmt.y),
+                        tostring(if_block.y)
+                    )
+                    return false
+                end
+            end
+        end
+        previous_end = stmt_end
+    end
+
+    return true
+end
+
+function structural_render_analysis.analyze_block_layout(block: parser.Node): BlockLayout | nil
+    return build_block_layout(block)
+end
+
+function structural_render_analysis.can_use_block_doc_formatter(
+    block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
+): boolean
+    if structural_render_analysis.analyze_block_layout(block) == nil then
+        return false
+    end
+    return block_is_structurally_eligible(block, lines, fmt_off_regions)
 end
 
 return structural_render_analysis
