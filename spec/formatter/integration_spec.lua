@@ -39,6 +39,21 @@ describe("formatter integration", function()
       ]]))
    end)
 
+   describe("multi-line expressions in local declarations", function()
+      it("does not collapse a call inside a table when the joined line would exceed 88 columns", helpers.check([[
+         local START_POSITION_OF_SIDE = {
+             down = PLAYER_AREA:top_left():move(
+                 vectors.new(PLAYER_AREA.width, PLAYER_AREA.height)
+             ),
+             left = PLAYER_AREA:top_left():move(vectors.new(0, PLAYER_AREA.height)),
+         }
+
+         function rail.get_side(position: number): string
+             return position
+         end
+      ]]))
+   end)
+
    describe("resilience", function()
       it("returns an empty file unchanged", helpers.check([[
       ]]))

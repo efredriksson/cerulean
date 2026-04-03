@@ -128,13 +128,23 @@ local function exps_contain_multi_statement_function(exps: {parser.Node}): boole
     return false
 end
 
+local function exps_contain_multiline_table(exps: {parser.Node}): boolean
+    for _, exp in ipairs(exps) do
+        if exp.kind == "literal_table" and ast_utils.has_multiline_descendant(exp) then
+            return true
+        end
+    end
+    return false
+end
+
 local function stmt_is_safe_source_shape(stmt: parser.Node): boolean
     if stmt.kind == "return" then
         return stmt.exps == nil or not exps_contain_multi_statement_function(stmt.exps)
     elseif stmt.kind == "assignment" then
         return not exps_contain_multi_statement_function(stmt.exps)
     elseif stmt.kind == "local_declaration" then
-        return stmt.exps == nil or not exps_contain_multi_statement_function(stmt.exps)
+        return (stmt.exps == nil or not exps_contain_multi_statement_function(stmt.exps))
+            and (stmt.exps == nil or not exps_contain_multiline_table(stmt.exps))
     elseif stmt.kind == "local_type" then
         return stmt.value ~= nil
     elseif stmt.kind == "op" then
