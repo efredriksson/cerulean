@@ -1,3 +1,4 @@
+-- Single AST statement → doc.Doc. Returns nil for unsupported statement shapes.
 local call_doc = require("formatter.call_doc")
 local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")

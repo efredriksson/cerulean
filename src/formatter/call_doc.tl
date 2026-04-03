@@ -1,3 +1,4 @@
+-- Function call args AST list → doc.Doc (build_call_expr_doc) or {string} (render_call).
 local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")

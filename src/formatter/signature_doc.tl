@@ -1,3 +1,5 @@
+-- Function parameter list → {string} (render_signature) or compact string (render_signature_text).
+-- render_signature is used by the span pass in rewriter.tl.
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
 local tl = require("tl")

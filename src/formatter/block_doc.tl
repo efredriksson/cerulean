@@ -1,3 +1,5 @@
+-- Block of AST statements → doc.Doc (render_block_doc) or {string} (render_block).
+-- Recursively renders each statement via stmt_doc; returns nil if any statement is unsupported.
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
 local stmt_doc = require("formatter.stmt_doc")

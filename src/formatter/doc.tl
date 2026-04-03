@@ -1,3 +1,5 @@
+-- Wadler-Lindig document algebra. Build a Doc tree with text/line/concat/indent/group,
+-- then call Doc:render to produce {string}.
 local record Doc
     kind: string
     text: string

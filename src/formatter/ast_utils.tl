@@ -1,3 +1,4 @@
+-- AST traversal helpers, fmt:off region tracking, and block-span collection.
 local parser = require("formatter.parser")
 local tl = require("tl")
 

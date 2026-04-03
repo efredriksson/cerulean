@@ -1,3 +1,5 @@
+-- AST expression node → compact single-line string. Now never produces wrapping or line breaks.
+-- Use call_doc.build_call_expr_doc / table_doc.build_table_doc when wrapping is needed.
 local parser = require("formatter.parser")
 local signature_doc = require("formatter.signature_doc")
 local table_doc = require("formatter.table_doc")

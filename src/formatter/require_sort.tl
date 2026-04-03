@@ -1,3 +1,5 @@
+-- Alphabetically re-orders consecutive top-level local require declarations.
+-- Only sorts contiguous groups; stops at the first non-require statement.
 local ast_utils = require("formatter.ast_utils")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")

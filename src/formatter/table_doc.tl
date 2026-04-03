@@ -1,3 +1,4 @@
+-- Table constructor → doc.Doc (build_table_doc) or {string} (render_table).
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
 

@@ -1,3 +1,5 @@
+-- Top-level pipeline: lexical pass → line cleanup → structural block render → span pass → cleanup.
+-- See ARCHITECTURE.md for the full pipeline diagram.
 local ast_utils = require("formatter.ast_utils")
 local block_doc = require("formatter.block_doc")
 local call_doc = require("formatter.call_doc")

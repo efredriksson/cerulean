@@ -1,3 +1,6 @@
+-- Decides whether a block can be structurally re-rendered by block_doc.
+-- Rejects blocks with comments, fmt:off, unsupported statement shapes,
+-- multi-statement anonymous functions in expressions, or multi-line conditions.
 local ast_utils = require("formatter.ast_utils")
 local parser = require("formatter.parser")
 

@@ -1,3 +1,5 @@
+-- CLI entry point. Reads files, calls rewriter.rewrite, writes output (or checks in --check mode).
+-- Run with: tl run src/formatter/init.tl -- [--check] <file...>
 local rewriter = require("formatter.rewriter")
 
 local record Args
