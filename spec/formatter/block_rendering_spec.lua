@@ -594,6 +594,63 @@ describe("formatter structural block rendering", function()
       ]]))
    end)
 
+   describe("op call statements", function()
+      it("reindents a function body with a multiline op call statement", helpers.format([[
+         local function f()
+           lutro.graphics.rectangle(
+             "line",
+             self.x,
+             self.y,
+             self.width
+           )
+         end
+      ]], [[
+         local function f()
+             lutro.graphics.rectangle("line", self.x, self.y, self.width)
+         end
+      ]]))
+
+      it("reindents a function body with two multiline op call statements", helpers.format([[
+         local function f()
+           table.insert(
+             self.items,
+             new_item
+           )
+           table.insert(
+             self.items,
+             other_item
+           )
+         end
+      ]], [[
+         local function f()
+             table.insert(self.items, new_item)
+             table.insert(self.items, other_item)
+         end
+      ]]))
+
+      it("reindents a top-level multiline op call statement", helpers.format([[
+         lutro.graphics.rectangle(
+           "line",
+           self.x,
+           self.y,
+           self.width
+         )
+          return done
+      ]], [[
+         lutro.graphics.rectangle("line", self.x, self.y, self.width)
+         return done
+      ]]))
+
+      it("keeps wrong indentation when op call has a multi-statement anonymous function arg", helpers.check([[
+         local function f()
+           walk_descendants(node, function(child)
+             local x = 1
+             process(x)
+           end)
+         end
+      ]]))
+   end)
+
    describe("generic functions", function()
       it("preserves type parameters on a local function", helpers.check([[
          local function identity<T>(value: T): T

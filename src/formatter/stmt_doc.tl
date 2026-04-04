@@ -630,8 +630,13 @@ function stmt_doc.render_statement_doc(
         return render_do_doc(node, render_block, layout)
     elseif node.kind == "break" then
         return doc.text("break")
-    elseif node.kind == "op" and end_line == node.y then
-        return expr_doc.render_expr(node)
+    elseif node.kind == "op" then
+        if node.op ~= nil and node.op.op == "@funcall" then
+            return call_doc.build_call_expr_doc(node)
+        end
+        if end_line == node.y then
+            return expr_doc.render_expr(node)
+        end
     end
 
     return nil

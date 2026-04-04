@@ -306,6 +306,9 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
     elseif stmt.kind == "local_type" then
         return local_type_is_ast_renderable(stmt)
     elseif stmt.kind == "op" then
+        if stmt.op ~= nil and stmt.op.op == "@funcall" then
+            return not node_contains_multi_statement_function(stmt)
+        end
         return node_is_single_line(stmt) and not node_contains_multi_statement_function(stmt)
     elseif stmt.kind == "break" then
         return true
