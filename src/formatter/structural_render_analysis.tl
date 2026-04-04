@@ -95,40 +95,31 @@ local function node_list_is_single_line(nodes: parser.Node): boolean
     return true
 end
 
-local function has_comment(
+local function has_non_comment_non_empty_line_between(
     lines: {string}, start_line: integer, end_line: integer
 ): boolean
     for line = start_line, end_line do
-        if lines[line] ~= nil and lines[line]:find("%-%-") ~= nil then
-            return true
+        local line_str = lines[line]
+        if line_str ~= nil and line_str:match("%S") ~= nil then
+            if not line_str:match("^%s*%-%-") then
+                return true
+            end
         end
     end
     return false
 end
 
-local function has_non_empty_line_between(
-    lines: {string}, start_line: integer, end_line: integer
-): boolean
-    for line = start_line, end_line do
-        if lines[line] ~= nil and lines[line]:match("%S") ~= nil then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function count_empty_lines_between(
-    lines: {string}, start_line: integer, end_line: integer
+local function count_leading_comments_for_stmt(
+    stmt: parser.Node, previous_end_line: integer
 ): integer
     local count = 0
-
-    for line = start_line, end_line do
-        if lines[line] ~= nil and lines[line]:match("%S") == nil then
-            count = count + 1
+    if stmt.comments ~= nil then
+        for _, comment in ipairs(stmt.comments) do
+            if comment.y > previous_end_line then
+                count = count + 1
+            end
         end
     end
-
     return count
 end
 
@@ -177,6 +168,48 @@ end
 
 local function block_has_unattached_comments(block: parser.Node): boolean
     return block.unattached_comments ~= nil and #block.unattached_comments > 0
+end
+
+local function collect_accounted_comment_lines(block: parser.Node): {integer: boolean}
+    local accounted: {integer: boolean} = {}
+    for _, stmt in ipairs(block) do
+        if stmt.comments ~= nil then
+            for _, comment in ipairs(stmt.comments) do
+                accounted[comment.y] = true
+            end
+        end
+    end
+    return accounted
+end
+
+local function line_is_inside_compound_statement(
+    block: parser.Node, line_num: integer
+): boolean
+    for _, stmt in ipairs(block) do
+        if stmt.yend ~= nil and stmt.yend > stmt.y then
+            if line_num > stmt.y and line_num < stmt.yend then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function block_has_unaccounted_source_comment(
+    block: parser.Node, lines: {string}, block_close_line: integer
+): boolean
+    local accounted = collect_accounted_comment_lines(block)
+    for line_num = block[1].y, block_close_line - 1 do
+        local line_str = lines[line_num]
+        if line_str ~= nil and line_str:find("%-%-") ~= nil then
+            if not accounted[line_num] then
+                if not line_is_inside_compound_statement(block, line_num) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
 end
 
 local function top_level_block_has_leading_prelude(
@@ -345,7 +378,15 @@ local function build_block_layout(block: parser.Node): BlockLayout | nil
     for _, stmt in ipairs(block) do
         local stmt_end = max_statement_source_line(stmt)
         if not (previous_end is nil) and stmt.y > previous_end + 1 then
-            statement_layouts[#statement_layouts].preserve_blank_line_after = true
+            local non_nil_previous_end = previous_end
+            local leading_comment_count = count_leading_comments_for_stmt(
+                stmt, non_nil_previous_end
+            )
+            local effective_blank_lines =
+                stmt.y - non_nil_previous_end - 1 - leading_comment_count
+            if effective_blank_lines > 0 then
+                statement_layouts[#statement_layouts].preserve_blank_line_after = true
+            end
         end
         if not stmt_is_ast_renderable(stmt) then
             fmt_logger.info(
@@ -403,6 +444,13 @@ local function block_is_structurally_eligible(
         fmt_logger.info("[structural] blocked: top-level block has leading prelude")
         return false
     end
+    local block_close_line = block.yend or 0
+    if block_close_line > 0 and block_has_unaccounted_source_comment(
+        block, lines, block_close_line
+    ) then
+        fmt_logger.info("[structural] blocked: block has unaccounted comments")
+        return false
+    end
 
     local previous_end: integer | nil = nil
     for _, stmt in ipairs(block) do
@@ -415,27 +463,10 @@ local function block_is_structurally_eligible(
             )
             return false
         end
-        if has_comment(lines, stmt.y, stmt_end) then
-            fmt_logger.info(
-                "[structural] blocked at line %s: comment in %s",
-                tostring(stmt.y),
-                stmt.kind
-            )
-            return false
-        end
         if not (previous_end is nil) and stmt.y > previous_end + 1 then
-            if has_non_empty_line_between(lines, previous_end + 1, stmt.y - 1) then
-                fmt_logger.info(
-                    "[structural] blocked at line %s: unexpected gap before %s",
-                    tostring(stmt.y),
-                    stmt.kind
-                )
-                return false
-            end
-            local empty_line_count = count_empty_lines_between(
+            if has_non_comment_non_empty_line_between(
                 lines, previous_end + 1, stmt.y - 1
-            )
-            if empty_line_count < 1 then
+            ) then
                 fmt_logger.info(
                     "[structural] blocked at line %s: unexpected gap before %s",
                     tostring(stmt.y),

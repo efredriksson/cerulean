@@ -169,4 +169,22 @@ describe("formatter function call wrapping", function()
       end
    ]]))
 
+   it("does not wrap a short multi-arg call used as an if condition", helpers.check([[
+      local function f()
+          if check({a, b}, x) then
+              y = 1
+          end
+      end
+   ]]))
+
+   it("does not wrap a short multi-arg call with table arg used as an if condition in a for loop", helpers.check([[
+      local function f()
+          for from_color, to_color in pairs(color_mapping) do
+              if color_equal({r, g, b}, from_color) then
+                  x = y
+              end
+          end
+      end
+   ]]))
+
 end)

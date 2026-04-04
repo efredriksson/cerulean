@@ -213,10 +213,13 @@ function call_doc.build_call_expr_doc(node: parser.Node): doc.Doc
     local callee_doc = expr_doc.render_expr(node.e1)
     local item_docs = build_call_arg_item_docs(node.e2)
     local opts = DelimitedSequenceOptions.new("(", ")", 4)
-    return doc.concat({
+    -- Wrap in a group so the renderer tries the compact (flat) form first.
+    -- Without a group the doc.line breaks inside build_delimited_sequence_doc
+    -- always expand, wrapping even short calls that fit on one line.
+    return doc.group(doc.concat({
         callee_doc,
         build_delimited_sequence_doc(item_docs, opts, true),
-    })
+    }))
 end
 
 return call_doc

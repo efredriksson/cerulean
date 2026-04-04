@@ -87,6 +87,12 @@ local record parser
         -- fmt: on
     end
 
+    record Comment
+        x: integer
+        y: integer
+        text: string
+    end
+
     parse_program: function(
         tokens: {tl.Token},
         errs: {tl.Error},
@@ -139,11 +145,7 @@ local type TokenKind = tl.TokenKind
 
 -- ── Internal types from tl.tl ────────────────────────────────────────────────
 
-local record Comment
-   x: integer
-   y: integer
-   text: string
-end
+local type Comment = parser.Comment
 
 local record Operator
    y: integer
@@ -507,18 +509,22 @@ end
 local function capture_type_source_text(
     ps: ParseState, start_i: integer, end_i: integer
 ): string
-   if ps.source_lines == nil or ps.tokens[start_i] == nil or ps.tokens[end_i] == nil then
+   -- end_i is the first token AFTER the type. Use end_i - 1 (the last token of the
+   -- type) to avoid capturing comments or code that appear between the type and the
+   -- next token in the source.
+   local last_i = end_i - 1
+   if ps.source_lines == nil or ps.tokens[start_i] == nil or ps.tokens[last_i] == nil then
       return ""
    end
 
    local start_token = ps.tokens[start_i]
-   local end_token = ps.tokens[end_i]
+   local last_token = ps.tokens[last_i]
    local text = slice_source_until(
       ps.source_lines,
       start_token.y,
       start_token.x,
-      end_token.y,
-      end_token.x
+      last_token.y,
+      last_token.x + #last_token.tk
    )
 
    return text:match("^(.-)%s*$") or ""
@@ -1778,6 +1784,8 @@ local function parse_function(
    return i, fn
 end
 
+local get_attached_comments: function(token: Token): {Comment}
+
 local function parse_if_block(
     ps: ParseState,
     i: integer,
@@ -1805,6 +1813,7 @@ local function parse_if_block(
 end
 
 local function parse_if(ps: ParseState, i: integer): integer, Node
+   local comments = get_attached_comments(ps.tokens[i])
    local istart = i
    local node = new_node(ps, i, "if")
    node.if_blocks = {}
@@ -1827,20 +1836,28 @@ local function parse_if(ps: ParseState, i: integer): integer, Node
       end
    end
    i = verify_end(ps, i, istart, node)
+   if node then
+      node.comments = comments
+   end
    return i, node
 end
 
 local function parse_while(ps: ParseState, i: integer): integer, Node
+   local comments = get_attached_comments(ps.tokens[i])
    local istart = i
    local node = new_node(ps, i, "while")
    i = verify_tk(ps, i, "while")
    i, node.exp = parse_expression_and_tk(ps, i, "do")
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
+   if node then
+      node.comments = comments
+   end
    return i, node
 end
 
 local function parse_fornum(ps: ParseState, i: integer): integer, Node
+   local comments = get_attached_comments(ps.tokens[i])
    local istart = i
    local node = new_node(ps, i, "fornum")
    i = i + 1
@@ -1856,10 +1873,14 @@ local function parse_fornum(ps: ParseState, i: integer): integer, Node
    end
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
+   if node then
+      node.comments = comments
+   end
    return i, node
 end
 
 local function parse_forin(ps: ParseState, i: integer): integer, Node
+   local comments = get_attached_comments(ps.tokens[i])
    local istart = i
    local node = new_node(ps, i, "forin")
    i = i + 1
@@ -1883,6 +1904,9 @@ local function parse_forin(ps: ParseState, i: integer): integer, Node
    i = verify_tk(ps, i, "do")
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
+   if node then
+      node.comments = comments
+   end
    return i, node
 end
 
@@ -1895,6 +1919,7 @@ local function parse_for(ps: ParseState, i: integer): integer, Node
 end
 
 local function parse_repeat(ps: ParseState, i: integer): integer, Node
+   local comments = get_attached_comments(ps.tokens[i])
    local node = new_node(ps, i, "repeat")
    i = verify_tk(ps, i, "repeat")
    i, node.body = parse_statements(ps, i)
@@ -1902,21 +1927,32 @@ local function parse_repeat(ps: ParseState, i: integer): integer, Node
    i = verify_tk(ps, i, "until")
    i, node.exp = parse_expression(ps, i)
    end_at(node, ps.tokens[i - 1])
+   if node then
+      node.comments = comments
+   end
    return i, node
 end
 
 local function parse_do(ps: ParseState, i: integer): integer, Node
+   local comments = get_attached_comments(ps.tokens[i])
    local istart = i
    local node = new_node(ps, i, "do")
    i = verify_tk(ps, i, "do")
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
+   if node then
+      node.comments = comments
+   end
    return i, node
 end
 
 local function parse_break(ps: ParseState, i: integer): integer, Node
+   local comments = get_attached_comments(ps.tokens[i])
    local node = new_node(ps, i, "break")
    i = verify_tk(ps, i, "break")
+   if node then
+      node.comments = comments
+   end
    return i, node
 end
 
@@ -1954,6 +1990,7 @@ for k, v in pairs(stop_statement_list) do
 end
 
 local function parse_return(ps: ParseState, i: integer): integer, Node
+   local comments = get_attached_comments(ps.tokens[i])
    local node = new_node(ps, i, "return")
    i = verify_tk(ps, i, "return")
    node.exps = new_node(ps, i, "expression_list")
@@ -1963,6 +2000,9 @@ local function parse_return(ps: ParseState, i: integer): integer, Node
       if ps.tokens[i].kind ~= "$EOF$" and not stop_statement_list[ps.tokens[i].kind] then
          return fail(ps, i, "return must be the last statement of its block")
       end
+   end
+   if node then
+      node.comments = comments
    end
    return i, node
 end
@@ -2054,7 +2094,7 @@ local function set_declname(def: Type, declname: string)
    end
 end
 
-local function get_attached_comments(token: Token): {Comment}
+get_attached_comments = function(token: Token): {Comment}
    if not (token as {string:any})["comments"] then
       return nil
    end
@@ -2574,6 +2614,7 @@ do
    end
 
    parse_call_or_assignment = function(ps: ParseState, i: integer): integer, Node
+      local comments = get_attached_comments(ps.tokens[i])
       local exp: Node
       local istart = i
       i, exp = parse_expression(ps, i)
@@ -2582,6 +2623,9 @@ do
       end
 
       if node_is_funcall(exp) or exp.failstore then
+         if exp then
+            exp.comments = comments
+         end
          return i, exp
       end
 
@@ -2606,6 +2650,9 @@ do
       end
 
       i, asgn = parse_assignment_expression_list(ps, i, asgn)
+      if asgn then
+         asgn.comments = comments
+      end
       return i, asgn
    end
 end

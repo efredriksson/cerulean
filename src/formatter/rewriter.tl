@@ -604,7 +604,15 @@ local function apply_all_spans(
             for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
             for i = span.close_line + 1, #result do table.insert(tail, result[i]) end
             local can_join_to_single_line = #compact_lines == 1 and #compact_lines[1] <= 88
-            if span.kind == "call" and after ~= "" and not after:match("^,") then
+            -- Control-flow keyword suffixes (` then`, ` do`) are terminators: the
+            -- closing paren is the real end of the expression, so joining is safe.
+            -- Other non-comma suffixes (` and`, ` or`, ` ..`) are continuations
+            -- whose trailing content may not fit on the joined line, so keep them split.
+            local after_is_control_flow_keyword = after:match("^%s+then%s*$") ~= nil
+                or after:match("^%s+do%s*$") ~= nil
+            if span.kind == "call" and after ~= "" and not after:match("^,")
+                and not after_is_control_flow_keyword
+            then
                 can_join_to_single_line = false
             end
 
