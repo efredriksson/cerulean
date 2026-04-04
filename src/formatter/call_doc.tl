@@ -47,11 +47,15 @@ local function build_delimited_sequence_doc(
     if #item_docs == 0 then
         return doc.text(opts.open_delim .. opts.close_delim)
     elseif #item_docs == 1 then
-        return doc.concat({
+        return doc.group(doc.concat({
             doc.text(opts.open_delim),
-            item_docs[1],
+            doc.indent(opts.compact_indent_amount, doc.concat({
+                doc.line(""),
+                item_docs[1],
+            })),
+            doc.line(""),
             doc.text(opts.close_delim),
-        })
+        }))
     end
 
     local item_doc = doc.concat(build_item_docs(item_docs))

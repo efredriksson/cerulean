@@ -262,6 +262,58 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("reindents a function body with a long single-arg assignment call without overflowing the line", helpers.format([[
+         local function f()
+           cache[item_name] = loader.fetch_resource(
+             "prefix/" .. item_name .. "/long_resource_name.ext"
+           )
+         end
+      ]], [[
+         local function f()
+             cache[item_name] = loader.fetch_resource(
+                 "prefix/" .. item_name .. "/long_resource_name.ext"
+             )
+         end
+      ]]))
+
+      it("reindents a top-level if block where the condition call has one overlong arg", helpers.format([[
+         if f_in_if(first_parameter_with_a_very_long_long_long_long_long_long_long_long_long_name) then
+           print('ok')
+         end
+      ]], [[
+         if f_in_if(
+             first_parameter_with_a_very_long_long_long_long_long_long_long_long_long_name
+         ) then
+             print("ok")
+         end
+      ]]))
+
+      it("reindents a top-level if block where the condition call has two long args fitting compactly", helpers.format([[
+         if f_in_if(first_parameter_with_a_very_long_name, second_parameter_with_a_very_long_name) then
+           print('ok')
+         end
+      ]], [[
+         if f_in_if(
+            first_parameter_with_a_very_long_name, second_parameter_with_a_very_long_name
+         ) then
+             print("ok")
+         end
+      ]]))
+
+      it("reindents a top-level if block where the condition call has three long args each on its own line", helpers.format([[
+         if f_in_if(first_parameter_with_a_very_long_name, second_parameter_with_a_very_long_name, third_parameter_with_a_very_long_name) then
+           print('ok')
+         end
+      ]], [[
+         if f_in_if(
+             first_parameter_with_a_very_long_name,
+             second_parameter_with_a_very_long_name,
+             third_parameter_with_a_very_long_name
+         ) then
+             print("ok")
+         end
+      ]]))
+
       it("reindents a function body with a multiline return call with a table arg", helpers.format([[
          local function setup()
            return foo.new(
