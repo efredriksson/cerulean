@@ -222,7 +222,13 @@ local function top_level_block_has_leading_prelude(
 end
 
 local function local_type_is_ast_renderable(stmt: parser.Node): boolean
-    if stmt.value == nil or stmt.value.kind ~= "newtype" or stmt.value.newtype == nil then
+    if stmt.value == nil then
+        return false
+    end
+    if stmt.value.kind ~= "newtype" then
+        return node_is_single_line(stmt)
+    end
+    if stmt.value.newtype == nil then
         return false
     end
     local def = stmt.value.newtype.def

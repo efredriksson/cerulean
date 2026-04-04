@@ -548,6 +548,52 @@ describe("formatter structural block rendering", function()
       ]]))
    end)
 
+   describe("local require type aliases", function()
+      it("reindents a function body with a local require type alias", helpers.format([[
+         local function f()
+           local type Entity = require("entity")
+           local x = 1
+           return x
+         end
+      ]], [[
+         local function f()
+             local type Entity = require("entity")
+             local x = 1
+             return x
+         end
+      ]]))
+
+      it("reindents a function body with multiple local require type aliases", helpers.format([[
+         local function f()
+           local type Entity = require("entity")
+           local type Point = require("points")
+           return Entity.new()
+         end
+      ]], [[
+         local function f()
+             local type Entity = require("entity")
+             local type Point = require("points")
+             return Entity.new()
+         end
+      ]]))
+
+      it("reindents a function body with a local require type alias and nested if block", helpers.format([[
+         local function f(active: boolean)
+           local type Entity = require("entity")
+           if active then
+             return Entity.new()
+           end
+         end
+      ]], [[
+         local function f(active: boolean)
+             local type Entity = require("entity")
+             if active then
+                 return Entity.new()
+             end
+         end
+      ]]))
+   end)
+
    describe("generic functions", function()
       it("preserves type parameters on a local function", helpers.check([[
          local function identity<T>(value: T): T

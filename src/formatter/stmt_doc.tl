@@ -256,8 +256,13 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
 end
 
 local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil
-    if stmt.var == nil or stmt.value == nil or stmt.value.kind ~= "newtype" then
+    if stmt.var == nil or stmt.value == nil then
         return nil
+    end
+    if stmt.value.kind ~= "newtype" then
+        return doc.concat({
+            doc.text("local type " .. stmt.var.tk .. " = "), build_exp_doc(stmt.value)
+        })
     end
 
     if stmt.value.newtype == nil or stmt.value.newtype.def == nil then
