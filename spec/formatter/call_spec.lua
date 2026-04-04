@@ -46,7 +46,7 @@ describe("formatter function call wrapping", function()
       table.insert(
           parts,
           indentation .. self.name .. ": " .. string.format(
-             "%.1f", self.elapsed * 1000
+              "%.1f", self.elapsed * 1000
           ) .. "ms"
       )
    ]]))
@@ -70,7 +70,7 @@ describe("formatter function call wrapping", function()
       local formatted = string.format("%.1f", elapsed_milliseconds_long_value, maximum_precision) .. "ms"
    ]], [[
       local formatted = string.format(
-         "%.1f", elapsed_milliseconds_long_value, maximum_precision
+          "%.1f", elapsed_milliseconds_long_value, maximum_precision
       ) .. "ms"
    ]]))
 

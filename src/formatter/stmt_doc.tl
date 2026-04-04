@@ -202,9 +202,7 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
 
     local header_parts: {doc.Doc} = {
         doc.text(
-            is_type_declaration
-                and ("local type " .. stmt.var.tk .. typeargs_str .. " = " .. declaration_keyword)
-                or ("local " .. declaration_keyword .. " " .. stmt.var.tk .. typeargs_str)
+            is_type_declaration and ("local type " .. stmt.var.tk .. typeargs_str .. " = " .. declaration_keyword) or ("local " .. declaration_keyword .. " " .. stmt.var.tk .. typeargs_str)
         ),
     }
     if record_def.interface_list ~= nil and #record_def.interface_list > 0 then
@@ -332,7 +330,9 @@ local function render_function_name(node: parser.Node): string | nil
             return nil
         end
         local separator = node.is_method and ":" or "."
-        return "function " .. owner .. separator .. node.name.tk .. render_function_typeargs(node)
+        return "function " .. owner .. separator .. node.name.tk .. render_function_typeargs(
+            node
+        )
     end
 
     return nil

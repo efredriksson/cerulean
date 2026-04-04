@@ -191,7 +191,7 @@ local function stmt_exps_contain_magic_trailing_comma_table(
     end
     for _, exp in ipairs(exps) do
         if exp.kind == "literal_table" and table_has_magic_trailing_comma(
-           exp, lines
+            exp, lines
         ) then
             return true
         end
@@ -280,7 +280,9 @@ local function return_has_fragile_multiline_call_trailing_content(
                 local args = child.e2
                 if args.yend ~= nil and args.yend > args.y then
                     local close_line = lines[args.yend]
-                    if close_line ~= nil and close_line:sub(args.xend + 1):match("%S") ~= nil then
+                    if close_line ~= nil and close_line:sub(
+                        args.xend + 1
+                    ):match("%S") ~= nil then
                         found = true
                     end
                 end
@@ -300,7 +302,9 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
     elseif stmt.kind == "assignment" then
         return not exps_contain_multi_statement_function(stmt.exps)
     elseif stmt.kind == "local_declaration" then
-        return (stmt.exps == nil or not exps_contain_multi_statement_function(stmt.exps))
+        return (stmt.exps == nil or not exps_contain_multi_statement_function(
+            stmt.exps
+        ))
             and (stmt.exps == nil or not exps_contain_multiline_table(stmt.exps))
             and (stmt.exps == nil or not exps_contain_multiline_function(stmt.exps))
     elseif stmt.kind == "local_type" then
@@ -309,7 +313,9 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
         if stmt.op ~= nil and stmt.op.op == "@funcall" then
             return not node_contains_multi_statement_function(stmt)
         end
-        return node_is_single_line(stmt) and not node_contains_multi_statement_function(stmt)
+        return node_is_single_line(
+            stmt
+        ) and not node_contains_multi_statement_function(stmt)
     elseif stmt.kind == "break" then
         return true
     elseif stmt.kind == "local_function"
@@ -341,7 +347,9 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
         end
         return true
     elseif stmt.kind == "forin" and stmt.vars ~= nil and stmt.exps ~= nil then
-        return node_list_is_single_line(stmt.vars) and node_list_is_single_line(stmt.exps)
+        return node_list_is_single_line(
+            stmt.vars
+        ) and node_list_is_single_line(stmt.exps)
     elseif stmt.kind == "repeat" and stmt.exp ~= nil then
         return node_is_single_line(stmt.exp)
     elseif stmt.kind == "do" then
@@ -469,7 +477,7 @@ local function block_is_structurally_eligible(
             return false
         end
         if #block == 1 and return_has_fragile_multiline_call_trailing_content(
-           stmt, lines
+            stmt, lines
         ) then
             fmt_logger.info(
                 "[structural] blocked at line %s: single return has multiline call trailing content",
@@ -478,7 +486,7 @@ local function block_is_structurally_eligible(
             return false
         end
         if stmt.body ~= nil and not block_is_structurally_eligible(
-           stmt.body, lines, fmt_off_regions
+            stmt.body, lines, fmt_off_regions
         ) then
             fmt_logger.info(
                 "[structural] blocked at line %s: %s body blocked structural rendering",
@@ -490,7 +498,7 @@ local function block_is_structurally_eligible(
         if stmt.if_blocks ~= nil then
             for _, if_block in ipairs(stmt.if_blocks) do
                 if not block_is_structurally_eligible(
-                   if_block.body, lines, fmt_off_regions
+                    if_block.body, lines, fmt_off_regions
                 ) then
                     fmt_logger.info(
                         "[structural] blocked at line %s: if block body at line %s blocked structural rendering",

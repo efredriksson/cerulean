@@ -109,7 +109,7 @@ local function build_trailing_call_doc(item_docs: {doc.Doc}): doc.Doc
 
     return doc.concat({
         doc.text("("),
-        doc.indent(3, doc.concat({
+        doc.indent(4, doc.concat({
             doc.line(""),
             doc.concat(parts),
         })),
@@ -169,10 +169,22 @@ function call_doc.render_call(
     local item_docs = build_call_arg_item_docs(args)
 
     local lines: {string}
-    if compact or #item_docs < 2 then
+    if compact or #item_docs == 0 then
         lines = render_doc(
             build_compact_delimited_sequence_doc(item_docs, opts), indent_prefix
         )
+    elseif #item_docs == 1 then
+        local compact_line = render_doc(
+            build_compact_delimited_sequence_doc(item_docs, opts), indent_prefix
+        )
+        local wrapped = wrap_construct_lines(prefix, suffix, compact_line)
+        if #wrapped == 1 and #wrapped[1] <= 88 then
+            lines = compact_line
+        else
+            lines = build_delimited_sequence_doc(item_docs, opts, true):render(
+                88 - #suffix, #prefix, #indent_prefix, true
+            )
+        end
     elseif prefer_trailing_compact then
         local compact_lines = render_doc(
             build_trailing_call_doc(item_docs), indent_prefix
@@ -180,8 +192,8 @@ function call_doc.render_call(
         if #compact_lines == 3 and #compact_lines[2] <= 88 then
             lines = compact_lines
         else
-            lines = render_doc(
-                build_delimited_sequence_doc(item_docs, opts, true), indent_prefix
+            lines = build_delimited_sequence_doc(item_docs, opts, true):render(
+                88 - #suffix, #prefix, #indent_prefix, true
             )
         end
     elseif suffix ~= "" then

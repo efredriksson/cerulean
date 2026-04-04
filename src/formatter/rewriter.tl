@@ -383,8 +383,10 @@ local function collect_table_spans(
                 end
             end
         end
-        if is_safe and not ast_utils.has_multiline_descendant(node) and not has_magic_trailing_comma(
-           node, lines
+        if is_safe and not ast_utils.has_multiline_descendant(
+            node
+        ) and not has_magic_trailing_comma(
+            node, lines
         ) then
             table.insert(
                 result,
@@ -569,17 +571,17 @@ local function apply_all_spans(
                     local tail: {string} = {}
                     for i = 1, span.open_line - 1 do table.insert(head, result[i]) end
                     for i = span.open_line + 1, #result do table.insert(
-                       tail, result[i]
+                        tail, result[i]
                     ) end
                     result = {}
                     for _, head_line in ipairs(head) do table.insert(
-                       result, head_line
+                        result, head_line
                     ) end
                     for _, new_line in ipairs(new_lines) do table.insert(
-                       result, new_line
+                        result, new_line
                     ) end
                     for _, tail_line in ipairs(tail) do table.insert(
-                       result, tail_line
+                        result, tail_line
                     ) end
                     replaced_lines[span.open_line] = true
                 else
@@ -674,13 +676,13 @@ local function apply_all_spans(
                     end
                     result = {}
                     for _, line_str in ipairs(head) do table.insert(
-                       result, line_str
+                        result, line_str
                     ) end
                     for _, line_str in ipairs(new_lines) do table.insert(
-                       result, line_str
+                        result, line_str
                     ) end
                     for _, line_str in ipairs(tail) do table.insert(
-                       result, line_str
+                        result, line_str
                     ) end
                     for line = span.open_line, span.close_line do
                         replaced_lines[line] = true
@@ -843,7 +845,7 @@ local function run_structural_phase(
 
     local structural_layout: structural_render_analysis.BlockLayout | nil = nil
     if structural_render_analysis.can_use_block_doc_formatter(
-       context.ast, output_lines, context.fmt_off_regions
+        context.ast, output_lines, context.fmt_off_regions
     ) then
         structural_layout = structural_render_analysis.analyze_block_layout(context.ast)
     end

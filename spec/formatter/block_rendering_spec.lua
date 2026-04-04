@@ -277,12 +277,12 @@ describe("formatter structural block rendering", function()
       ]]))
 
       it("reindents a top-level if block where the condition call has one overlong arg", helpers.format([[
-         if f_in_if(first_parameter_with_a_very_long_long_long_long_long_long_long_long_long_name) then
+         if f_in_if(first_parameter_with_a_very_long_long_long_long_long_long_long_long_name) then
            print('ok')
          end
       ]], [[
          if f_in_if(
-             first_parameter_with_a_very_long_long_long_long_long_long_long_long_long_name
+             first_parameter_with_a_very_long_long_long_long_long_long_long_long_name
          ) then
              print("ok")
          end
@@ -294,7 +294,7 @@ describe("formatter structural block rendering", function()
          end
       ]], [[
          if f_in_if(
-            first_parameter_with_a_very_long_name, second_parameter_with_a_very_long_name
+             first_parameter_with_a_very_long_name, second_parameter_with_a_very_long_name
          ) then
              print("ok")
          end
@@ -471,7 +471,7 @@ describe("formatter structural block rendering", function()
              tick()
          end
          return interval_overlap(
-            self.x, self.x + self.width, other.x, other.x + other.width
+             self.x, self.x + self.width, other.x, other.x + other.width
          ) and interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
       ]]))
 
