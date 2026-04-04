@@ -156,7 +156,10 @@ end
 
 local function exps_contain_multiline_table(exps: {parser.Node}): boolean
     for _, exp in ipairs(exps) do
-        if exp.kind == "literal_table" and ast_utils.has_multiline_descendant(exp) then
+        if exp.kind == "literal_table"
+            and not exp.trailing_comma
+            and ast_utils.has_multiline_descendant(exp)
+        then
             return true
         end
     end
@@ -166,33 +169,6 @@ end
 local function exps_contain_multiline_function(exps: {parser.Node}): boolean
     for _, exp in ipairs(exps) do
         if exp.kind == "function" and exp.yend ~= nil and exp.yend > exp.y then
-            return true
-        end
-    end
-    return false
-end
-
-local function table_has_magic_trailing_comma(
-    node: parser.Node, lines: {string}
-): boolean
-    if node.yend == nil or node.yend <= node.y then
-        return false
-    end
-    local last_body_line = lines[node.yend - 1]
-    return last_body_line ~= nil and last_body_line:match(",%s*$") ~= nil
-end
-
-local function stmt_exps_contain_magic_trailing_comma_table(
-    stmt: parser.Node, lines: {string}
-): boolean
-    local exps = stmt.exps
-    if exps == nil then
-        return false
-    end
-    for _, exp in ipairs(exps) do
-        if exp.kind == "literal_table" and table_has_magic_trailing_comma(
-            exp, lines
-        ) then
             return true
         end
     end
@@ -467,14 +443,6 @@ local function block_is_structurally_eligible(
                 )
                 return false
             end
-        end
-        if stmt_exps_contain_magic_trailing_comma_table(stmt, lines) then
-            fmt_logger.info(
-                "[structural] blocked at line %s: %s has magic trailing comma table",
-                tostring(stmt.y),
-                stmt.kind
-            )
-            return false
         end
         if #block == 1 and return_has_fragile_multiline_call_trailing_content(
             stmt, lines

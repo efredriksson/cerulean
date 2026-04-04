@@ -77,11 +77,11 @@ local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
 end
 
 local function build_delimited_sequence_doc(
-    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
+    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions, force_wrap: boolean
 ): doc.Doc
     if #item_docs == 0 then
         return doc.text(opts.open_delim .. opts.close_delim)
-    elseif #item_docs == 1 then
+    elseif #item_docs == 1 and not force_wrap then
         return doc.concat({
             doc.text(opts.open_delim),
             item_docs[1],
@@ -89,11 +89,18 @@ local function build_delimited_sequence_doc(
         })
     end
 
+    local items_doc: doc.Doc
+    if force_wrap then
+        items_doc = doc.concat(build_item_docs(item_docs))
+    else
+        items_doc = doc.group(doc.concat(build_item_docs(item_docs)))
+    end
+
     return doc.concat({
         doc.text(opts.open_delim),
         doc.indent(opts.compact_indent_amount, doc.concat({
             doc.line(""),
-            doc.group(doc.concat(build_item_docs(item_docs))),
+            items_doc,
         })),
         doc.line(""),
         doc.text(opts.close_delim),
@@ -146,7 +153,9 @@ function table_doc.build_table_doc(
     node: parser.Node, render_expr: function(parser.Node): doc.Doc
 ): doc.Doc
     local opts = DelimitedSequenceOptions.new("{", "}", 4)
-    return build_delimited_sequence_doc(build_table_item_docs(node, render_expr), opts)
+    return build_delimited_sequence_doc(
+        build_table_item_docs(node, render_expr), opts, node.trailing_comma
+    )
 end
 
 function table_doc.render_table(
@@ -164,7 +173,9 @@ function table_doc.render_table(
     if compact then
         table_doc_node = build_compact_delimited_sequence_doc(item_docs, opts)
     else
-        table_doc_node = build_delimited_sequence_doc(item_docs, opts)
+        table_doc_node = build_delimited_sequence_doc(
+            item_docs, opts, node.trailing_comma
+        )
     end
 
     return wrap_construct_lines(

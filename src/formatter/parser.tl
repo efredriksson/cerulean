@@ -79,6 +79,7 @@ local record parser
         pkey:                           string
         pvalue:                         string
         opt:                            boolean
+        trailing_comma:                 boolean
         debug_type:                     tl.Type
         is_self:                        boolean
         is_type_declaration:            boolean
@@ -823,7 +824,9 @@ end
 
 local function parse_table_literal(ps: ParseState, i: integer): integer, Node
    local node = new_node(ps, i, "literal_table")
-   return parse_bracket_list(ps, i, node, "{", "}", "term", parse_table_item)
+   i, node = parse_bracket_list(ps, i, node, "{", "}", "term", parse_table_item)
+   node.trailing_comma = #node > 0 and ps.tokens[i - 2].tk == ","
+   return i, node
 end
 
 local function parse_trying_list<T>(

@@ -83,7 +83,7 @@ describe("formatter table constructor wrapping", function()
       }
    ]],[[
       local t = {
-         key = foo(arg_one, arg_two),
+          key = foo(arg_one, arg_two),
       }
    ]]))
 

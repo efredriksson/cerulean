@@ -348,18 +348,6 @@ end
 
 -- ── AST-based wrapping ────────────────────────────────────────────────────────
 
--- Returns true when a multi-line table's last item line ends with a comma,
--- indicating the author explicitly wants the table kept in expanded form.
-local function has_magic_trailing_comma(
-    node: parser.Node, source_lines: {string}
-): boolean
-    if node.yend <= node.y then
-        return false
-    end
-    local last_body_line = source_lines[node.yend - 1]
-    return last_body_line ~= nil and last_body_line:match(",%s*$") ~= nil
-end
-
 -- Walk the AST collecting Spans for literal_table nodes.
 -- Only collects spans that are safe to join/split: no child spans multiple
 -- lines, no fmt:off lines fall inside the span, no lines contain comments
@@ -385,9 +373,7 @@ local function collect_table_spans(
         end
         if is_safe and not ast_utils.has_multiline_descendant(
             node
-        ) and not has_magic_trailing_comma(
-            node, lines
-        ) then
+        ) and not node.trailing_comma then
             table.insert(
                 result,
                 Span.new(node.y, node.x, node.yend, node.xend, "table", nil, nil, node)
