@@ -484,10 +484,39 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
-      it("keeps wrong space indentation for an unsupported const declaration", helpers.check([[
+      it("reindents a block containing a const local declaration", helpers.format([[
          local function f()
            local x <const> = 1
            return x
+         end
+      ]], [[
+         local function f()
+             local x <const> = 1
+             return x
+         end
+      ]]))
+
+      it("reindents a block containing a total local declaration", helpers.format([[
+         local function f()
+           local y <total> = 1
+           return y
+         end
+      ]], [[
+         local function f()
+             local y <total> = 1
+             return y
+         end
+      ]]))
+
+      it("reindents a block containing a mixed attributed multi-local declaration", helpers.format([[
+         local function f()
+           local first <const>, second <total> = compute_pair()
+           return first, second
+         end
+      ]], [[
+         local function f()
+             local first <const>, second <total> = compute_pair()
+             return first, second
          end
       ]]))
    end)

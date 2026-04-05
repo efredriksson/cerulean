@@ -52,6 +52,14 @@ describe("formatter require sorting", function()
       local b: BType = require("b")
    ]], { skip_ast_equivalence = true }))
 
+   it("sorts attributed local requires and preserves const/total attributes", helpers.format([[
+      local b <const> = require("b")
+      local a <total> = require("a")
+   ]], [[
+      local a <total> = require("a")
+      local b <const> = require("b")
+   ]], { skip_ast_equivalence = true }))
+
    it("sorts requires with non-standard spacing inside the call parens", helpers.format([[
       local b = require( "b.module" )
       local a = require( "a.module" )
@@ -97,6 +105,11 @@ describe("formatter require sorting", function()
    it("excludes a require with an inline comment from the sort block", helpers.check([[
       local b = require("b") -- keep this where it is
       local a = require("a")
+   ]]))
+
+   it("excludes multi-local declarations with require from the sort block", helpers.check([[
+      local b <const>, extra = require("b"), 1
+      local a <total> = require("a")
    ]]))
 
 end)

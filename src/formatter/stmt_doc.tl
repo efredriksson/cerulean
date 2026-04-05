@@ -112,10 +112,11 @@ local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
     local vars: {string} = {}
 
     for _, var_node in ipairs(stmt.vars) do
+        local var_text = var_node.tk
         if var_node.attribute ~= nil then
-            return nil
+            var_text = var_text .. " <" .. var_node.attribute .. ">"
         end
-        table.insert(vars, var_node.tk)
+        table.insert(vars, var_text)
     end
 
     local prefix = "local " .. table.concat(vars, ", ")

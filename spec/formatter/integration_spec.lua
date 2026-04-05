@@ -52,6 +52,14 @@ describe("formatter integration", function()
              return position
          end
       ]]))
+
+      it("preserves mixed attributes in a multi-local declaration assigned from a multi-return call", helpers.check([[
+         local function get_pair(): number, number
+             return 1, 2
+         end
+
+         local first <const>, second <total> = get_pair()
+      ]]))
    end)
 
    describe("resilience", function()

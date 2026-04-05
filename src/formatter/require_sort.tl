@@ -59,6 +59,9 @@ local function render_require_decl(decl: RequireDecl, indent: string): doc.Doc
         and #node.exps == 1
     then
         local text = "local " .. node.vars[1].tk
+        if node.vars[1].attribute ~= nil then
+            text = text .. " <" .. node.vars[1].attribute .. ">"
+        end
         if node.decltuple ~= nil and node.decltuple.source_text ~= nil then
             text = text .. node.decltuple.source_text
         end
@@ -78,7 +81,10 @@ local function collect_require_decls(ast: parser.Node): {RequireDecl}
     for _, node in ipairs(ast) do
         local call_node: parser.Node
         if node.kind == "local_declaration"
+            and node.vars ~= nil
+            and #node.vars == 1
             and node.exps ~= nil
+            and #node.exps == 1
             and node.exps[1] ~= nil
         then
             call_node = node.exps[1]
