@@ -939,4 +939,54 @@ describe("formatter structural block rendering", function()
          end
       ]]))
    end)
+
+   describe("enums", function ()
+      it("gets indented", helpers.format([[
+         local enum TestEnum
+            "a"
+            "b"
+         end
+      ]], [[
+         local enum TestEnum
+             "a"
+             "b"
+         end
+      ]]))
+
+      it("perserves if defined as type", helpers.format([[
+         local type TestEnum = enum
+            "a"
+            "b"
+         end
+      ]], [[
+         local type TestEnum = enum
+             "a"
+             "b"
+         end
+      ]]))
+
+      it("perserves comments", helpers.format([[
+         local enum TestEnum
+            "a" -- does something
+            "b"
+         end
+      ]], [[
+         local enum TestEnum
+             "a" -- does something
+             "b"
+         end
+      ]]))
+
+      it("preserves end comments", helpers.format([[
+         local type TestEnum = enum
+            "a"
+            -- enum end comment
+         end
+      ]], [[
+         local type TestEnum = enum
+             "a"
+             -- enum end comment
+         end
+      ]]))
+   end)
 end)

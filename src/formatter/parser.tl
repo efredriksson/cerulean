@@ -2216,7 +2216,7 @@ parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, 
       i, item = verify_kind(ps, i, "string", "string")
       if item then
          local name = unquote(item.tk)
-         def.enumset[name] = true
+         table.insert(def.enumset, name)
          local comments = get_attached_comments(ps.tokens[i - 1])
          if comments then
             if not def.value_comments then
@@ -2226,6 +2226,8 @@ parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, 
          end
       end
    end
+
+   def.end_comments = get_attached_comments(ps.tokens[i])
    return i, true
 end
 

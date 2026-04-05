@@ -141,6 +141,92 @@ local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
     return doc.concat({doc.text(prefix .. " = "), doc.concat(exps)})
 end
 
+local record EnumItemDoc
+    type_text: string
+    comment: tl.LexerComment
+    line: integer
+end
+
+function EnumItemDoc.new(
+    type_text: string, comment: tl.LexerComment, line: integer
+): EnumItemDoc
+    local self: EnumItemDoc = setmetatable({}, {__index = EnumItemDoc})
+    self.type_text = type_text
+    self.comment = comment
+    self.line = line
+    return self
+end
+
+local function render_enum_doc(stmt: parser.Node, def: tl.EnumType): doc.Doc
+    local header: doc.Doc
+    if stmt.is_type_declaration then
+        header = doc.text("local type " .. def.declname .. " = enum")
+    else
+        header = doc.text("local enum " .. def.declname)
+    end
+
+    local enum_values: {EnumItemDoc} = {}
+    local previous_item: EnumItemDoc | nil = nil
+    local previous_item_line = stmt.y
+
+    local function comment_after_prev_item(comment: tl.LexerComment): EnumItemDoc | nil
+        if previous_item is nil then
+            return nil
+        end
+
+        if previous_item.line == comment.y then
+            return previous_item
+        end
+
+        return nil
+    end
+
+    for _, enum_str in ipairs(def.enumset) do
+        local item_line = previous_item_line + 1
+        for _, comment in ipairs((def.value_comments or {})[enum_str] or {}) do
+            local attacted_to_item = comment_after_prev_item(comment)
+            if not (attacted_to_item is nil) then
+                attacted_to_item.comment = comment
+            else
+                table.insert(enum_values, EnumItemDoc.new(nil, comment, comment.y))
+                if comment.y >= item_line then
+                    item_line = comment.y + 1
+                end
+            end
+        end
+        local enum_item = EnumItemDoc.new('"' .. enum_str .. '"', nil, item_line)
+        table.insert(enum_values, enum_item)
+        previous_item = enum_item
+        previous_item_line = item_line
+    end
+    for _, comment in ipairs(def.end_comments or stmt.end_comments or {}) do
+        local attacted_to_item = comment_after_prev_item(comment)
+        if not (attacted_to_item is nil) then
+            attacted_to_item.comment = comment
+        else
+            table.insert(enum_values, EnumItemDoc.new(nil, comment, comment.y))
+        end
+    end
+
+    local enum_docs: {doc.Doc} = {}
+    for _, enum_value in ipairs(enum_values) do
+        if enum_value.comment ~= nil and enum_value.type_text == nil then
+            table.insert(enum_docs, doc.text(enum_value.comment.text))
+            table.insert(enum_docs, doc.hardline())
+        elseif enum_value.comment == nil and enum_value.type_text ~= nil then
+            table.insert(enum_docs, doc.text(enum_value.type_text))
+            table.insert(enum_docs, doc.line(""))
+        elseif enum_value.comment ~= nil and enum_value.type_text ~= nil then
+            table.insert(
+                enum_docs,
+                doc.text(enum_value.type_text .. " " .. enum_value.comment.text)
+            )
+            table.insert(enum_docs, doc.line(""))
+        end
+    end
+    return block_with_close(header, doc.concat(enum_docs), "end")
+end
+
 local record RecordItemDoc
     item: parser.Node
     type_text: string
@@ -187,6 +273,8 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     elseif def is tl.RecordType then
         declaration_keyword = "record"
         record_def = def
+    elseif def is tl.EnumType then
+        return render_enum_doc(stmt, def)
     else
         return nil
     end
@@ -285,14 +373,15 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
         end
 
         local field_comments = (record_def.field_comments or {})[field_name] or {}
-        for _, c1 in ipairs(field_comments) do
-            for _, c2 in ipairs(c1) do
-                local attacted_to_item = comment_after_prev_item(c2)
+        -- TODO: Comments here can come from type overloaded fields?
+        for _, overload_comments in ipairs(field_comments) do
+            for _, comment in ipairs(overload_comments) do
+                local attacted_to_item = comment_after_prev_item(comment)
                 if not (attacted_to_item is nil) then
                     if not (attacted_to_item is nil) then
-                        attacted_to_item.comment = c2
+                        attacted_to_item.comment = comment
                     else
-                        table.insert(record_lines, RecordItemDoc.new(nil, nil, c2))
+                        table.insert(record_lines, RecordItemDoc.new(nil, nil, comment))
                     end
                 end
             end

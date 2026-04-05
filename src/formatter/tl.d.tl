@@ -314,8 +314,9 @@ local record tl
       is StructuralType, HasDeclName
       where self.typename == "enum"
 
-      enumset: {string:boolean}
+      enumset: {string}
       value_comments: {string: {LexerComment}}
+      end_comments: {LexerComment}
    end
 
    enum Attribute
