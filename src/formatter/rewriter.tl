@@ -272,16 +272,6 @@ local function split_preserving_trailing_newline(source: string): {string}
     return lines
 end
 
--- Replace each leading tab character with four spaces.
--- Only leading tabs are converted; tabs within a line are left alone.
-local function expand_tabs(line_str: string): string
-    local indent, rest = line_str:match("^(\t*)(.*)")
-    if not indent or indent == "" then
-        return line_str
-    end
-    return string.rep("    ", #indent) .. rest
-end
-
 -- Collapse runs of more than one blank line to exactly one blank line.
 local function collapse_blank_lines(lines: {string}): {string}
     local result: {string} = {}
@@ -326,22 +316,6 @@ local function run_lexical_whitespace_pass(context: FormatterContext): {string}
     return result
 end
 
-local function run_line_cleanup_pass(
-    context: FormatterContext, lines: {string}
-): {string}
-    local result: {string} = {}
-    for i, line_str in ipairs(lines) do
-        if context.fmt_off_regions:includes_line(i) then
-            table.insert(result, line_str)
-        else
-            local cleaned = expand_tabs(line_str)
-            cleaned = strip_trailing_spaces(cleaned)
-            table.insert(result, cleaned)
-        end
-    end
-    return result
-end
-
 local function run_final_cleanup_pass(
     _context: FormatterContext, lines: {string}
 ): {string}
@@ -364,7 +338,6 @@ local function run_structural_phase(
     local context = build_formatter_context(source, filename, ast)
 
     local output_lines = run_lexical_whitespace_pass(context)
-    output_lines = run_line_cleanup_pass(context, output_lines)
 
     local cleaned_source = table.concat(output_lines, "\n")
     local cleaned_ast, cleaned_parse_errors = parser.parse(cleaned_source, filename)
