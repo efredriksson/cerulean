@@ -22,7 +22,13 @@ local function stmt_effective_end_line(stmt: parser.Node): integer
     local end_line = node_end_line(stmt)
     if stmt.exps ~= nil then
         for _, exp in ipairs(stmt.exps) do
-            if exp.kind == "op" and exp.op ~= nil and exp.op.op == "@funcall" and exp.e2 ~= nil and exp.e2.trailing_comment ~= nil and exp.e2.yend ~= nil and exp.e2.yend > end_line then
+            if exp.kind == "op" and
+                exp.op ~= nil and
+                exp.op.op == "@funcall" and
+                exp.e2 ~= nil and
+                exp.e2.trailing_comment ~= nil and
+                exp.e2.yend ~= nil and
+                exp.e2.yend > end_line then
                 end_line = exp.e2.yend
             end
         end

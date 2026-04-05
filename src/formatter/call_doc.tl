@@ -28,94 +28,48 @@ local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
     local result: {doc.Doc} = {}
 
     for i, item_doc in ipairs(item_docs) do
-        local item_parts: {doc.Doc} = {
-            item_doc,
-        }
+        table.insert(result, item_doc)
         if i < #item_docs then
-            table.insert(item_parts, doc.text(","))
-            table.insert(item_parts, doc.line(" "))
+            table.insert(result, doc.text(","))
+            table.insert(result, doc.line(" "))
         end
-        table.insert(result, doc.concat(item_parts))
     end
 
     return result
 end
 
-local function build_delimited_sequence_doc(
-    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions, compact_when_possible: boolean
+local function build_broken_delimited_sequence_doc_from_items(
+    items_doc: doc.Doc, opts: DelimitedSequenceOptions
 ): doc.Doc
-    if #item_docs == 0 then
-        return doc.text(opts.open_delim .. opts.close_delim)
-    elseif #item_docs == 1 then
-        return doc.group(doc.concat({
-            doc.text(opts.open_delim),
-            doc.indent(opts.compact_indent_amount, doc.concat({
-                doc.line(""),
-                item_docs[1],
-            })),
-            doc.line(""),
-            doc.text(opts.close_delim),
-        }))
-    end
-
-    local item_doc = doc.concat(build_item_docs(item_docs))
-    if compact_when_possible then
-        item_doc = doc.group(item_doc)
-    end
-
     return doc.concat({
         doc.text(opts.open_delim),
         doc.indent(opts.compact_indent_amount, doc.concat({
             doc.line(""),
-            item_doc,
+            items_doc,
         })),
         doc.line(""),
         doc.text(opts.close_delim),
     })
 end
 
-local function build_compact_delimited_sequence_doc(
+local function build_broken_delimited_sequence_doc(
     item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
 ): doc.Doc
-    local parts: {doc.Doc} = {
-        doc.text(opts.open_delim),
-    }
-
-    for i, item_doc in ipairs(item_docs) do
-        table.insert(parts, item_doc)
-        if i < #item_docs then
-            table.insert(parts, doc.text(", "))
-        end
+    if #item_docs == 0 then
+        return doc.text(opts.open_delim .. opts.close_delim)
     end
 
-    table.insert(parts, doc.text(opts.close_delim))
-    return doc.concat(parts)
+    return build_broken_delimited_sequence_doc_from_items(
+        doc.group(doc.concat(build_item_docs(item_docs))), opts
+    )
 end
 
-local function build_trailing_call_doc(item_docs: {doc.Doc}): doc.Doc
-    if #item_docs < 2 then
-        return build_compact_delimited_sequence_doc(
-            item_docs, DelimitedSequenceOptions.new("(", ")", 4)
-        )
-    end
-
-    local parts: {doc.Doc} = {}
-    for i, item_doc in ipairs(item_docs) do
-        table.insert(parts, item_doc)
-        if i < #item_docs then
-            table.insert(parts, doc.text(", "))
-        end
-    end
-
-    return doc.concat({
-        doc.text("("),
-        doc.indent(4, doc.concat({
-            doc.line(""),
-            doc.concat(parts),
-        })),
-        doc.line(""),
-        doc.text(")"),
-    })
+local function build_delimited_sequence_doc(
+    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
+): doc.Doc
+    return doc.group(build_broken_delimited_sequence_doc(
+        item_docs, opts
+    ))
 end
 
 local function args_have_inline_comments(args: parser.Node): boolean
@@ -142,86 +96,6 @@ local function build_call_arg_item_docs(args: parser.Node): {doc.Doc}
     return result
 end
 
-local function render_doc(node: doc.Doc, indent_prefix: string): {string}
-    return node:render(88, 0, #indent_prefix, true)
-end
-
-local function wrap_construct_lines(
-    prefix: string, suffix: string, lines: {string}
-): {string}
-    local result: {string} = {}
-
-    for i, line_str in ipairs(lines) do
-        if i == 1 and i == #lines then
-            table.insert(result, prefix .. line_str .. suffix)
-        elseif i == 1 then
-            table.insert(result, prefix .. line_str)
-        elseif i == #lines then
-            table.insert(result, line_str .. suffix)
-        else
-            table.insert(result, line_str)
-        end
-    end
-
-    return result
-end
-
-function call_doc.render_call(
-    args: parser.Node,
-    prefix: string,
-    suffix: string,
-    compact: boolean,
-    prefer_trailing_compact: boolean
-): {string}
-    local opts = DelimitedSequenceOptions.new("(", ")", 4)
-    local indent_prefix = prefix:match("^(%s*)") or ""
-    local item_docs = build_call_arg_item_docs(args)
-
-    local lines: {string}
-    if args_have_inline_comments(args) then
-        lines = render_doc(
-            build_delimited_sequence_doc(item_docs, opts, false), indent_prefix
-        )
-    elseif compact or #item_docs == 0 then
-        lines = render_doc(
-            build_compact_delimited_sequence_doc(item_docs, opts), indent_prefix
-        )
-    elseif #item_docs == 1 then
-        local compact_line = render_doc(
-            build_compact_delimited_sequence_doc(item_docs, opts), indent_prefix
-        )
-        local wrapped = wrap_construct_lines(prefix, suffix, compact_line)
-        if #wrapped == 1 and #wrapped[1] <= 88 then
-            lines = compact_line
-        else
-            lines = build_delimited_sequence_doc(item_docs, opts, true):render(
-                88 - #suffix, #prefix, #indent_prefix, true
-            )
-        end
-    elseif prefer_trailing_compact then
-        local compact_lines = render_doc(
-            build_trailing_call_doc(item_docs), indent_prefix
-        )
-        if #compact_lines == 3 and #compact_lines[2] <= 88 then
-            lines = compact_lines
-        else
-            lines = build_delimited_sequence_doc(item_docs, opts, true):render(
-                88 - #suffix, #prefix, #indent_prefix, true
-            )
-        end
-    elseif suffix ~= "" then
-        lines = render_doc(
-            build_delimited_sequence_doc(item_docs, opts, false), indent_prefix
-        )
-    else
-        lines = render_doc(
-            build_delimited_sequence_doc(item_docs, opts, true), indent_prefix
-        )
-    end
-
-    return wrap_construct_lines(prefix, suffix, lines)
-end
-
 function call_doc.build_call_expr_doc(node: parser.Node): doc.Doc
     local callee_doc = expr_doc.render_expr(node.e1)
     local item_docs = build_call_arg_item_docs(node.e2)
@@ -232,7 +106,7 @@ function call_doc.build_call_expr_doc(node: parser.Node): doc.Doc
     if args_have_inline_comments(node.e2) or node.e2.trailing_comment ~= nil then
         local call_node = doc.concat({
             callee_doc,
-            build_delimited_sequence_doc(item_docs, opts, false),
+            build_broken_delimited_sequence_doc(item_docs, opts),
         })
         if node.e2.trailing_comment ~= nil then
             return doc.concat({
@@ -242,10 +116,12 @@ function call_doc.build_call_expr_doc(node: parser.Node): doc.Doc
         end
         return call_node
     end
-    return doc.group(doc.concat({
+    local call_args_doc = build_delimited_sequence_doc(item_docs, opts)
+    local call_node = doc.concat({
         callee_doc,
-        build_delimited_sequence_doc(item_docs, opts, true),
-    }))
+        call_args_doc,
+    })
+    return doc.group(call_node)
 end
 
 return call_doc

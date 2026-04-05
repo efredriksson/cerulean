@@ -969,6 +969,44 @@ describe("formatter structural block rendering", function()
       ]]))
    end)
 
+   describe("function bodies with comments only", function()
+      it("preserves a single comment in an otherwise empty function body", helpers.format([[
+         function f()
+            -- does something
+         end
+      ]], [[
+         function f()
+             -- does something
+         end
+      ]]))
+
+      it("preserves blank lines between comment-only lines in an empty function body", helpers.format([[
+         function f()
+            -- does something 1
+
+            -- does something 2
+         end
+      ]], [[
+         function f()
+             -- does something 1
+
+             -- does something 2
+         end
+      ]]))
+   end)
+
+   describe("function body comment boundaries", function()
+      it("keeps leading and trailing comment blocks around a statement stable", helpers.check([[
+         function f()
+            -- pre comment 1
+            -- pre comment 2
+            statement() -- comment on line
+            -- post comment 1
+            -- post comment 2
+         end
+      ]]))
+   end)
+
    describe("enums", function ()
       it("gets indented", helpers.format([[
          local enum TestEnum

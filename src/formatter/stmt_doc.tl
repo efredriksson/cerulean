@@ -21,15 +21,32 @@ end
 local function function_with_indent(
     name_prefix: string, signature: doc.Doc, body: doc.Doc
 ): doc.Doc
-    return doc.concat({
+    local header = doc.group(doc.concat({
         doc.text(name_prefix),
         signature,
+    }))
+    return doc.concat({
+        header,
         doc.indent(4, doc.concat({
             doc.line(""),
             body,
         })),
         doc.close("end"),
     })
+end
+
+local function build_comment_lines_doc(comments: {parser.Comment}): {doc.Doc}
+    local parts: {doc.Doc} = {}
+    for index, comment in ipairs(comments) do
+        if index > 1 then
+            table.insert(parts, doc.line(""))
+        end
+        if index > 1 and comment.blank_line_before then
+            table.insert(parts, doc.line(""))
+        end
+        table.insert(parts, doc.text(comment.text))
+    end
+    return parts
 end
 
 local function block_with_indent(
@@ -66,13 +83,76 @@ local function build_exp_doc(node: parser.Node): doc.Doc
     return expr_doc.render_expr(node)
 end
 
+local function append_return_type(
+    signature: doc.Doc, rets_source_text: string
+): doc.Doc
+    if rets_source_text ~= "" then
+        return doc.group(doc.concat({signature, doc.text(rets_source_text)}))
+    end
+    return signature
+end
+
+local build_condition_exp_doc: function(parser.Node): doc.Doc
+
+build_condition_exp_doc = function(node: parser.Node): doc.Doc
+    if node.kind == "paren" and node.e1 ~= nil then
+        return doc.group(doc.concat({
+            doc.text("("),
+            build_condition_exp_doc(node.e1),
+            doc.text(")"),
+        }))
+    end
+
+    if node.kind == "op" and node.op ~= nil then
+        local op = node.op.op
+        if (
+            op == "@funcall"
+            and node.e1 ~= nil
+            and node.e2 ~= nil
+        ) then
+            return call_doc.build_call_expr_doc(node)
+        elseif (
+            (op == "and" or op == "or")
+            and node.e1 ~= nil
+            and node.e2 ~= nil
+        ) then
+            return doc.concat({
+                build_condition_exp_doc(node.e1),
+                doc.text(" " .. op),
+                doc.indent(4, doc.concat({
+                    doc.line(" "),
+                    build_condition_exp_doc(node.e2),
+                })),
+            })
+        end
+    end
+
+    return build_exp_doc(node)
+end
+
+local function build_if_head_doc(
+    head_keyword: string, exp: parser.Node
+): doc.Doc
+    return doc.group(doc.concat({
+        doc.text(head_keyword .. " "),
+        build_condition_exp_doc(exp),
+        doc.text(" then"),
+    }))
+end
+
 local function render_return_doc(stmt: parser.Node): doc.Doc
     if stmt.exps == nil or #stmt.exps == 0 then
         return doc.text("return")
     end
 
     if #stmt.exps == 1 then
-        return doc.concat({doc.text("return "), build_exp_doc(stmt.exps[1])})
+        if stmt.exps[1].kind == "literal_table" then
+            return doc.concat({doc.text("return "), build_exp_doc(stmt.exps[1])})
+        end
+        return doc.group(doc.concat({
+            doc.text("return "),
+            build_exp_doc(stmt.exps[1]),
+        }))
     end
 
     local parts: {doc.Doc} = {}
@@ -519,7 +599,7 @@ end
 local function render_function_definition_doc(
     node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
 ): doc.Doc | nil
-    if node.args == nil or node.body == nil or #node.body == 0 then
+    if node.args == nil or node.body == nil then
         return nil
     end
 
@@ -538,15 +618,34 @@ local function render_function_definition_doc(
         body_layout = non_nil_layout.body_layout
     end
 
+    local rets_source_text = ""
+    if node.rets ~= nil and node.rets.source_text ~= nil then
+        rets_source_text = node.rets.source_text
+    end
+
+    local sig_doc = append_return_type(
+        signature_doc.render_signature_doc(node.args, false, true),
+        rets_source_text
+    )
+
+    if #node.body == 0 then
+        local body_comments: {parser.Comment} = {}
+        for _, comment in ipairs(node.body.comments or {}) do
+            table.insert(body_comments, comment)
+        end
+        for _, comment in ipairs(node.body.end_comments or {}) do
+            table.insert(body_comments, comment)
+        end
+
+        local comment_body = build_comment_lines_doc(body_comments)
+        return function_with_indent(name_prefix, sig_doc, doc.concat(comment_body))
+    end
+
     local body_doc = render_block(node.body, body_layout)
     if body_doc == nil then
         return nil
     end
 
-    local sig_doc = signature_doc.render_signature_doc(node.args, true)
-    if node.rets ~= nil and node.rets.source_text ~= nil and node.rets.source_text ~= "" then
-        sig_doc = doc.concat({sig_doc, doc.text(node.rets.source_text)})
-    end
     return function_with_indent(name_prefix, sig_doc, body_doc)
 end
 
@@ -577,17 +676,9 @@ local function render_if_doc(
         local function get_head_text(): doc.Doc
             if if_block.exp ~= nil then
                 if index == 1 then
-                    return doc.concat({
-                        doc.text("if "),
-                        build_exp_doc(if_block.exp),
-                        doc.text(" then"),
-                    })
+                    return build_if_head_doc("if", if_block.exp)
                 else
-                    return doc.concat({
-                        doc.text("elseif "),
-                        build_exp_doc(if_block.exp),
-                        doc.text(" then"),
-                    })
+                    return build_if_head_doc("elseif", if_block.exp)
                 end
             else
                 return doc.text("else")

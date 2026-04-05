@@ -20,6 +20,22 @@ local record RenderState
     max_width: integer
 end
 
+local record RenderCommand
+    node: Doc
+    indent: integer
+    flat: boolean
+end
+
+function RenderCommand.new(
+    node: Doc, indent: integer, flat: boolean
+): RenderCommand
+    local self: RenderCommand = setmetatable({}, { __index = RenderCommand })
+    self.node = node
+    self.indent = indent
+    self.flat = flat
+    return self
+end
+
 local function new_doc(kind: string): Doc
     local self: Doc = setmetatable({}, { __index = Doc })
     self.kind = kind
@@ -84,25 +100,6 @@ function doc.group(child: Doc): Doc
     return result
 end
 
-local function flat_length(node: Doc): integer
-    if node.kind == "text" then
-        return #(node.text or "")
-    elseif node.kind == "break_text" then
-        return #(node.flat_text or "")
-    elseif node.kind == "line" then
-        return #(node.flat_text or "")
-    elseif node.kind == "concat" then
-        local total = 0
-        for _, part in ipairs(node.parts or {}) do
-            total = total + flat_length(part)
-        end
-        return total
-    elseif node.kind == "indent" or node.kind == "group" then
-        return flat_length(node.child)
-    end
-    return 0
-end
-
 local function append_text(state: RenderState, text: string)
     state.current_line = state.current_line .. text
     state.column = state.column + #text
@@ -114,53 +111,136 @@ local function break_line(state: RenderState, indent: integer)
     state.column = indent
 end
 
-local function render_node(
-    node: Doc, state: RenderState, flat: boolean, indent: integer
+local function clone_commands(commands: {RenderCommand}): {RenderCommand}
+    local copied: {RenderCommand} = {}
+    for _, command in ipairs(commands) do
+        table.insert(copied, command)
+    end
+    return copied
+end
+
+local function push_concat_parts(
+    commands: {RenderCommand}, parts: {Doc}, indent: integer, flat: boolean
 )
-    if node.kind == "text" then
-        append_text(state, node.text or "")
-    elseif node.kind == "close" then
-        local indent_text = string.rep(" ", indent)
-        if state.current_line:match("^%s*$") ~= nil then
-            state.current_line = indent_text
-            state.column = indent
-        elseif state.current_line ~= indent_text then
+    for index = #parts, 1, -1 do
+        table.insert(commands, RenderCommand.new(parts[index], indent, flat))
+    end
+end
+
+local function fits(
+    remaining_width: integer, commands: {RenderCommand}
+): boolean
+    if remaining_width < 0 then
+        return false
+    end
+
+    while #commands > 0 do
+        local command = table.remove(commands)
+        local node = command.node
+        local flat = command.flat
+
+        if node.kind == "text" then
+            remaining_width = remaining_width - #(node.text or "")
+        elseif node.kind == "break_text" then
+            if flat then
+                remaining_width = remaining_width - #(node.flat_text or "")
+            else
+                remaining_width = remaining_width - #(node.broken_text or "")
+            end
+        elseif node.kind == "line" then
+            if flat then
+                remaining_width = remaining_width - #(node.flat_text or "")
+            else
+                return true
+            end
+        elseif node.kind == "hardline" then
+            return true
+        elseif node.kind == "blankline" then
+            if not flat then
+                return true
+            end
+        elseif node.kind == "close" then
+            return true
+        elseif node.kind == "concat" then
+            push_concat_parts(commands, node.parts or {}, command.indent, flat)
+        elseif node.kind == "indent" then
+            table.insert(commands, RenderCommand.new(
+                node.child, command.indent + (node.amount or 0), flat
+            ))
+        elseif node.kind == "group" then
+            if flat then
+                table.insert(commands, RenderCommand.new(node.child, command.indent, true))
+            else
+                table.insert(commands, RenderCommand.new(node.child, command.indent, false))
+            end
+        end
+
+        if remaining_width < 0 then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function render_doc(root: Doc, state: RenderState, base_indent: integer, flat: boolean)
+    local commands: {RenderCommand} = {
+        RenderCommand.new(root, base_indent, flat),
+    }
+
+    while #commands > 0 do
+        local command = table.remove(commands)
+        local node = command.node
+        local indent = command.indent
+        local node_flat = command.flat
+
+        if node.kind == "text" then
+            append_text(state, node.text or "")
+        elseif node.kind == "close" then
+            local indent_text = string.rep(" ", indent)
+            if state.current_line:match("^%s*$") ~= nil then
+                state.current_line = indent_text
+                state.column = indent
+            elseif state.current_line ~= indent_text then
+                break_line(state, indent)
+            end
+            append_text(state, node.close_text or "")
+        elseif node.kind == "break_text" then
+            if node_flat then
+                append_text(state, node.flat_text or "")
+            else
+                append_text(state, node.broken_text or "")
+            end
+        elseif node.kind == "line" then
+            if node_flat then
+                append_text(state, node.flat_text or "")
+            else
+                break_line(state, indent)
+            end
+        elseif node.kind == "hardline" then
             break_line(state, indent)
-        end
-        append_text(state, node.close_text or "")
-    elseif node.kind == "break_text" then
-        if flat then
-            append_text(state, node.flat_text or "")
-        else
-            append_text(state, node.broken_text or "")
-        end
-    elseif node.kind == "line" then
-        if flat then
-            append_text(state, node.flat_text or "")
-        else
-            break_line(state, indent)
-        end
-    elseif node.kind == "hardline" then
-        break_line(state, indent)
-    elseif node.kind == "blankline" then
-        if not flat then
-            table.insert(state.lines, state.current_line)
-            table.insert(state.lines, "")
-            state.current_line = string.rep(" ", indent)
-            state.column = indent
-        end
-    elseif node.kind == "concat" then
-        for _, part in ipairs(node.parts or {}) do
-            render_node(part, state, flat, indent)
-        end
-    elseif node.kind == "indent" then
-        render_node(node.child, state, flat, indent + (node.amount or 0))
-    elseif node.kind == "group" then
-        local child = node.child
-        if state.column + flat_length(child) <= state.max_width then
-            render_node(child, state, true, indent)
-        else
-            render_node(child, state, false, indent)
+        elseif node.kind == "blankline" then
+            if not node_flat then
+                table.insert(state.lines, state.current_line)
+                table.insert(state.lines, "")
+                state.current_line = string.rep(" ", indent)
+                state.column = indent
+            end
+        elseif node.kind == "concat" then
+            push_concat_parts(commands, node.parts or {}, indent, node_flat)
+        elseif node.kind == "indent" then
+            table.insert(commands, RenderCommand.new(
+                node.child, indent + (node.amount or 0), node_flat
+            ))
+        elseif node.kind == "group" then
+            if node_flat then
+                table.insert(commands, RenderCommand.new(node.child, indent, true))
+            else
+                local trial = clone_commands(commands)
+                table.insert(trial, RenderCommand.new(node.child, indent, true))
+                local fits_flat = fits(state.max_width - state.column, trial)
+                table.insert(commands, RenderCommand.new(node.child, indent, fits_flat))
+            end
         end
     end
 end
@@ -178,7 +258,7 @@ function Doc:render(
         max_width = max_width,
     }
 
-    render_node(self, state, not force_break, base_indent)
+    render_doc(self, state, base_indent, not force_break)
     table.insert(state.lines, state.current_line)
     return state.lines
 end

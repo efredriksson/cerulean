@@ -96,7 +96,9 @@ describe("formatter table constructor wrapping", function()
       local items = {callback: function(ctx: Scene): ResultType = function(ctx: Scene): ResultType return ctx.result end, value = ((left_value + right_value))}
    ]], [[
       local items = {
-          callback: function(ctx: Scene): ResultType = function(ctx: Scene): ResultType return ctx.result end,
+          callback: function(ctx: Scene): ResultType = function(ctx: Scene): ResultType
+              return ctx.result
+          end,
           value = ((left_value + right_value)),
       }
    ]]))

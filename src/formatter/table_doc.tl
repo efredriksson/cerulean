@@ -156,58 +156,12 @@ local function build_delimited_sequence_doc(
     end
 end
 
-local function render_doc(node: doc.Doc, indent_prefix: string): {string}
-    return node:render(88, 0, #indent_prefix, true)
-end
-
-local function wrap_construct_lines(
-    prefix: string, suffix: string, lines: {string}
-): {string}
-    local result: {string} = {}
-
-    for i, line_str in ipairs(lines) do
-        if i == 1 and i == #lines then
-            table.insert(result, prefix .. line_str .. suffix)
-        elseif i == 1 then
-            table.insert(result, prefix .. line_str)
-        elseif i == #lines then
-            table.insert(result, line_str .. suffix)
-        else
-            table.insert(result, line_str)
-        end
-    end
-
-    return result
-end
-
 function table_doc.build_table_doc(
     node: parser.Node, render_expr: function(parser.Node): doc.Doc
 ): doc.Doc
     local opts = DelimitedSequenceOptions.new("{", "}", 4)
     return build_delimited_sequence_doc(
         build_table_item_docs(node), render_expr, opts, node.trailing_comma
-    )
-end
-
-function table_doc.render_table(
-    node: parser.Node,
-    prefix: string,
-    suffix: string,
-    compact: boolean,
-    render_expr: function(parser.Node): doc.Doc
-): {string}
-    local opts = DelimitedSequenceOptions.new("{", "}", 4)
-    local indent_prefix = prefix:match("^(%s*)") or ""
-    local item_docs = build_table_item_docs(node)
-
-    local table_doc_node: doc.Doc
-
-    table_doc_node = build_delimited_sequence_doc(
-        item_docs, render_expr, opts, node.trailing_comma or compact
-    )
-
-    return wrap_construct_lines(
-        prefix, suffix, render_doc(table_doc_node, indent_prefix)
     )
 end
 

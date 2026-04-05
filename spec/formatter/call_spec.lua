@@ -102,7 +102,22 @@ describe("formatter function call wrapping", function()
       )
    ]]))
 
-   it("does collapse an expanded call whose closing paren has trailing content", helpers.format([[
+   it("keeps an empty anonymous fallback function on one line when it fits", helpers.check([[
+      local on_load = maybe_handler or function() end
+   ]]))
+
+   it("wraps a long single-statement anonymous function argument instead of keeping an overlong one-liner", helpers.format([[
+      table.sort(render_rows_collection, function(a: RenderableListEntry, b: RenderableListEntry): boolean return a.vertical_offset_position < b.vertical_offset_position end)
+   ]], [[
+      table.sort(
+          render_rows_collection,
+          function(a: RenderableListEntry, b: RenderableListEntry): boolean
+              return a.vertical_offset_position < b.vertical_offset_position
+          end
+      )
+   ]]))
+
+   it("keeps the right call compact when it still fits after a wrapped left call", helpers.format([[
       return interval_overlap(
           self.x,
           self.x + self.width,
@@ -141,8 +156,7 @@ describe("formatter function call wrapping", function()
    ]], [[
       local function f()
           result = math.min(
-              result,
-              factor * 2
+              result, factor * 2
           ) -- clamp result
           other_call()
       end
@@ -211,4 +225,115 @@ describe("formatter function call wrapping", function()
       end
    ]]))
 
+   it("breaks a long and-condition at the boolean operator", helpers.format([[
+      if input_device.is_pressed(unit.id, keymap.ACTIONS.R) and unit.handler_state_is_ready_to_apply == "ready" then
+      end
+   ]], [[
+      if input_device.is_pressed(unit.id, keymap.ACTIONS.R) and
+          unit.handler_state_is_ready_to_apply == "ready" then
+      end
+   ]]))
+
+   it("breaks when a long right-side and-condition call would overflow", helpers.format([[
+      if unit.handler_state_is_ready_to_apply == "ready" and inputdeviceinput.is_pressed(unit.id, keymap.ACTIONS.R) then
+      end
+   ]], [[
+      if unit.handler_state_is_ready_to_apply == "ready" and
+          inputdeviceinput.is_pressed(unit.id, keymap.ACTIONS.R) then
+      end
+   ]]))
+
+   it("breaks parenthesized boolean conditions at operators when the if head is too long", helpers.format([[
+      if (input_events.was_released(actor.id, keymap.ACTIONS.B) and actor:can_update()) or actor:must_update() then
+      end
+   ]], [[
+      if (input_events.was_released(actor.id, keymap.ACTIONS.B) and actor:can_update()) or
+          actor:must_update() then
+      end
+   ]]))
+
+   it("breaks an overlong if condition inside a function body at the boolean operator", helpers.format([[
+      local function f()
+          if input_device.is_pressed(unit.id, keymap.ACTIONS.R) and unit.processing_state_identifier == "ready_to_apply" then
+          end
+      end
+   ]], [[
+      local function f()
+          if input_device.is_pressed(unit.id, keymap.ACTIONS.R) and
+              unit.processing_state_identifier == "ready_to_apply" then
+          end
+      end
+   ]]))
+
+   it("wraps a leading call in a long return expression while preserving arithmetic semantics", helpers.format([[
+      function layout.snap_to_x(x: number): number
+        return math.floor((x - ACTIVE_ZONE.x) / layout.STEP_SIZE + 0.5) * layout.STEP_SIZE + ACTIVE_ZONE.x
+      end
+   ]], [[
+      function layout.snap_to_x(x: number): number
+          return math.floor(
+              (x - ACTIVE_ZONE.x) / layout.STEP_SIZE + 0.5
+          ) * layout.STEP_SIZE + ACTIVE_ZONE.x
+      end
+   ]]))
+
+   it("wraps both long calls in a boolean return expression to stay within width", helpers.format([[
+      function Rectangle:overlap(other: Rectangle): boolean
+         return interval_overlap(self.x, self.x + self.width, other.x, other.x + other.width) and interval_overlap(
+            self.y, self.y + self.height, other.y, other.y + other.height
+         )
+      end
+   ]], [[
+      function Rectangle:overlap(other: Rectangle): boolean
+          return interval_overlap(
+              self.x, self.x + self.width, other.x, other.x + other.width
+          ) and interval_overlap(
+              self.y, self.y + self.height, other.y, other.y + other.height
+          )
+      end
+   ]]))
+
+   it("keeps unary-not calls compact when breaking at the operator is enough", helpers.format([[
+      if test1() then
+         if test2() then
+            if test3() then
+               if not layout.area():contains(item:get_box()) and not item.target:get_slot() then
+               end
+            end
+         end
+      end
+   ]], [[
+      if test1() then
+          if test2() then
+              if test3() then
+                  if not layout.area():contains(item:get_box()) and
+                      not item.target:get_slot() then
+                  end
+              end
+          end
+      end
+   ]]))
+
+   it("keeps a short left call compact and wraps the overflowing unary-not call in nested boolean conditions", helpers.format([[
+      if test1() then
+         if test2() then
+            if test3() then
+               if new_bounds_box:overlap(near_block) and not bounds_box:overlap(near_block) then
+                   return near_block
+               end
+            end
+         end
+      end
+   ]], [[
+      if test1() then
+          if test2() then
+              if test3() then
+                  if new_bounds_box:overlap(near_block) and
+                      not bounds_box:overlap(near_block) then
+                      return near_block
+                  end
+              end
+          end
+      end
+   ]]))
 end)

@@ -94,27 +94,43 @@ local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
 end
 
 local function build_delimited_sequence_doc(
-    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
+    item_docs: {doc.Doc},
+    opts: DelimitedSequenceOptions,
+    compact_when_possible: boolean
 ): doc.Doc
     if #item_docs == 0 then
         return doc.text(opts.open_delim .. opts.close_delim)
     elseif #item_docs == 1 then
-        return doc.concat({
+        local result = doc.concat({
             doc.text(opts.open_delim),
-            item_docs[1],
+            doc.indent(opts.compact_indent_amount, doc.concat({
+                doc.line(""),
+                item_docs[1],
+            })),
+            doc.line(""),
             doc.text(opts.close_delim),
         })
+        if compact_when_possible then
+            return doc.group(result)
+        end
+        return result
     end
 
-    return doc.concat({
+    local items_doc = doc.group(doc.concat(build_item_docs(item_docs)))
+    local result = doc.concat({
         doc.text(opts.open_delim),
         doc.indent(opts.compact_indent_amount, doc.concat({
             doc.line(""),
-            doc.group(doc.concat(build_item_docs(item_docs))),
+            items_doc,
         })),
         doc.line(""),
         doc.text(opts.close_delim),
     })
+
+    if compact_when_possible then
+        return doc.group(result)
+    end
+    return result
 end
 
 local function build_compact_delimited_sequence_doc(
@@ -133,30 +149,6 @@ local function build_compact_delimited_sequence_doc(
 
     table.insert(parts, doc.text(opts.close_delim))
     return doc.concat(parts)
-end
-
-local function render_doc(node: doc.Doc, indent_prefix: string): {string}
-    return node:render(88, 0, #indent_prefix, true)
-end
-
-local function wrap_construct_lines(
-    prefix: string, suffix: string, lines: {string}
-): {string}
-    local result: {string} = {}
-
-    for i, line_str in ipairs(lines) do
-        if i == 1 and i == #lines then
-            table.insert(result, prefix .. line_str .. suffix)
-        elseif i == 1 then
-            table.insert(result, prefix .. line_str)
-        elseif i == #lines then
-            table.insert(result, line_str .. suffix)
-        else
-            table.insert(result, line_str)
-        end
-    end
-
-    return result
 end
 
 function signature_doc.render_signature_text(
@@ -183,25 +175,17 @@ function signature_doc.render_signature_text(
 end
 
 function signature_doc.render_signature_doc(
-    args: parser.Node, compact: boolean
+    args: parser.Node, compact: boolean, force_wrap?: boolean
 ): doc.Doc
     local opts = DelimitedSequenceOptions.new("(", ")", 4)
     local item_docs = build_signature_item_docs(args)
+    local should_force_wrap = force_wrap or false
 
     if compact or #item_docs < 2 then
         return build_compact_delimited_sequence_doc(item_docs, opts)
     else
-        return build_delimited_sequence_doc(item_docs, opts)
+        return build_delimited_sequence_doc(item_docs, opts, not should_force_wrap)
     end
-end
-
-function signature_doc.render_signature(
-    args: parser.Node, prefix: string, suffix: string, compact: boolean
-): {string}
-    local indent_prefix = prefix:match("^(%s*)") or ""
-    local sig_doc = signature_doc.render_signature_doc(args, compact)
-
-    return wrap_construct_lines(prefix, suffix, render_doc(sig_doc, indent_prefix))
 end
 
 return signature_doc

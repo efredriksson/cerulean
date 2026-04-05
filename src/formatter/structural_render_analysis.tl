@@ -180,15 +180,6 @@ local function exps_contain_multiline_table(exps: {parser.Node}): boolean
     return false
 end
 
-local function exps_contain_multiline_function(exps: {parser.Node}): boolean
-    for _, exp in ipairs(exps) do
-        if exp.kind == "function" and exp.yend ~= nil and exp.yend > exp.y then
-            return true
-        end
-    end
-    return false
-end
-
 local function top_level_block_has_leading_prelude(
     block: parser.Node, lines: {string}
 ): boolean
@@ -261,7 +252,6 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
             stmt.exps
         ))
             and (stmt.exps == nil or not exps_contain_multiline_table(stmt.exps))
-            and (stmt.exps == nil or not exps_contain_multiline_function(stmt.exps))
     elseif stmt.kind == "local_type" then
         return local_type_is_ast_renderable(stmt)
     elseif stmt.kind == "op" then
@@ -277,7 +267,7 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
         or stmt.kind == "global_function"
         or stmt.kind == "record_function"
     then
-        return stmt.args ~= nil and node_list_is_single_line(stmt.args)
+        return stmt.args ~= nil
     elseif stmt.kind == "if" and stmt.if_blocks ~= nil then
         for _, if_block in ipairs(stmt.if_blocks) do
             if if_block.exp ~= nil and not node_is_single_line(if_block.exp) then
@@ -316,7 +306,7 @@ end
 
 local function build_block_layout(block: parser.Node): BlockLayout | nil
     if #block == 0 then
-        return nil
+        return BlockLayout.new({})
     end
 
     local previous_end: integer | nil = nil
@@ -380,7 +370,7 @@ local function block_is_structurally_eligible(
     block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
 ): boolean
     if #block == 0 then
-        return false
+        return true
     end
     if block.end_comments ~= nil and #block.end_comments > 0 then
         fmt_logger.info("[structural] blocked: block has end comments")
@@ -451,6 +441,9 @@ end
 function structural_render_analysis.can_use_block_doc_formatter(
     block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
 ): boolean
+    if #block == 0 then
+        return false
+    end
     if structural_render_analysis.analyze_block_layout(block) == nil then
         return false
     end

@@ -53,7 +53,7 @@ Alphabetically sorts consecutive top-level `local x = require(...)` declarations
 
 When `structural_render_analysis.analyze_block` returns a `BlockLayout`, `block_doc.render_block` renders the entire block via the doc algebra, reindenting at 4-space multiples. The rendered output replaces the source before the span pass runs.
 
-`analyze_block` returns `nil` — blocking structural rendering — when any statement has a comment, `fmt:off`, an unsupported kind (`local x <const>`), an anonymous function with >1 body statements in an expression, a multi-line `if`/`while`/`for` condition, or non-whitespace between statements.
+`analyze_block` returns `nil` — blocking structural rendering — when any statement has a comment, `fmt:off`, an unsupported kind, an anonymous function with >1 body statements in an expression, a multi-line `if`/`while`/`for` condition, or non-whitespace between statements.
 
 Blank lines between statements are preserved up to one via `StatementLayout.preserve_blank_line_after`.
 

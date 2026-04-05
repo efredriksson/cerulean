@@ -7,6 +7,24 @@ local table_doc = require("formatter.table_doc")
 
 local expr_doc = {}
 
+local record DelimitedSequenceOptions
+    open_delim: string
+    close_delim: string
+    compact_indent_amount: integer
+end
+
+function DelimitedSequenceOptions.new(
+    open_delim: string, close_delim: string, compact_indent_amount: integer
+): DelimitedSequenceOptions
+    local self: DelimitedSequenceOptions = setmetatable(
+        {}, { __index = DelimitedSequenceOptions }
+    )
+    self.open_delim = open_delim
+    self.close_delim = close_delim
+    self.compact_indent_amount = compact_indent_amount
+    return self
+end
+
 local PRECEDENCE: {string: integer} = {
     ["or"] = 1,
     ["and"] = 2,
@@ -90,15 +108,137 @@ local function maybe_parenthesize(
     return rendered
 end
 
-local function render_compact_call_args(args: parser.Node): doc.Doc
-    local parts: {doc.Doc} = {}
-    for i, arg_node in ipairs(args) do
-        table.insert(parts, render_expr(arg_node, 0))
-        if i < #args then
-            table.insert(parts, doc.text(", "))
+local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
+    local result: {doc.Doc} = {}
+
+    for i, item_doc in ipairs(item_docs) do
+        table.insert(result, item_doc)
+        if i < #item_docs then
+            table.insert(result, doc.text(","))
+            table.insert(result, doc.line(" "))
         end
     end
-    return doc.concat({doc.text("("), doc.concat(parts), doc.text(")")})
+
+    return result
+end
+
+local function build_broken_delimited_sequence_doc_from_items(
+    items_doc: doc.Doc, opts: DelimitedSequenceOptions
+): doc.Doc
+    return doc.concat({
+        doc.text(opts.open_delim),
+        doc.indent(opts.compact_indent_amount, doc.concat({
+            doc.line(""),
+            items_doc,
+        })),
+        doc.line(""),
+        doc.text(opts.close_delim),
+    })
+end
+
+local function build_broken_delimited_sequence_doc(
+    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
+): doc.Doc
+    if #item_docs == 0 then
+        return doc.text(opts.open_delim .. opts.close_delim)
+    end
+
+    return build_broken_delimited_sequence_doc_from_items(
+        doc.group(doc.concat(build_item_docs(item_docs))), opts
+    )
+end
+
+local function build_delimited_sequence_doc(
+    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
+): doc.Doc
+    return doc.group(build_broken_delimited_sequence_doc(item_docs, opts))
+end
+
+local function args_have_inline_comments(args: parser.Node): boolean
+    for _, arg_node in ipairs(args) do
+        if arg_node.comments ~= nil and #arg_node.comments > 0 then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function build_call_arg_doc(node: parser.Node): doc.Doc
+    if node.kind == "literal_table" then
+        return doc.group(table_doc.build_table_doc(
+            node, function(child: parser.Node): doc.Doc
+                return render_expr(child, 0)
+            end
+        ))
+    end
+
+    return render_expr(node, 0)
+end
+
+local function build_call_arg_item_docs(args: parser.Node): {doc.Doc}
+    local result: {doc.Doc} = {}
+    for _, arg_node in ipairs(args) do
+        table.insert(result, build_call_arg_doc(arg_node))
+    end
+    return result
+end
+
+local function build_call_expr_doc(node: parser.Node): doc.Doc
+    local callee_doc = render_expr(node.e1, PRECEDENCE["@funcall"])
+    local item_docs = build_call_arg_item_docs(node.e2)
+    local opts = DelimitedSequenceOptions.new("(", ")", 4)
+
+    if args_have_inline_comments(node.e2) or node.e2.trailing_comment ~= nil then
+        local call_node = doc.concat({
+            callee_doc,
+            build_broken_delimited_sequence_doc(item_docs, opts),
+        })
+        if node.e2.trailing_comment ~= nil then
+            return doc.concat({
+                call_node,
+                doc.text(" " .. node.e2.trailing_comment.text),
+            })
+        end
+        return call_node
+    end
+
+    local call_node = doc.concat({
+        callee_doc,
+        build_delimited_sequence_doc(item_docs, opts),
+    })
+    return doc.group(call_node)
+end
+
+local function render_call_aware_expr(
+    node: parser.Node, parent_prec: integer
+): doc.Doc
+    if node.kind == "op"
+        and node.op ~= nil
+        and node.op.op == "@funcall"
+    then
+        return build_call_expr_doc(node)
+    end
+
+    return render_expr(node, parent_prec)
+end
+
+local function wrap_for_parent_precedence(
+    rendered: doc.Doc, op: string, arity: integer, parent_prec: integer
+): doc.Doc
+    if precedence_for_op(op, arity) < parent_prec then
+        return doc.concat({doc.text("("), rendered, doc.text(")")})
+    end
+    return rendered
+end
+
+local function append_return_type(
+    signature: doc.Doc, rets_source_text: string
+): doc.Doc
+    if rets_source_text ~= "" then
+        return doc.concat({signature, doc.text(rets_source_text)})
+    end
+    return signature
 end
 
 local function render_statement(stmt: parser.Node): doc.Doc
@@ -161,16 +301,33 @@ local function render_statement(stmt: parser.Node): doc.Doc
 end
 
 local function render_function_expr(node: parser.Node): doc.Doc
-    local sig_text = "function" .. signature_doc.render_signature_text(
-        node.args, node.rets
+    local rets_source_text = ""
+    if node.rets ~= nil and node.rets.source_text ~= nil then
+        rets_source_text = node.rets.source_text
+    end
+
+    local signature = append_return_type(
+        signature_doc.render_signature_doc(node.args, false), rets_source_text
     )
 
     if node.body == nil or #node.body == 0 then
-        return doc.text(sig_text .. " end")
+        return doc.group(doc.concat({
+            doc.text("function"),
+            signature,
+            doc.line(" "),
+            doc.text("end"),
+        }))
     elseif #node.body == 1 then
-        return doc.concat({
-            doc.text(sig_text .. " "), render_statement(node.body[1]), doc.text(" end")
-        })
+        return doc.group(doc.concat({
+            doc.text("function"),
+            signature,
+            doc.indent(4, doc.concat({
+                doc.line(" "),
+                render_statement(node.body[1]),
+            })),
+            doc.line(" "),
+            doc.text("end"),
+        }))
     end
 
     error("unsupported anonymous function body shape")
@@ -190,9 +347,7 @@ local function render_op(node: parser.Node, parent_prec: integer): doc.Doc
             doc.text("]"),
         })
     elseif op == "@funcall" then
-        return doc.concat({
-            render_expr(node.e1, PRECEDENCE[op]), render_compact_call_args(node.e2)
-        })
+        return build_call_expr_doc(node)
     elseif op == "as" or op == "is" then
         assert(node.e2.casttype.source_text, "missing source_text for cast type")
         return doc.concat({
@@ -201,26 +356,28 @@ local function render_op(node: parser.Node, parent_prec: integer): doc.Doc
             doc.text(node.e2.casttype.source_text),
         })
     elseif node.op.arity == 1 then
+        local op_prec = precedence_for_op(op, 1)
         local child = maybe_parenthesize(
-            render_expr(node.e1, precedence_for_op(op, 1)), node.e1, op, 1, true
+            render_call_aware_expr(node.e1, op_prec), node.e1, op, 1, true
         )
         local rendered = doc.concat({doc.text(op == "not" and "not " or op), child})
-        if precedence_for_op(op, 1) < parent_prec then
-            return doc.concat({doc.text("("), rendered, doc.text(")")})
-        end
-        return rendered
+        return wrap_for_parent_precedence(rendered, op, 1, parent_prec)
     else
-        local left = maybe_parenthesize(
-            render_expr(node.e1, precedence_for_op(op, 2)), node.e1, op, 2, false
-        )
-        local right = maybe_parenthesize(
-            render_expr(node.e2, precedence_for_op(op, 2)), node.e2, op, 2, true
-        )
-        local rendered = doc.concat({left, doc.text(" " .. op .. " "), right})
-        if precedence_for_op(op, 2) < parent_prec then
-            return doc.concat({doc.text("("), rendered, doc.text(")")})
+        local op_prec = precedence_for_op(op, 2)
+        local left_doc = render_call_aware_expr(node.e1, op_prec)
+        local right_doc = render_call_aware_expr(node.e2, op_prec)
+
+        local left = maybe_parenthesize(left_doc, node.e1, op, 2, false)
+        local right = maybe_parenthesize(right_doc, node.e2, op, 2, true)
+        local rendered = doc.concat({
+            left,
+            doc.text(" " .. op .. " "),
+            right,
+        })
+        if parent_prec == 0 then
+            rendered = doc.group(rendered)
         end
-        return rendered
+        return wrap_for_parent_precedence(rendered, op, 2, parent_prec)
     end
 end
 

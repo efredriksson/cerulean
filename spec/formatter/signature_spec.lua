@@ -60,6 +60,16 @@ describe("formatter signature wrapping", function()
       end
    ]]))
 
+   it("wraps a long record function signature to compact form", helpers.format([[
+      function SelectionRecordFactory.new(entity_identifier: integer, entry_descriptor: EntryDescriptor): SelectionRecordFactory
+      end
+   ]], [[
+      function SelectionRecordFactory.new(
+          entity_identifier: integer, entry_descriptor: EntryDescriptor
+      ): SelectionRecordFactory
+      end
+   ]]))
+
    it("preserves source spelling for parenthesized and function parameter types", helpers.format([[
       function f(left: (Alpha | Beta), callback: function(ctx: Scene, enabled: boolean): ResultType, right: ExtremelyVerboseTypeName)
       end
@@ -89,8 +99,7 @@ describe("formatter signature wrapping", function()
       ): ReturnType
       end
    ]],[[
-      local callback = function(param_one: TypeA, param_two: TypeB): ReturnType
-      end
+      local callback = function(param_one: TypeA, param_two: TypeB): ReturnType end
    ]]))
 
    it("does not treat a commented-out function line as a signature", helpers.check([[
