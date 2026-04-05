@@ -123,6 +123,29 @@ local function count_leading_comments_for_stmt(
     return count
 end
 
+local function node_contains_call_with_inline_comments(node: parser.Node): boolean
+    local function check_call(n: parser.Node): boolean
+        if n.kind == "op" and n.op ~= nil and n.op.op == "@funcall" and n.e2 ~= nil then
+            for _, call_arg in ipairs(n.e2) do
+                if call_arg.comments ~= nil and #call_arg.comments > 0 then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+    if check_call(node) then
+        return true
+    end
+    local found = false
+    ast_utils.walk_descendants(node, function(child: parser.Node)
+        if not found and check_call(child) then
+            found = true
+        end
+    end)
+    return found
+end
+
 local function node_contains_multi_statement_function(node: parser.Node): boolean
     if node.kind == "function" and node.body ~= nil and #node.body > 1 then
         return true
@@ -161,52 +184,6 @@ local function exps_contain_multiline_function(exps: {parser.Node}): boolean
     for _, exp in ipairs(exps) do
         if exp.kind == "function" and exp.yend ~= nil and exp.yend > exp.y then
             return true
-        end
-    end
-    return false
-end
-
-local function block_has_unattached_comments(block: parser.Node): boolean
-    return block.unattached_comments ~= nil and #block.unattached_comments > 0
-end
-
-local function collect_accounted_comment_lines(block: parser.Node): {integer: boolean}
-    local accounted: {integer: boolean} = {}
-    for _, stmt in ipairs(block) do
-        if stmt.comments ~= nil then
-            for _, comment in ipairs(stmt.comments) do
-                accounted[comment.y] = true
-            end
-        end
-    end
-    return accounted
-end
-
-local function line_is_inside_compound_statement(
-    block: parser.Node, line_num: integer
-): boolean
-    for _, stmt in ipairs(block) do
-        if stmt.yend ~= nil and stmt.yend > stmt.y then
-            if line_num > stmt.y and line_num < stmt.yend then
-                return true
-            end
-        end
-    end
-    return false
-end
-
-local function block_has_unaccounted_source_comment(
-    block: parser.Node, lines: {string}, block_close_line: integer
-): boolean
-    local accounted = collect_accounted_comment_lines(block)
-    for line_num = block[1].y, block_close_line - 1 do
-        local line_str = lines[line_num]
-        if line_str ~= nil and line_str:find("%-%-") ~= nil then
-            if not accounted[line_num] then
-                if not line_is_inside_compound_statement(block, line_num) then
-                    return true
-                end
-            end
         end
     end
     return false
@@ -271,41 +248,10 @@ local function local_type_is_ast_renderable(stmt: parser.Node): boolean
     return true
 end
 
-local function return_has_fragile_multiline_call_trailing_content(
-    stmt: parser.Node, lines: {string}
-): boolean
-    if stmt.kind ~= "return" or stmt.exps == nil then
+local function stmt_is_ast_renderable(stmt: parser.Node): boolean
+    if node_contains_call_with_inline_comments(stmt) then
         return false
     end
-
-    local found = false
-    for _, exp in ipairs(stmt.exps) do
-        ast_utils.walk_descendants(exp, function(child: parser.Node)
-            if found then
-                return
-            end
-
-            if child.kind == "op" and child.op ~= nil and child.op.op == "@funcall" and child.e2 ~= nil then
-                local args = child.e2
-                if args.yend ~= nil and args.yend > args.y then
-                    local close_line = lines[args.yend]
-                    if close_line ~= nil and close_line:sub(
-                        args.xend + 1
-                    ):match("%S") ~= nil then
-                        found = true
-                    end
-                end
-            end
-        end)
-        if found then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function stmt_is_ast_renderable(stmt: parser.Node): boolean
     if stmt.kind == "return" then
         return stmt.exps == nil or not exps_contain_multi_statement_function(stmt.exps)
     elseif stmt.kind == "assignment" then
@@ -436,19 +382,12 @@ local function block_is_structurally_eligible(
     if #block == 0 then
         return false
     end
-    if block_has_unattached_comments(block) then
-        fmt_logger.info("[structural] blocked: block has unattached comments")
+    if block.end_comments ~= nil and #block.end_comments > 0 then
+        fmt_logger.info("[structural] blocked: block has end comments")
         return false
     end
     if top_level_block_has_leading_prelude(block, lines) then
         fmt_logger.info("[structural] blocked: top-level block has leading prelude")
-        return false
-    end
-    local block_close_line = block.yend or 0
-    if block_close_line > 0 and block_has_unaccounted_source_comment(
-        block, lines, block_close_line
-    ) then
-        fmt_logger.info("[structural] blocked: block has unaccounted comments")
         return false
     end
 
@@ -474,15 +413,6 @@ local function block_is_structurally_eligible(
                 )
                 return false
             end
-        end
-        if #block == 1 and return_has_fragile_multiline_call_trailing_content(
-            stmt, lines
-        ) then
-            fmt_logger.info(
-                "[structural] blocked at line %s: single return has multiline call trailing content",
-                tostring(stmt.y)
-            )
-            return false
         end
         if stmt.body ~= nil and not block_is_structurally_eligible(
             stmt.body, lines, fmt_off_regions

@@ -174,8 +174,10 @@ local record tl
       interfaces_expanded: boolean
       fields: {string: Type}
       field_order: {string}
+      field_comments: {string: {{LexerComment}}}
       meta_fields: {string: Type}
       meta_field_order: {string}
+      meta_field_comments: {string: {{LexerComment}}}
       is_userdata: boolean
    end
 
@@ -313,6 +315,7 @@ local record tl
       where self.typename == "enum"
 
       enumset: {string:boolean}
+      value_comments: {string: {LexerComment}}
    end
 
    enum Attribute
@@ -545,11 +548,18 @@ local record tl
       "$EOF$"
    end
 
+   interface LexerComment
+      x: integer
+      y: integer
+      text: string
+   end
+
    record Token
       x: integer
       y: integer
       tk: string
       kind: TokenKind
+      comments: {LexerComment}
    end
 
    -----------------------------------------------------------------------------
@@ -603,37 +613,6 @@ local record tl
    ): {string:integer}
    target_from_lua_version: function(str: string): GenTarget
    version: function(): string
-
-   -----------------------------------------------------------------------------
-   -- Deprecated, mantained for backwards compatibility:
-   -----------------------------------------------------------------------------
-
-   -- type CompatMode = GenCompat
-   -- type PrettyPrintOptions = GenerateOptions
-   -- type TargetMode = GenTarget
-
-   -- record TypeCheckOptions
-   --    lax: boolean
-   --    filename: string
-   --    module_name: string
-   --    gen_compat: tl.CompatMode
-   --    gen_target: tl.TargetMode
-   --    env: Env
-   --    run_internal_compiler_checks: boolean
-   -- end
-
-   -- init_env: function(? boolean, ? boolean | tl.CompatMode, ? tl.TargetMode, ? {string}): Env, string
-   -- pretty_print_ast: function(ast: Node, gen_target?: tl.TargetMode, mode?: boolean | tl.PrettyPrintOptions): string, string
-   -- process: function(filename: string, env?: Env, fd?: FILE): Result, string
-   -- process_string: function(input: string, is_lua: boolean, env: Env, filename: string, _module_name: string): Result
-   -- type_check: function(Node, TypeCheckOptions): Result, string
-
-   -----------------------------------------------------------------------------
-   -- Private data:
-   -----------------------------------------------------------------------------
-
-   -- package_loader_env: Env
-   -- load_envs: { {any:any} : Env }
 end
 
 return tl

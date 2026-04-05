@@ -51,10 +51,15 @@ describe("formatter table constructor wrapping", function()
       }
    ]]))
 
-   it("does not change a table whose entries have inline comments", helpers.check([[
+   it("does format a table whose entries have inline comments", helpers.format([[
       local z = {
          BELOW = -3, -- on ground
          LEVEL = 0 -- ground level
+      }
+   ]], [[
+      local z = {
+          BELOW = -3, -- on ground
+          LEVEL = 0, -- ground level
       }
    ]]))
 
@@ -96,16 +101,23 @@ describe("formatter table constructor wrapping", function()
       }
    ]]))
 
-   it("does not change a wrapped table whose entries include inline comments", helpers.check([[
+   it("does not change a wrapped table whose entries include inline comments", helpers.format([[
       local x = {
          alpha, -- keep alpha grouped here
          beta
       }
+   ]], [[
+      local x = {
+          alpha, -- keep alpha grouped here
+          beta,
+      }
    ]]))
 
-   it("does not collapse a wrapped table when a string literal contains comment text", helpers.check([[
+   it("does collapse a wrapped table given '--' string litera (not comment)", helpers.format([[
       local x = {"--",
          beta}
+   ]], [[
+      local x = {"--", beta}
    ]]))
 
    it("wraps a return table constructor that is too long", helpers.format([[

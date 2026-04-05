@@ -3,13 +3,11 @@
 local ast_utils = require("formatter.ast_utils")
 local block_doc = require("formatter.block_doc")
 local call_doc = require("formatter.call_doc")
-local expr_doc = require("formatter.expr_doc")
 local fmt_logger = require("formatter.fmt_logger")
 local parser = require("formatter.parser")
 local require_sort = require("formatter.require_sort")
 local signature_doc = require("formatter.signature_doc")
 local structural_render_analysis = require("formatter.structural_render_analysis")
-local table_doc = require("formatter.table_doc")
 local tl = require("tl")
 
 local rewriter = {}
@@ -41,7 +39,6 @@ end
 local type SpanKind = enum
     "call"
     "signature"
-    "table"
 end
 
 local record Span
@@ -353,40 +350,6 @@ end
 -- lines, no fmt:off lines fall inside the span, no lines contain comments
 -- (inline comments cannot be preserved through a join/split cycle), and no
 -- magic trailing comma (author explicitly wants the table kept expanded).
-local function collect_table_spans(
-    node: parser.Node,
-    lines: {string},
-    fmt_off_regions: ast_utils.FmtOffRegions,
-    result: {Span}
-)
-    if node.kind == "literal_table" then
-        local is_safe = true
-        if fmt_off_regions:includes_node(node) then
-            is_safe = false
-        else
-            for line = node.y, node.yend do
-                if lines[line] and lines[line]:find("%-%-") then
-                    is_safe = false
-                    break
-                end
-            end
-        end
-        if is_safe and not ast_utils.has_multiline_descendant(
-            node
-        ) and not node.trailing_comma then
-            table.insert(
-                result,
-                Span.new(node.y, node.x, node.yend, node.xend, "table", nil, nil, node)
-            )
-        end
-        -- Still recurse into children to find nested simple tables
-    end
-
-    local function recurse(child: parser.Node)
-        collect_table_spans(child, lines, fmt_off_regions, result)
-    end
-    ast_utils.walk_children(node, recurse)
-end
 
 -- Extract the text of a span from the source lines.  Returns the lines that
 -- make up the span (partial first/last lines included).
@@ -526,10 +489,6 @@ local function apply_all_spans(
                     split_lines = render_call_with_doc(
                         span.call_args, before, after, true
                     )
-                elseif span.kind == "table" and span.table_node ~= nil then
-                    split_lines = table_doc.render_table(
-                        span.table_node, before, after, false, expr_doc.render_expr
-                    )
                 else
                     error("unsupported span kind: " .. span.kind)
                 end
@@ -542,7 +501,7 @@ local function apply_all_spans(
                         tostring(#line_str)
                     )
                     local new_lines: {string} = {}
-                    if span.kind == "signature" or span.kind == "table" or span.kind == "call" then
+                    if span.kind == "signature" or span.kind == "call" then
                         for _, new_line in ipairs(split_lines) do
                             table.insert(new_lines, new_line)
                         end
@@ -592,10 +551,6 @@ local function apply_all_spans(
                 compact_lines = render_compact_call_with_doc(
                     span.call_args, before, after
                 )
-            elseif span.kind == "table" and span.table_node ~= nil then
-                compact_lines = table_doc.render_table(
-                    span.table_node, before, after, true, expr_doc.render_expr
-                )
             else
                 error("unsupported span kind: " .. span.kind)
             end
@@ -641,10 +596,6 @@ local function apply_all_spans(
                     split_lines = render_call_with_doc(
                         span.call_args, before, after, #span_lines == 3
                     )
-                elseif span.kind == "table" and span.table_node ~= nil then
-                    split_lines = table_doc.render_table(
-                        span.table_node, before, after, false, expr_doc.render_expr
-                    )
                 else
                     error("unsupported span kind: " .. span.kind)
                 end
@@ -657,7 +608,7 @@ local function apply_all_spans(
                         tostring(#split_lines)
                     )
                     local new_lines: {string} = {}
-                    if span.kind == "signature" or span.kind == "table" or span.kind == "call" then
+                    if span.kind == "signature" or span.kind == "call" then
                         for _, new_line in ipairs(split_lines) do
                             table.insert(new_lines, new_line)
                         end
@@ -796,7 +747,6 @@ local function collect_structural_spans(context: FormatterContext): {Span}
     local spans: {Span} = {}
     collect_signature_spans(context.ast, context.lines, context.fmt_off_regions, spans)
     collect_call_spans(context.ast, context.lines, context.fmt_off_regions, spans)
-    collect_table_spans(context.ast, context.lines, context.fmt_off_regions, spans)
     return spans
 end
 

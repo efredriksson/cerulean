@@ -118,6 +118,15 @@ local function build_trailing_call_doc(item_docs: {doc.Doc}): doc.Doc
     })
 end
 
+local function args_have_inline_comments(args: parser.Node): boolean
+    for _, call_arg in ipairs(args) do
+        if call_arg.comments ~= nil and #call_arg.comments > 0 then
+            return true
+        end
+    end
+    return false
+end
+
 local function build_call_arg_doc(node: parser.Node): doc.Doc
     if node.kind == "literal_table" then
         return doc.group(table_doc.build_table_doc(node, expr_doc.render_expr))
@@ -169,7 +178,11 @@ function call_doc.render_call(
     local item_docs = build_call_arg_item_docs(args)
 
     local lines: {string}
-    if compact or #item_docs == 0 then
+    if args_have_inline_comments(args) then
+        lines = render_doc(
+            build_delimited_sequence_doc(item_docs, opts, false), indent_prefix
+        )
+    elseif compact or #item_docs == 0 then
         lines = render_doc(
             build_compact_delimited_sequence_doc(item_docs, opts), indent_prefix
         )
@@ -216,6 +229,19 @@ function call_doc.build_call_expr_doc(node: parser.Node): doc.Doc
     -- Wrap in a group so the renderer tries the compact (flat) form first.
     -- Without a group the doc.line breaks inside build_delimited_sequence_doc
     -- always expand, wrapping even short calls that fit on one line.
+    if args_have_inline_comments(node.e2) or node.e2.trailing_comment ~= nil then
+        local call_node = doc.concat({
+            callee_doc,
+            build_delimited_sequence_doc(item_docs, opts, false),
+        })
+        if node.e2.trailing_comment ~= nil then
+            return doc.concat({
+                call_node,
+                doc.text(" " .. node.e2.trailing_comment.text),
+            })
+        end
+        return call_node
+    end
     return doc.group(doc.concat({
         callee_doc,
         build_delimited_sequence_doc(item_docs, opts, true),

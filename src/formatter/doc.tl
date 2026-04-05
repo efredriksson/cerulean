@@ -3,6 +3,7 @@
 local record Doc
     kind: string
     text: string
+    close_text: string
     flat_text: string
     broken_text: string
     parts: {Doc}
@@ -31,6 +32,12 @@ function doc.text(text: string): Doc
     return result
 end
 
+function doc.close(text: string): Doc
+    local result = new_doc("close")
+    result.close_text = text
+    return result
+end
+
 function doc.line(flat_text: string): Doc
     local result = new_doc("line")
     result.flat_text = flat_text
@@ -41,6 +48,20 @@ function doc.break_text(broken_text: string, flat_text?: string): Doc
     local result = new_doc("break_text")
     result.broken_text = broken_text
     result.flat_text = flat_text or ""
+    return result
+end
+
+function doc.hardline(): Doc
+    local result = new_doc("hardline")
+    return result
+end
+
+function doc.if_wrapped(text: string): Doc
+    return doc.break_text(text, "")
+end
+
+function doc.blankline(): Doc
+    local result = new_doc("blankline")
     return result
 end
 
@@ -98,6 +119,15 @@ local function render_node(
 )
     if node.kind == "text" then
         append_text(state, node.text or "")
+    elseif node.kind == "close" then
+        local indent_text = string.rep(" ", indent)
+        if state.current_line:match("^%s*$") ~= nil then
+            state.current_line = indent_text
+            state.column = indent
+        elseif state.current_line ~= indent_text then
+            break_line(state, indent)
+        end
+        append_text(state, node.close_text or "")
     elseif node.kind == "break_text" then
         if flat then
             append_text(state, node.flat_text or "")
@@ -109,6 +139,15 @@ local function render_node(
             append_text(state, node.flat_text or "")
         else
             break_line(state, indent)
+        end
+    elseif node.kind == "hardline" then
+        break_line(state, indent)
+    elseif node.kind == "blankline" then
+        if not flat then
+            table.insert(state.lines, state.current_line)
+            table.insert(state.lines, "")
+            state.current_line = string.rep(" ", indent)
+            state.column = indent
         end
     elseif node.kind == "concat" then
         for _, part in ipairs(node.parts or {}) do

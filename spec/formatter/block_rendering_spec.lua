@@ -607,6 +607,16 @@ describe("formatter structural block rendering", function()
       ))
    end)
    describe("top-level locals", function()
+      it("preserves an inline comment on a record field while reindenting", helpers.format([[
+         local record Config
+           value: integer -- used for some purpose
+         end
+      ]], [[
+         local record Config
+             value: integer -- used for some purpose
+         end
+      ]]))
+
       it("indents in local record", helpers.format([[
          local record MyRecord
            data: string
@@ -827,6 +837,89 @@ describe("formatter structural block rendering", function()
            end)
          end
       ]]))
+   end)
+
+   describe("record function body with multiline call and trailing content", function()
+      it("reindents a record function body whose single return has a multiline call with trailing arithmetic on the closing line",
+         helpers.format([[
+            function Obj.compute(x: number): number
+              return math.floor(
+                x / STEP + 0.5
+              ) * STEP
+            end
+         ]], [[
+            function Obj.compute(x: number): number
+                return math.floor(x / STEP + 0.5) * STEP
+            end
+         ]]))
+      it("leaves a record function body stable when the return has a multiline call whose trailing content continues on the next line",
+         helpers.check([[
+            function Obj.overlap(other: Obj): boolean
+                return intersects(
+                    self.x, self.x + self.width, other.x, other.x + other.width
+                ) and intersects(self.y, self.y + self.height, other.y, other.y + other.height)
+            end
+         ]]))
+   end)
+
+   describe("record function body blocked by remaining cases", function()
+      
+      it("reindents a record function body whose return table has inline section comments",
+         helpers.format([[
+            function Obj.items(): {string}
+              return {
+                -- first section
+                "a",
+                "b",
+              }
+            end
+         ]], [[
+            function Obj.items(): {string}
+                return {
+                    -- first section
+                    "a",
+                    "b",
+                }
+            end
+         ]]))
+      it("reindents a record function body whose return has a multiline call continued with a binary op on the next line",
+         helpers.format([[
+            function Obj.overlap(other: Obj): boolean
+              return intersects(
+                self.x, other.x
+              ) and
+                intersects(self.y, other.y)
+            end
+         ]], [[
+            function Obj.overlap(other: Obj): boolean
+                return intersects(self.x, other.x) and intersects(self.y, other.y)
+            end
+         ]]))
+
+      it("reindents a record function body containing a for loop whose body has an inline trailing comment separated by a blank line",
+         helpers.format([[
+            function Obj:update(dt: number)
+              self.active = false -- reset each frame
+
+              for _, item in ipairs(self.items) do
+                self.active = true -- item found
+
+                -- process it
+                process(item, dt)
+              end
+            end
+         ]], [[
+            function Obj:update(dt: number)
+                self.active = false -- reset each frame
+
+                for _, item in ipairs(self.items) do
+                    self.active = true -- item found
+
+                    -- process it
+                    process(item, dt)
+                end
+            end
+         ]]))
    end)
 
    describe("generic functions", function()

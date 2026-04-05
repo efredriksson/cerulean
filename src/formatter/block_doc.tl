@@ -13,6 +13,23 @@ local function node_end_line(node: parser.Node): integer
     return node.yend or node.y
 end
 
+-- Returns the last source line occupied by stmt, accounting for call args
+-- that end on a line below the statement's own yend/y. This matters for
+-- assignment statements (whose yend is nil) containing a call whose closing
+-- paren carries a trailing_comment — without this, the trailing comment would
+-- be misclassified as a leading comment of the next statement.
+local function stmt_effective_end_line(stmt: parser.Node): integer
+    local end_line = node_end_line(stmt)
+    if stmt.exps ~= nil then
+        for _, exp in ipairs(stmt.exps) do
+            if exp.kind == "op" and exp.op ~= nil and exp.op.op == "@funcall" and exp.e2 ~= nil and exp.e2.trailing_comment ~= nil and exp.e2.yend ~= nil and exp.e2.yend > end_line then
+                end_line = exp.e2.yend
+            end
+        end
+    end
+    return end_line
+end
+
 local function classify_statement_comments(
     stmt: parser.Node, prev_stmt_end_line: integer
 ): {parser.Comment}, {parser.Comment}
@@ -57,7 +74,7 @@ local function render_block_doc_with(
             end
         elseif index > 1 then
             local prev_stmt = block[index - 1]
-            local prev_end_line = node_end_line(prev_stmt)
+            local prev_end_line = stmt_effective_end_line(prev_stmt)
             local trailing_comments, leading_comments = classify_statement_comments(
                 stmt, prev_end_line
             )

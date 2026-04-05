@@ -102,7 +102,7 @@ describe("formatter function call wrapping", function()
       )
    ]]))
 
-   it("does not collapse an expanded call whose closing paren has trailing content", helpers.check([[
+   it("does collapse an expanded call whose closing paren has trailing content", helpers.format([[
       return interval_overlap(
           self.x,
           self.x + self.width,
@@ -110,6 +110,10 @@ describe("formatter function call wrapping", function()
           other.x + other.width
       ) and
           interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
+   ]], [[
+      return interval_overlap(
+          self.x, self.x + self.width, other.x, other.x + other.width
+      ) and interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
    ]]))
 
    it("joins a wrapped call containing nested call and table arguments when they are already compact", helpers.format([[
@@ -126,9 +130,29 @@ describe("formatter function call wrapping", function()
       )
    ]]))
 
-   it("does not collapse a wrapped call when a string literal contains comment text", helpers.check([[
+   it("does not change an assignment call with a trailing inline comment on its closing line", helpers.format([[
+      local function f()
+         result = math.min(
+            result,
+            factor * 2
+         ) -- clamp result
+         other_call()
+      end
+   ]], [[
+      local function f()
+          result = math.min(
+              result,
+              factor * 2
+          ) -- clamp result
+          other_call()
+      end
+   ]]))
+
+   it("do collapse a wrapped call still when a string literal contains comment text", helpers.format([[
       local x = f("--",
          beta)
+   ]], [[
+      local x = f("--", beta)
    ]]))
 
    it("wraps a long call whose argument is a string containing a closing paren", helpers.format([[
