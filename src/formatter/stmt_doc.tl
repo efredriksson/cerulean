@@ -2,6 +2,7 @@
 local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
+local render_builders = require("formatter.render_builders")
 local signature_doc = require("formatter.signature_doc")
 local structural_render_analysis = require("formatter.structural_render_analysis")
 local tl = require("tl")
@@ -86,20 +87,6 @@ local function function_with_indent(
             doc.close("end"),
         }
     )
-end
-
-local function build_comment_lines_doc(comments: {parser.Comment}): {doc.Doc}
-    local parts: {doc.Doc} = {}
-    for index, comment in ipairs(comments) do
-        if index > 1 then
-            table.insert(parts, doc.line())
-        end
-        if index > 1 and comment.blank_line_before then
-            table.insert(parts, doc.line())
-        end
-        table.insert(parts, doc.text(comment.text))
-    end
-    return parts
 end
 
 local function block_with_indent(
@@ -670,7 +657,7 @@ local function render_function_definition_doc(
             table.insert(body_comments, comment)
         end
 
-        local comment_body = build_comment_lines_doc(body_comments)
+        local comment_body = render_builders.build_comment_lines_doc(body_comments)
         return function_with_indent(name_prefix, sig_doc, doc.concat(comment_body))
     end
 

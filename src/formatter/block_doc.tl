@@ -1,6 +1,7 @@
 local doc = require("formatter.doc")
 local fmt_logger = require("formatter.fmt_logger")
 local parser = require("formatter.parser")
+local render_builders = require("formatter.render_builders")
 local stmt_doc = require("formatter.stmt_doc")
 local structural_render_analysis = require("formatter.structural_render_analysis")
 
@@ -9,17 +10,13 @@ local type StatementLayout = structural_render_analysis.StatementLayout
 
 local block_doc = {}
 
-local function node_end_line(node: parser.Node): integer
-    return node.yend or node.y
-end
-
 -- Returns the last source line occupied by stmt, accounting for call args
 -- that end on a line below the statement's own yend/y. This matters for
 -- assignment statements (whose yend is nil) containing a call whose closing
 -- paren carries a trailing_comment — without this, the trailing comment would
 -- be misclassified as a leading comment of the next statement.
 local function stmt_effective_end_line(stmt: parser.Node): integer
-    local end_line = node_end_line(stmt)
+    local end_line = render_builders.node_end_line(stmt)
 
     local function consider_call_exp(exp: parser.Node)
         if exp.kind == "op"
@@ -39,23 +36,6 @@ local function stmt_effective_end_line(stmt: parser.Node): integer
     end
     consider_call_exp(stmt)
     return end_line
-end
-
-local function classify_statement_comments(
-    stmt: parser.Node, prev_stmt_end_line: integer
-): {parser.Comment}, {parser.Comment}
-    local trailing: {parser.Comment} = {}
-    local leading: {parser.Comment} = {}
-    if stmt.comments ~= nil then
-        for _, comment in ipairs(stmt.comments) do
-            if comment.y <= prev_stmt_end_line then
-                table.insert(trailing, comment)
-            else
-                table.insert(leading, comment)
-            end
-        end
-    end
-    return trailing, leading
 end
 
 local function statement_is_verbatim(layout: StatementLayout | nil): boolean
@@ -81,14 +61,11 @@ local function render_block_doc_with(
     end
 
     if block.unattached_comments ~= nil and #block.unattached_comments > 0 then
-        for index, comment in ipairs(block.unattached_comments) do
-            if index > 1 then
-                table.insert(parts, doc.line())
-            end
-            if index > 1 and comment.blank_line_before then
-                table.insert(parts, doc.line())
-            end
-            table.insert(parts, doc.text(comment.text))
+        local comment_parts = render_builders.build_comment_lines_doc(
+            block.unattached_comments
+        )
+        for _, comment_part in ipairs(comment_parts) do
+            table.insert(parts, comment_part)
         end
         if #block > 0 then
             table.insert(parts, doc.line())
@@ -115,7 +92,7 @@ local function render_block_doc_with(
         elseif index > 1 then
             local prev_stmt = block[index - 1]
             local prev_end_line = stmt_effective_end_line(prev_stmt)
-            local trailing_comments, leading_comments = classify_statement_comments(
+            local trailing_comments, leading_comments = render_builders.classify_comments_by_previous_end_line(
                 stmt, prev_end_line
             )
 
