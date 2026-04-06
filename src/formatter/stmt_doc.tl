@@ -880,20 +880,19 @@ function stmt_doc.render_statement_doc(
         or node.kind == "global_function"
         or node.kind == "record_function"
     )
-        and end_line > node.y
     then
         return render_function_definition_doc(node, render_block, layout)
-    elseif node.kind == "if" and end_line > node.y then
+    elseif node.kind == "if" then
         return render_if_doc(node, render_block, layout)
-    elseif node.kind == "while" and end_line > node.y then
+    elseif node.kind == "while" then
         return render_while_doc(node, render_block, layout)
-    elseif node.kind == "fornum" and end_line > node.y then
+    elseif node.kind == "fornum" then
         return render_fornum_doc(node, render_block, layout)
-    elseif node.kind == "forin" and end_line > node.y then
+    elseif node.kind == "forin" then
         return render_forin_doc(node, render_block, layout)
-    elseif node.kind == "repeat" and end_line > node.y then
+    elseif node.kind == "repeat" then
         return render_repeat_doc(node, render_block, layout)
-    elseif node.kind == "do" and end_line > node.y then
+    elseif node.kind == "do" then
         return render_do_doc(node, render_block, layout)
     elseif node.kind == "break" then
         return doc.text("break")

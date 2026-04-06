@@ -60,7 +60,8 @@ describe("formatter lexical transforms", function()
       it("handles comparison and logical operators", helpers.format([[
          if a==b or c~=d and i<=j or k>=l then end
       ]], [[
-         if a == b or c ~= d and i <= j or k >= l then end
+         if a == b or c ~= d and i <= j or k >= l then
+         end
       ]]))
 
       it("does not add spaces around unary minus", helpers.check([[
@@ -77,7 +78,8 @@ describe("formatter lexical transforms", function()
 
       it("does not touch generic type parameters", helpers.check([[
          local x: Group<Bomb> = Group.new()
-         local function f(g: ReadableGroup<Player>): Group<Bomb> end
+         local function f(g: ReadableGroup<Player>): Group<Bomb>
+         end
       ]]))
 
       it("handles string concatenation operator", helpers.format([[

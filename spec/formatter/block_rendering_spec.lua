@@ -864,4 +864,104 @@ describe("formatter structural block rendering", function()
       ]]))
 
    end)
+
+   describe("local function fallback gaps", function()
+      it("reindents a local helper with inline if/else return", helpers.format([[
+         local function normalize_value(n: integer, prefix: string): string
+           if n < 10 then return prefix .. n else return tostring(n) end
+         end
+      ]], [[
+         local function normalize_value(n: integer, prefix: string): string
+             if n < 10 then
+                 return prefix .. n
+             else
+                 return tostring(n)
+             end
+         end
+      ]]))
+
+      it("reindents a local for-loop helper with inline return in if", helpers.format([[
+         local function find_match_index(values: {number}, target: number): integer
+           for i, value in ipairs(values) do
+             if value == target then return i end
+           end
+           return 1
+         end
+      ]], [[
+         local function find_match_index(values: {number}, target: number): integer
+             for i, value in ipairs(values) do
+                 if value == target then
+                     return i
+                 end
+             end
+             return 1
+         end
+      ]]))
+
+      it("reindents an empty local function declaration body", helpers.format([[
+         local function no_op(_: Context) end
+      ]], [[
+         local function no_op(_: Context)
+         end
+      ]]))
+
+      it("reindents a local helper with inline if/else boolean return", helpers.format([[
+         local function has_content(name: string): boolean
+           local handle = io.open(name, "r")
+           if handle ~= nil then io.close(handle) return true else return false end
+         end
+      ]], [[
+         local function has_content(name: string): boolean
+             local handle = io.open(name, "r")
+             if handle ~= nil then
+                 io.close(handle)
+                 return true
+             else
+                 return false
+             end
+         end
+      ]]))
+
+      it("reindents a nested local helper with inline return inside for-loop", helpers.format([[
+         local function has_locked_item(items: {ItemState}): boolean
+           for _, item in ipairs(items) do
+             if item.state.locked then return true end
+           end
+           return false
+         end
+      ]], [[
+         local function has_locked_item(items: {ItemState}): boolean
+             for _, item in ipairs(items) do
+                 if item.state.locked then
+                     return true
+                 end
+             end
+             return false
+         end
+      ]]))
+
+      it("reindents an outer local function that contains an inline-return helper", helpers.format([[
+         local function compute_status(items: {ItemState}): boolean
+           local function has_locked_item(entries: {ItemState}): boolean
+             for _, entry in ipairs(entries) do
+               if entry.state.locked then return true end
+             end
+             return false
+           end
+           return has_locked_item(items)
+         end
+      ]], [[
+         local function compute_status(items: {ItemState}): boolean
+             local function has_locked_item(entries: {ItemState}): boolean
+                 for _, entry in ipairs(entries) do
+                     if entry.state.locked then
+                         return true
+                     end
+                 end
+                 return false
+             end
+             return has_locked_item(items)
+         end
+      ]]))
+   end)
 end)
