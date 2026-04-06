@@ -65,6 +65,9 @@ local RIGHT_ASSOC: {string: boolean} = {
 }
 
 local render_expr: function(parser.Node, integer): doc.Doc
+local wrap_for_parent_precedence: function(
+    doc.Doc, string, integer, integer
+): doc.Doc
 
 local function precedence_for_op(op: string, arity: integer): integer
     if arity == 1 and op == "-" then
@@ -295,7 +298,59 @@ local function render_call_aware_expr(
     return render_expr(node, parent_prec)
 end
 
-local function wrap_for_parent_precedence(
+local function collect_top_level_logical_terms(
+    node: parser.Node, operator: string, terms: {parser.Node}
+)
+    if node.kind == "op"
+        and node.op ~= nil
+        and node.op.arity == 2
+        and node.op.op == operator
+    then
+        collect_top_level_logical_terms(node.e1, operator, terms)
+        collect_top_level_logical_terms(node.e2, operator, terms)
+        return
+    end
+
+    table.insert(terms, node)
+end
+
+local function render_top_level_logical_chain(
+    node: parser.Node, parent_prec: integer
+): doc.Doc
+    local operator = node.op.op
+    local operator_prec = precedence_for_op(operator, 2)
+    local terms: {parser.Node} = {}
+    collect_top_level_logical_terms(node, operator, terms)
+
+    local parts: {doc.Doc} = {}
+    for index, term in ipairs(terms) do
+        table.insert(parts, render_call_aware_expr(term, operator_prec))
+        if index < #terms then
+            table.insert(parts, doc.indent(4, doc.concat({
+                doc.line(" "),
+                doc.text(operator .. " "),
+            })))
+        end
+    end
+
+    return wrap_for_parent_precedence(
+        doc.group(doc.concat(parts)), operator, 2, parent_prec
+    )
+end
+
+local function should_render_top_level_logical_chain(node: parser.Node): boolean
+    if node.kind ~= "op"
+        or node.op == nil
+        or node.op.arity ~= 2
+        or (node.op.op ~= "and" and node.op.op ~= "or")
+    then
+        return false
+    end
+
+    return true
+end
+
+wrap_for_parent_precedence = function(
     rendered: doc.Doc, op: string, arity: integer, parent_prec: integer
 ): doc.Doc
     if precedence_for_op(op, arity) < parent_prec then
@@ -435,6 +490,10 @@ local function render_op(node: parser.Node, parent_prec: integer): doc.Doc
         local rendered = doc.concat({doc.text(op == "not" and "not " or op), child})
         return wrap_for_parent_precedence(rendered, op, 1, parent_prec)
     else
+        if parent_prec == 0 and should_render_top_level_logical_chain(node) then
+            return render_top_level_logical_chain(node, parent_prec)
+        end
+
         local op_prec = precedence_for_op(op, 2)
         local left_doc = render_call_aware_expr(node.e1, op_prec)
         local right_doc = render_call_aware_expr(node.e2, op_prec)
@@ -475,6 +534,13 @@ render_expr = function(node: parser.Node, parent_prec: integer): doc.Doc
 end
 
 function expr_doc.render_expr(node: parser.Node): doc.Doc
+    return render_expr(node, 0)
+end
+
+function expr_doc.render_top_level_expr(node: parser.Node): doc.Doc
+    if should_render_top_level_logical_chain(node) then
+        return render_top_level_logical_chain(node, 0)
+    end
     return render_expr(node, 0)
 end
 

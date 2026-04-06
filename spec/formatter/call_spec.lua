@@ -130,9 +130,8 @@ describe("formatter function call wrapping", function()
       ) and
           interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
    ]], [[
-      return interval_overlap(
-          self.x, self.x + self.width, other.x, other.x + other.width
-      ) and interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
+      return interval_overlap(self.x, self.x + self.width, other.x, other.x + other.width)
+          and interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
    ]]))
 
    it("joins a wrapped call containing nested call and table arguments when they are already compact", helpers.format([[
@@ -238,8 +237,8 @@ describe("formatter function call wrapping", function()
       if input_device.is_pressed(unit.id, keymap.ACTIONS.R) and unit.handler_state_is_ready_to_apply == "ready" then
       end
    ]], [[
-      if input_device.is_pressed(unit.id, keymap.ACTIONS.R) and
-          unit.handler_state_is_ready_to_apply == "ready" then
+      if input_device.is_pressed(unit.id, keymap.ACTIONS.R)
+          and unit.handler_state_is_ready_to_apply == "ready" then
       end
    ]]))
 
@@ -247,8 +246,8 @@ describe("formatter function call wrapping", function()
       if unit.handler_state_is_ready_to_apply == "ready" and inputdeviceinput.is_pressed(unit.id, keymap.ACTIONS.R) then
       end
    ]], [[
-      if unit.handler_state_is_ready_to_apply == "ready" and
-          inputdeviceinput.is_pressed(unit.id, keymap.ACTIONS.R) then
+      if unit.handler_state_is_ready_to_apply == "ready"
+          and inputdeviceinput.is_pressed(unit.id, keymap.ACTIONS.R) then
       end
    ]]))
 
@@ -256,8 +255,8 @@ describe("formatter function call wrapping", function()
       if (input_events.was_released(actor.id, keymap.ACTIONS.B) and actor:can_update()) or actor:must_update() then
       end
    ]], [[
-      if (input_events.was_released(actor.id, keymap.ACTIONS.B) and actor:can_update()) or
-          actor:must_update() then
+      if (input_events.was_released(actor.id, keymap.ACTIONS.B) and actor:can_update())
+          or actor:must_update() then
       end
    ]]))
 
@@ -268,8 +267,8 @@ describe("formatter function call wrapping", function()
       end
    ]], [[
       local function f()
-          if input_device.is_pressed(unit.id, keymap.ACTIONS.R) and
-              unit.processing_state_identifier == "ready_to_apply" then
+          if input_device.is_pressed(unit.id, keymap.ACTIONS.R)
+              and unit.processing_state_identifier == "ready_to_apply" then
           end
       end
    ]]))
@@ -294,9 +293,8 @@ describe("formatter function call wrapping", function()
       end
    ]], [[
       function Rectangle:overlap(other: Rectangle): boolean
-          return interval_overlap(
-              self.x, self.x + self.width, other.x, other.x + other.width
-          ) and interval_overlap(
+          return interval_overlap(self.x, self.x + self.width, other.x, other.x + other.width)
+              and interval_overlap(
               self.y, self.y + self.height, other.y, other.y + other.height
           )
       end
@@ -315,8 +313,8 @@ describe("formatter function call wrapping", function()
       if test1() then
           if test2() then
               if test3() then
-                  if not layout.area():contains(item:get_box()) and
-                      not item.target:get_slot() then
+                  if not layout.area():contains(item:get_box())
+                      and not item.target:get_slot() then
                   end
               end
           end
@@ -337,8 +335,8 @@ describe("formatter function call wrapping", function()
       if test1() then
           if test2() then
               if test3() then
-                  if new_bounds_box:overlap(near_block) and
-                      not bounds_box:overlap(near_block) then
+                  if new_bounds_box:overlap(near_block)
+                      and not bounds_box:overlap(near_block) then
                       return near_block
                   end
               end

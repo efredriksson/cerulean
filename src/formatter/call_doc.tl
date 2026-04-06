@@ -58,12 +58,12 @@ end
 
 local function call_arg_effective_end_line(node: parser.Node): integer
     local end_line = node_end_line(node)
-    if node.kind == "op" and
-        node.op ~= nil and
-        node.op.op == "@funcall" and
-        node.e2 ~= nil and
-        node.e2.yend ~= nil and
-        node.e2.yend > end_line then
+    if node.kind == "op"
+        and node.op ~= nil
+        and node.op.op == "@funcall"
+        and node.e2 ~= nil
+        and node.e2.yend ~= nil
+        and node.e2.yend > end_line then
         end_line = node.e2.yend
     end
     return end_line

@@ -493,9 +493,8 @@ describe("formatter structural block rendering", function()
          if ready then
              tick()
          end
-         return interval_overlap(
-             self.x, self.x + self.width, other.x, other.x + other.width
-         ) and interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
+         return interval_overlap(self.x, self.x + self.width, other.x, other.x + other.width)
+             and interval_overlap(self.y, self.y + self.height, other.y, other.y + other.height)
       ]]))
 
       it("reindents a top-level block while preserving a single blank line", helpers.format(
@@ -752,9 +751,8 @@ describe("formatter structural block rendering", function()
       it("leaves a record function body stable when the return has a multiline call whose trailing content continues on the next line",
          helpers.check([[
             function Obj.overlap(other: Obj): boolean
-                return intersects(
-                    self.x, self.x + self.width, other.x, other.x + other.width
-                ) and intersects(self.y, self.y + self.height, other.y, other.y + other.height)
+                return intersects(self.x, self.x + self.width, other.x, other.x + other.width)
+                    and intersects(self.y, self.y + self.height, other.y, other.y + other.height)
             end
          ]]))
    end)
@@ -961,6 +959,123 @@ describe("formatter structural block rendering", function()
                  return false
              end
              return has_locked_item(items)
+         end
+      ]]))
+   end)
+
+   describe("signature and return-expression regressions", function()
+      it("preserves constrained generic type parameters on local function signatures", helpers.format([[
+         local function map_local<K is Base, V>(left: Bucket<K>, right: Bucket<V>): {K: V}
+           return {}
+         end
+      ]], [[
+         local function map_local<K is Base, V>(left: Bucket<K>, right: Bucket<V>): {K: V}
+             return {}
+         end
+      ]]))
+
+      it("preserves constrained generic type parameters on global function signatures", helpers.format([[
+         function map_global<K is Base, V>(left: Bucket<K>, right: Bucket<V>): {K: V}
+           return {}
+         end
+      ]], [[
+         function map_global<K is Base, V>(left: Bucket<K>, right: Bucket<V>): {K: V}
+             return {}
+         end
+      ]]))
+
+      it("preserves constrained generic type parameters on method signatures", helpers.format([[
+         function Container:map_pairs<K is Base, V>(left: Bucket<K>, right: Bucket<V>): {K: V}
+           return {}
+         end
+      ]], [[
+         function Container:map_pairs<K is Base, V>(left: Bucket<K>, right: Bucket<V>): {K: V}
+             return {}
+         end
+      ]]))
+
+      it("preserves constrained generic type parameters on static function signatures", helpers.format([[
+         function Container.map_pairs<K is Base, V>(left: Bucket<K>, right: Bucket<V>): {K: V}
+           return {}
+         end
+      ]], [[
+         function Container.map_pairs<K is Base, V>(left: Bucket<K>, right: Bucket<V>): {K: V}
+             return {}
+         end
+      ]]))
+
+      it("wraps long boolean return expressions instead of forcing a single line", helpers.format([[
+         local function is_allowed(
+           in_first_zone: boolean,
+           in_second_zone: boolean,
+           direction: string
+         ): boolean
+           return (in_first_zone and (direction == "left" or direction == "right")) or (in_second_zone and (direction == "up" or direction == "down"))
+         end
+      ]], [[
+         local function is_allowed(
+             in_first_zone: boolean, in_second_zone: boolean, direction: string
+         ): boolean
+             return (in_first_zone and (direction == "left" or direction == "right"))
+                 or (in_second_zone and (direction == "up" or direction == "down"))
+         end
+      ]]))
+
+      it("keeps short boolean return expressions on one line", helpers.format([[
+         local function is_allowed(active: boolean, enabled: boolean): boolean
+           return active and enabled
+         end
+      ]], [[
+         local function is_allowed(active: boolean, enabled: boolean): boolean
+             return active and enabled
+         end
+      ]]))
+
+      it("preserves parentheses and precedence when wrapping top-level boolean returns", helpers.format([[
+         local function is_allowed(
+           in_first_zone: boolean,
+           in_second_zone: boolean,
+           direction: string,
+           enabled: boolean
+         ): boolean
+           return ((in_first_zone and enabled) or (in_second_zone and enabled)) and (direction == "left" or direction == "right")
+         end
+      ]], [[
+         local function is_allowed(
+             in_first_zone: boolean, in_second_zone: boolean, direction: string, enabled: boolean
+         ): boolean
+             return ((in_first_zone and enabled) or (in_second_zone and enabled))
+                 and (direction == "left" or direction == "right")
+         end
+      ]]))
+
+      it("preserves constrained type parameters on local records", helpers.format([[
+         local record Box<T is Base>
+            value: T
+         end
+      ]], [[
+         local record Box<T is Base>
+             value: T
+         end
+      ]]))
+
+      it("preserves constrained type parameters on local interfaces", helpers.format([[
+         local interface Mapper<T is Base, U>
+            map: function(self, value: T): U
+         end
+      ]], [[
+         local interface Mapper<T is Base, U>
+             map: function(self, value: T): U
+         end
+      ]]))
+
+      it("preserves constrained type parameters on local type interface aliases", helpers.format([[
+         local type Alias<T is Base> = interface
+            value: T
+         end
+      ]], [[
+         local type Alias<T is Base> = interface
+             value: T
          end
       ]]))
    end)
