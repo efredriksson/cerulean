@@ -12,7 +12,7 @@ describe("formatter doc primitives", function()
     it("renders line as space when group fits and newline when it does not", function()
         local tree = doc.group(doc.concat({
             doc.text("alpha"),
-            doc.line(" "),
+            doc.line(),
             doc.text("beta"),
         }))
 
@@ -35,7 +35,7 @@ describe("formatter doc primitives", function()
         local tagged_group = doc.group_ref()
         local tree = tagged_group:group(doc.concat({
             doc.text("alpha"),
-            doc.line(" "),
+            doc.line(),
             tagged_group:if_break(doc.text("[broken]"), doc.text("[flat]")),
             doc.text("beta"),
         }))
@@ -49,7 +49,7 @@ describe("formatter doc primitives", function()
         local tree = doc.concat({
             tagged_group:group(doc.concat({
                 doc.text("alpha"),
-                doc.line(" "),
+                doc.line(),
                 doc.text("beta"),
             })),
             doc.hardline(),
@@ -74,7 +74,7 @@ describe("formatter doc primitives", function()
         local tagged_group = doc.group_ref()
         local tree = tagged_group:group(doc.concat({
             doc.text("alpha"),
-            doc.line(" "),
+            doc.line(),
             doc.text("beta"),
             doc.break_parent(),
             tagged_group:if_break(doc.text(" [broken]"), doc.text(" [flat]")),

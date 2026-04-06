@@ -86,14 +86,16 @@ function doc.close(text: string): Doc
     return result
 end
 
-function doc.line(flat_text: string): Doc
+function doc.line(): Doc
     local result = new_doc("line")
-    result.flat_text = flat_text
+    result.flat_text = " "
     return result
 end
 
 function doc.softline(): Doc
-    return doc.line("")
+    local result = new_doc("line")
+    result.flat_text = ""
+    return result
 end
 
 function doc.break_text(broken_text: string, flat_text?: string): Doc
@@ -182,8 +184,12 @@ local function append_text(state: RenderState, text: string)
     state.column = state.column + #text
 end
 
+local function rstrip_whitespace(text: string): string
+    return (text:gsub("%s+$", ""))
+end
+
 local function break_line(state: RenderState, indent: integer)
-    table.insert(state.lines, state.current_line)
+    table.insert(state.lines, rstrip_whitespace(state.current_line))
     state.current_line = string.rep(" ", indent)
     state.column = indent
 end
@@ -526,7 +532,7 @@ function Doc:render(
     }
 
     render_doc(self, state, base_indent, not force_break)
-    table.insert(state.lines, state.current_line)
+    table.insert(state.lines, rstrip_whitespace(state.current_line))
     return state.lines
 end
 

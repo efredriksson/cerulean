@@ -9,24 +9,6 @@ local tl = require("tl")
 
 local rewriter = {}
 
-local record Edit
-    line: integer
-    col_start: integer
-    col_end: integer
-    replacement: string
-end
-
-function Edit.new(
-    line: integer, col_start: integer, col_end: integer, replacement: string
-): Edit
-    local self: Edit = setmetatable({}, {__index = Edit})
-    self.line = line
-    self.col_start = col_start
-    self.col_end = col_end
-    self.replacement = replacement
-    return self
-end
-
 local record Rewrite
     output: string
     changed: boolean
@@ -46,7 +28,6 @@ end
 local record FormatterContext
     ast: parser.Node
     tokens: {tl.Token}
-    edits: {Edit}
     lines: {string}
     fmt_off_regions: ast_utils.FmtOffRegions
 end
@@ -54,122 +35,23 @@ end
 function FormatterContext.new(
     ast: parser.Node,
     tokens: {tl.Token},
-    edits: {Edit},
     lines: {string},
     fmt_off_regions: ast_utils.FmtOffRegions
 ): FormatterContext
     local self: FormatterContext = setmetatable({}, {__index = FormatterContext})
     self.ast = ast
     self.tokens = tokens
-    self.edits = edits
     self.lines = lines
     self.fmt_off_regions = fmt_off_regions
     return self
 end
 
-local function collect_all_edits(_: {tl.Token}): {Edit}
-    local edits: {Edit} = {}
-    return edits
-end
-
-local function error_on_edit_conflicts(line_edits: {Edit}, line_number: integer)
-    local function edit_bounds(edit: Edit): integer, integer
-        if edit.col_end < edit.col_start then
-            return edit.col_start, edit.col_start
-        end
-        return edit.col_start, edit.col_end + 1
-    end
-
-    local function edits_conflict(first: Edit, second: Edit): boolean
-        local first_start, first_end = edit_bounds(first)
-        local second_start, second_end = edit_bounds(second)
-        local first_is_insertion = first_start == first_end
-        local second_is_insertion = second_start == second_end
-
-        if first_is_insertion and second_is_insertion then
-            return first_start == second_start
-        elseif first_is_insertion then
-            return first_start >= second_start and first_start < second_end
-        elseif second_is_insertion then
-            return second_start >= first_start and second_start < first_end
-        end
-
-        return first_start < second_end and second_start < first_end
-    end
-
-    for i = 1, #line_edits do
-        for j = i + 1, #line_edits do
-            if edits_conflict(line_edits[i], line_edits[j]) then
-                error(
-                    string.format(
-                        "formatter produced overlapping edits on line %d (%d:%d and %d:%d)",
-                        line_number,
-                        line_edits[i].col_start,
-                        line_edits[i].col_end,
-                        line_edits[j].col_start,
-                        line_edits[j].col_end
-                    )
-                )
-            end
-        end
-    end
-end
-
-local function apply_edits_to_line(
-    line_str: string, line_number: integer, edits: {Edit}
-): string
-    local line_edits: {Edit} = {}
-    for _, edit in ipairs(edits) do
-        if edit.line == line_number then
-            table.insert(line_edits, edit)
-        end
-    end
-
-    local function by_col_desc(first: Edit, second: Edit): boolean
-        return first.col_start > second.col_start
-    end
-    table.sort(line_edits, by_col_desc)
-    error_on_edit_conflicts(line_edits, line_number)
-
-    local result = line_str
-    for _, edit in ipairs(line_edits) do
-        local before = result:sub(1, edit.col_start - 1)
-        local after = result:sub(edit.col_end + 1)
-        result = before .. edit.replacement .. after
-    end
-    return result
-end
-
-local function strip_trailing_spaces(line_str: string): string
-    return (line_str:gsub("%s+$", ""))
-end
-
 local function split_preserving_trailing_newline(source: string): {string}
     local lines: {string} = {}
-    for line_str in (source .. "\n"):gmatch("([^\n]*)\n") do
+    for line_str in string.gmatch(source .. "\n", "(.-)\n") do
         table.insert(lines, line_str)
     end
     return lines
-end
-
--- Collapse runs of more than one blank line to exactly one blank line.
-local function collapse_blank_lines(lines: {string}): {string}
-    local result: {string} = {}
-    local consecutive_blanks = 0
-    for i = 1, #lines - 1 do
-        local line_str = lines[i]
-        if line_str:match("^%s*$") then
-            consecutive_blanks = consecutive_blanks + 1
-            if consecutive_blanks <= 1 then
-                table.insert(result, line_str)
-            end
-        else
-            consecutive_blanks = 0
-            table.insert(result, line_str)
-        end
-    end
-    table.insert(result, lines[#lines])
-    return result
 end
 
 local function build_formatter_context(
@@ -177,23 +59,10 @@ local function build_formatter_context(
 ): FormatterContext
     local source_blocks = ast_utils.collect_block_spans(ast)
     local tokens, _ = tl.lex(source, filename)
-    local edits = collect_all_edits(tokens)
     local lines = split_preserving_trailing_newline(source)
     local fmt_off_regions = ast_utils.collect_fmt_off_regions(lines, source_blocks)
 
-    return FormatterContext.new(ast, tokens, edits, lines, fmt_off_regions)
-end
-
-local function run_lexical_whitespace_pass(context: FormatterContext): {string}
-    local result: {string} = {}
-    for i, line_str in ipairs(context.lines) do
-        if context.fmt_off_regions:includes_line(i) then
-            table.insert(result, line_str)
-        else
-            table.insert(result, apply_edits_to_line(line_str, i, context.edits))
-        end
-    end
-    return result
+    return FormatterContext.new(ast, tokens, lines, fmt_off_regions)
 end
 
 local function run_final_cleanup_pass(
@@ -201,7 +70,7 @@ local function run_final_cleanup_pass(
 ): {string}
     local cleaned_lines: {string} = {}
     for _, line_str in ipairs(lines) do
-        local cleaned = strip_trailing_spaces(line_str)
+        local cleaned = line_str
         if cleaned:match("^%s*$") then
             table.insert(cleaned_lines, "")
         else
@@ -209,7 +78,7 @@ local function run_final_cleanup_pass(
         end
     end
 
-    return collapse_blank_lines(cleaned_lines)
+    return cleaned_lines
 end
 
 local function run_structural_phase(
@@ -217,7 +86,7 @@ local function run_structural_phase(
 ): string
     local context = build_formatter_context(source, filename, ast)
 
-    local output_lines = run_lexical_whitespace_pass(context)
+    local output_lines = context.lines
 
     local cleaned_source = table.concat(output_lines, "\n")
     local cleaned_ast, cleaned_parse_errors = parser.parse(cleaned_source, filename)

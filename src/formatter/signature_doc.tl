@@ -83,7 +83,7 @@ local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
         }
         if i < #item_docs then
             table.insert(item_parts, doc.text(","))
-            table.insert(item_parts, doc.line(" "))
+            table.insert(item_parts, doc.line())
         end
         table.insert(result, doc.concat(item_parts))
     end
@@ -104,12 +104,12 @@ local function build_delimited_sequence_doc(
                     opts.compact_indent_amount,
                     doc.concat(
                         {
-                            doc.line(""),
+                            doc.softline(),
                             item_docs[1],
                         }
                     )
                 ),
-                doc.line(""),
+                doc.softline(),
                 doc.text(opts.close_delim),
             }
         )
@@ -127,12 +127,12 @@ local function build_delimited_sequence_doc(
                 opts.compact_indent_amount,
                 doc.concat(
                     {
-                        doc.line(""),
+                        doc.softline(),
                         items_doc,
                     }
                 )
             ),
-            doc.line(""),
+            doc.softline(),
             doc.text(opts.close_delim),
         }
     )

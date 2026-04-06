@@ -31,7 +31,7 @@ local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
         table.insert(result, item_doc)
         if i < #item_docs then
             table.insert(result, doc.text(","))
-            table.insert(result, doc.line(" "))
+            table.insert(result, doc.line())
         end
     end
 
@@ -96,12 +96,12 @@ local function build_broken_delimited_sequence_doc_from_items(
                 opts.compact_indent_amount,
                 doc.concat(
                     {
-                        doc.line(""),
+                        doc.softline(),
                         items_doc,
                     }
                 )
             ),
-            doc.line(""),
+            doc.softline(),
             doc.text(opts.close_delim),
         }
     )

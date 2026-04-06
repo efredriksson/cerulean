@@ -83,15 +83,15 @@ local function render_block_doc_with(
     if block.unattached_comments ~= nil and #block.unattached_comments > 0 then
         for index, comment in ipairs(block.unattached_comments) do
             if index > 1 then
-                table.insert(parts, doc.line(""))
+                table.insert(parts, doc.line())
             end
             if index > 1 and comment.blank_line_before then
-                table.insert(parts, doc.line(""))
+                table.insert(parts, doc.line())
             end
             table.insert(parts, doc.text(comment.text))
         end
         if #block > 0 then
-            table.insert(parts, doc.line(""))
+            table.insert(parts, doc.line())
         end
     end
 
@@ -108,7 +108,7 @@ local function render_block_doc_with(
                 for _, comment in ipairs(stmt.comments) do
                     if comment.y < stmt.y then
                         table.insert(parts, doc.text(comment.text))
-                        table.insert(parts, doc.line(""))
+                        table.insert(parts, doc.line())
                     end
                 end
             end
@@ -123,7 +123,7 @@ local function render_block_doc_with(
                 table.insert(parts, doc.text(" " .. comment.text))
             end
 
-            table.insert(parts, doc.line(""))
+            table.insert(parts, doc.line())
 
             local prev_statement_layout: StatementLayout | nil = nil
             if not (typed_layout is nil) then
@@ -133,14 +133,14 @@ local function render_block_doc_with(
             if not (prev_statement_layout is nil) then
                 local non_nil_prev_layout = prev_statement_layout
                 if non_nil_prev_layout.preserve_blank_line_after then
-                    table.insert(parts, doc.line(""))
+                    table.insert(parts, doc.line())
                 end
             end
 
             if not stmt_is_verbatim then
                 for _, comment in ipairs(leading_comments) do
                     table.insert(parts, doc.text(comment.text))
-                    table.insert(parts, doc.line(""))
+                    table.insert(parts, doc.line())
                 end
             end
         end
@@ -176,10 +176,10 @@ local function render_block_doc_with(
                 line_broken = false
             else
                 if not line_broken then
-                    table.insert(parts, doc.line(""))
+                    table.insert(parts, doc.line())
                 end
                 if comment.y > previous_line + 1 then
-                    table.insert(parts, doc.line(""))
+                    table.insert(parts, doc.line())
                 end
                 table.insert(parts, doc.text(comment.text))
                 line_broken = false

@@ -79,7 +79,7 @@ local function function_with_indent(
                 4,
                 doc.concat(
                     {
-                        doc.line(""),
+                        doc.line(),
                         body,
                     }
                 )
@@ -93,10 +93,10 @@ local function build_comment_lines_doc(comments: {parser.Comment}): {doc.Doc}
     local parts: {doc.Doc} = {}
     for index, comment in ipairs(comments) do
         if index > 1 then
-            table.insert(parts, doc.line(""))
+            table.insert(parts, doc.line())
         end
         if index > 1 and comment.blank_line_before then
-            table.insert(parts, doc.line(""))
+            table.insert(parts, doc.line())
         end
         table.insert(parts, doc.text(comment.text))
     end
@@ -113,12 +113,12 @@ local function block_with_indent(
                 4,
                 doc.concat(
                     {
-                        doc.line(""),
+                        doc.line(),
                         body,
                     }
                 )
             ),
-            doc.line(""),
+            doc.line(),
             footer,
         }
     )
@@ -134,7 +134,7 @@ local function block_with_close(
                 4,
                 doc.concat(
                     {
-                        doc.line(""),
+                        doc.line(),
                         body,
                     }
                 )
@@ -332,13 +332,13 @@ local function render_enum_doc(stmt: parser.Node, def: tl.EnumType): doc.Doc
             table.insert(enum_docs, doc.hardline())
         elseif enum_value.comment == nil and enum_value.type_text ~= nil then
             table.insert(enum_docs, doc.text(enum_value.type_text))
-            table.insert(enum_docs, doc.line(""))
+            table.insert(enum_docs, doc.line())
         elseif enum_value.comment ~= nil and enum_value.type_text ~= nil then
             table.insert(
                 enum_docs,
                 doc.text(enum_value.type_text .. " " .. enum_value.comment.text)
             )
-            table.insert(enum_docs, doc.line(""))
+            table.insert(enum_docs, doc.line())
         end
     end
     return block_with_close(header, doc.concat(enum_docs), "end")
@@ -528,13 +528,13 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
             table.insert(field_docs, doc.hardline())
         elseif record_line.comment == nil and record_line.item ~= nil then
             table.insert(field_docs, doc.text(record_line.type_text))
-            table.insert(field_docs, doc.line(""))
+            table.insert(field_docs, doc.line())
         elseif record_line.comment ~= nil and record_line.item ~= nil then
             table.insert(
                 field_docs,
                 doc.text(record_line.type_text .. " " .. record_line.comment.text)
             )
-            table.insert(field_docs, doc.line(""))
+            table.insert(field_docs, doc.line())
         end
     end
 
@@ -545,7 +545,7 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
                 4,
                 doc.concat(
                     {
-                        doc.line(""),
+                        doc.line(),
                         doc.concat(field_docs),
                     }
                 )
@@ -723,7 +723,7 @@ local function render_if_doc(
         end
 
         if index > 1 then
-            table.insert(parts, doc.line(""))
+            table.insert(parts, doc.line())
         end
         table.insert(parts, get_head_text())
         table.insert(
@@ -732,7 +732,7 @@ local function render_if_doc(
                 4,
                 doc.concat(
                     {
-                        doc.line(""),
+                        doc.line(),
                         body_doc,
                     }
                 )

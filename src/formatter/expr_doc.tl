@@ -118,7 +118,7 @@ local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
         table.insert(result, item_doc)
         if i < #item_docs then
             table.insert(result, doc.text(","))
-            table.insert(result, doc.line(" "))
+            table.insert(result, doc.line())
         end
     end
 
@@ -180,10 +180,10 @@ local function build_broken_delimited_sequence_doc_from_items(
     return doc.concat({
         doc.text(opts.open_delim),
         doc.indent(opts.compact_indent_amount, doc.concat({
-            doc.line(""),
+            doc.softline(),
             items_doc,
         })),
-        doc.line(""),
+        doc.softline(),
         doc.text(opts.close_delim),
     })
 end
@@ -241,7 +241,7 @@ local function build_call_arg_items_doc(args: parser.Node): doc.Doc
             elseif #leading_comments > 0 then
                 table.insert(parts, doc.hardline())
             else
-                table.insert(parts, doc.line(" "))
+                table.insert(parts, doc.line())
             end
         end
 
@@ -330,7 +330,7 @@ local function render_top_level_logical_chain(
         )
         if index < #terms then
             local default_separator = doc.indent(4, doc.concat({
-                doc.line(" "),
+                doc.line(),
                 doc.text(operator .. " "),
             }))
 
@@ -391,7 +391,7 @@ local function render_statement(stmt: parser.Node): doc.Doc
             for i, exp_node in ipairs(stmt.exps) do
                 table.insert(parts, render_expr(exp_node, 0))
                 if i < #stmt.exps then
-                    table.insert(parts, doc.text(","))
+                    table.insert(parts, doc.text(", "))
                 end
             end
         end
@@ -457,7 +457,7 @@ local function render_function_expr(node: parser.Node): doc.Doc
         return doc.group(doc.concat({
             doc.text("function"),
             signature,
-            doc.line(" "),
+            doc.line(),
             doc.text("end"),
         }))
     elseif #node.body == 1 then
@@ -465,10 +465,10 @@ local function render_function_expr(node: parser.Node): doc.Doc
             doc.text("function"),
             signature,
             doc.indent(4, doc.concat({
-                doc.line(" "),
+                doc.line(),
                 render_statement(node.body[1]),
             })),
-            doc.line(" "),
+            doc.line(),
             doc.text("end"),
         }))
     end

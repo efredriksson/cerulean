@@ -140,7 +140,7 @@ local function build_delimited_sequence_doc(
             elseif force_wrap then
                 table.insert(lines, doc.hardline())
             else
-                table.insert(lines, doc.line(""))
+                table.insert(lines, doc.softline())
             end
         end
     end
@@ -156,12 +156,12 @@ local function build_delimited_sequence_doc(
                 opts.compact_indent_amount,
                 doc.concat(
                     {
-                        force_wrap and doc.hardline() or doc.line(""),
+                        force_wrap and doc.hardline() or doc.softline(),
                         items_doc,
                     }
                 )
             ),
-            force_wrap and doc.hardline() or doc.line(""),
+            force_wrap and doc.hardline() or doc.softline(),
             doc.text(opts.close_delim),
         }
     )
