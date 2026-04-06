@@ -321,6 +321,24 @@ describe("formatter function call wrapping", function()
       end
    ]]))
 
+   it("keeps return boolean chains readable when both call terms wrap", helpers.format([[
+      function Rectangle:is_contained_by(other: Rectangle): boolean
+         return interval_contained(
+            other.x, other.x + other.width, self.x, self.x + self.width
+         ) and interval_contained(
+            other.y, other.y + other.height, self.y, self.y + self.height
+         )
+      end
+   ]], [[
+      function Rectangle:is_contained_by(other: Rectangle): boolean
+          return interval_contained(
+              other.x, other.x + other.width, self.x, self.x + self.width
+          ) and interval_contained(
+              other.y, other.y + other.height, self.y, self.y + self.height
+          )
+      end
+   ]]))
+
    it("keeps a short left call compact and wraps the overflowing unary-not call in nested boolean conditions", helpers.format([[
       if test1() then
          if test2() then

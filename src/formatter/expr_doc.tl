@@ -324,12 +324,19 @@ local function render_top_level_logical_chain(
 
     local parts: {doc.Doc} = {}
     for index, term in ipairs(terms) do
-        table.insert(parts, render_call_aware_expr(term, operator_prec))
+        local term_group_ref = doc.group_ref()
+        table.insert(
+            parts, term_group_ref:group(render_call_aware_expr(term, operator_prec))
+        )
         if index < #terms then
-            table.insert(parts, doc.indent(4, doc.concat({
+            local default_separator = doc.indent(4, doc.concat({
                 doc.line(" "),
                 doc.text(operator .. " "),
-            })))
+            }))
+
+            table.insert(parts, term_group_ref:if_break(
+                doc.text(" " .. operator .. " "), default_separator
+            ))
         end
     end
 
