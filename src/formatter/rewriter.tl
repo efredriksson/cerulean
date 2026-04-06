@@ -1,10 +1,11 @@
--- Top-level pipeline: lexical pass → line cleanup → structural block render → span pass → cleanup.
--- See ARCHITECTURE.md for the full pipeline diagram.
-local ast_utils = require("formatter.ast_utils")
+-- Top-level pipeline: parse -> source/layout analysis -> structural render -> require sort.
+-- See ARCHITECTURE.md for the current module map and flow.
+local ast_traversal = require("formatter.ast_traversal")
 local block_doc = require("formatter.block_doc")
+local layout_analysis = require("formatter.layout_analysis")
 local parser = require("formatter.parser")
 local require_sort = require("formatter.require_sort")
-local structural_render_analysis = require("formatter.structural_render_analysis")
+local source = require("formatter.source")
 local tl = require("tl")
 
 local rewriter = {}
@@ -28,49 +29,41 @@ end
 local record FormatterContext
     ast: parser.Node
     tokens: {tl.Token}
-    lines: {string}
-    fmt_off_regions: ast_utils.FmtOffRegions
+    source_text: source.Text
+    fmt_off_regions: source.Regions
 end
 
 function FormatterContext.new(
     ast: parser.Node,
     tokens: {tl.Token},
-    lines: {string},
-    fmt_off_regions: ast_utils.FmtOffRegions
+    source_text: source.Text,
+    fmt_off_regions: source.Regions
 ): FormatterContext
     local self: FormatterContext = setmetatable({}, {__index = FormatterContext})
     self.ast = ast
     self.tokens = tokens
-    self.lines = lines
+    self.source_text = source_text
     self.fmt_off_regions = fmt_off_regions
     return self
 end
 
-local function split_preserving_trailing_newline(source: string): {string}
-    local lines: {string} = {}
-    for line_str in string.gmatch(source .. "\n", "(.-)\n") do
-        table.insert(lines, line_str)
-    end
-    return lines
-end
-
 local function build_formatter_context(
-    source: string, filename: string, ast: parser.Node
+    source_code: string, filename: string, ast: parser.Node
 ): FormatterContext
-    local source_blocks = ast_utils.collect_block_spans(ast)
-    local tokens, _ = tl.lex(source, filename)
-    local lines = split_preserving_trailing_newline(source)
-    local fmt_off_regions = ast_utils.collect_fmt_off_regions(lines, source_blocks)
+    local source_text = source.Text.new(source_code)
+    local source_blocks = ast_traversal.collect_block_ranges(ast)
+    local tokens, _ = tl.lex(source_code, filename)
+    local fmt_off_regions = source.collect_fmt_off_regions(source_text, source_blocks)
 
-    return FormatterContext.new(ast, tokens, lines, fmt_off_regions)
+    return FormatterContext.new(ast, tokens, source_text, fmt_off_regions)
 end
 
 local function run_structural_phase(
-    source: string, filename: string, ast: parser.Node
+    source_: string, filename: string, ast: parser.Node
 ): string
-    local context = build_formatter_context(source, filename, ast)
-    local structural_analysis = structural_render_analysis.analyze_block(
-        context.ast, context.lines, context.fmt_off_regions
+    local context = build_formatter_context(source_, filename, ast)
+    local structural_analysis = layout_analysis.analyze_block(
+        context.ast, context.source_text.lines, context.fmt_off_regions
     )
     if structural_analysis.can_render_structurally then
         local block_layout = structural_analysis.block_layout
@@ -81,29 +74,29 @@ local function run_structural_phase(
         end
     end
 
-    return source
+    return source_
 end
 
-local function run_require_sort_phase(source: string, filename: string): Rewrite
-    local output, parse_errors = require_sort.rewrite(source, filename)
-    return Rewrite.new(output, output ~= source, parse_errors)
+local function run_require_sort_phase(source_: string, filename: string): Rewrite
+    local output, parse_errors = require_sort.rewrite(source_, filename)
+    return Rewrite.new(output, output ~= source_, parse_errors)
 end
 
-function rewriter.rewrite(source: string, filename: string): Rewrite
-    local ast, parse_errors = parser.parse(source, filename)
+function rewriter.rewrite(source_: string, filename: string): Rewrite
+    local ast, parse_errors = parser.parse(source_, filename)
     if #parse_errors > 0 then
-        return Rewrite.new(source, false, parse_errors)
+        return Rewrite.new(source_, false, parse_errors)
     end
 
-    local intermediate = run_structural_phase(source, filename, ast)
+    local intermediate = run_structural_phase(source_, filename, ast)
     local reorder_rewrite = run_require_sort_phase(intermediate, filename)
     if #reorder_rewrite.parse_errors > 0 then
         return Rewrite.new(
-            intermediate, intermediate ~= source, reorder_rewrite.parse_errors
+            intermediate, intermediate ~= source_, reorder_rewrite.parse_errors
         )
     end
 
-    return Rewrite.new(reorder_rewrite.output, reorder_rewrite.output ~= source, {})
+    return Rewrite.new(reorder_rewrite.output, reorder_rewrite.output ~= source_, {})
 end
 
 return rewriter

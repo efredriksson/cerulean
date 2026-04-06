@@ -1,11 +1,11 @@
 -- Decides whether a block can be structurally re-rendered by block_doc.
 -- Rejects blocks with comments, fmt:off, unsupported statement shapes,
 -- multi-statement anonymous functions in expressions, or multi-line conditions.
-local ast_utils = require("formatter.ast_utils")
+local ast_traversal = require("formatter.ast_traversal")
 local fmt_logger = require("formatter.fmt_logger")
 local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
-local ranges = require("formatter.ranges")
+local source = require("formatter.source")
 local tl = require("tl")
 
 local type StatementLayout = layout_types.StatementLayout
@@ -16,11 +16,7 @@ local record AnalysisResult
     block_layout: BlockLayout
 end
 
-local structural_render_analysis = {
-    BlockLayout = layout_types.BlockLayout,
-    StatementLayout = layout_types.StatementLayout,
-    AnalysisResult = AnalysisResult,
-}
+local layout_analysis = {AnalysisResult = AnalysisResult}
 
 function AnalysisResult.new(
     can_render_structurally: boolean, block_layout: BlockLayout
@@ -38,7 +34,7 @@ end
 local function max_source_line(node: parser.Node): integer
     local max_line = node.yend or node.y
 
-    ast_utils.walk_descendants(node, function(child: parser.Node)
+    ast_traversal.walk_descendants(node, function(child: parser.Node)
         local child_end = node_end_line(child)
         if child_end > max_line then
             max_line = child_end
@@ -66,7 +62,7 @@ local function min_source_line(node: parser.Node): integer
     end
 
     consider_node_comments(node)
-    ast_utils.walk_descendants(node, consider_node_comments)
+    ast_traversal.walk_descendants(node, consider_node_comments)
     return min_line
 end
 
@@ -115,7 +111,7 @@ local function node_contains_unrenderable_anonymous_function(
     end
 
     local found = false
-    ast_utils.walk_descendants(node, function(child: parser.Node)
+    ast_traversal.walk_descendants(node, function(child: parser.Node)
         if not found and child.kind == "function" and not anonymous_function_is_renderable(child) then
             found = true
         end
@@ -138,7 +134,7 @@ local function exps_contain_multiline_table(exps: {parser.Node}): boolean
     for _, exp in ipairs(exps) do
         if exp.kind == "literal_table"
             and not exp.trailing_comma
-            and ast_utils.has_multiline_descendant(exp)
+            and ast_traversal.has_multiline_descendant(exp)
         then
             return true
         end
@@ -262,16 +258,16 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
     return false
 end
 
-local function stmt_surface_range(stmt: parser.Node): ranges.LineRange
-    return ranges.new(stmt.y, max_source_line(stmt))
+local function stmt_surface_range(stmt: parser.Node): source.Range
+    return source.Range.new(stmt.y, max_source_line(stmt))
 end
 
-local function block_surface_range(block: parser.Node): ranges.LineRange
-    return ranges.new(min_source_line(block), max_source_line(block))
+local function block_surface_range(block: parser.Node): source.Range
+    return source.Range.new(min_source_line(block), max_source_line(block))
 end
 
-local function stmt_child_surface_ranges(stmt: parser.Node): {ranges.LineRange}
-    local result: {ranges.LineRange} = {}
+local function stmt_child_surface_ranges(stmt: parser.Node): {source.Range}
+    local result: {source.Range} = {}
 
     if stmt.body ~= nil then
         table.insert(result, block_surface_range(stmt.body))
@@ -284,15 +280,15 @@ local function stmt_child_surface_ranges(stmt: parser.Node): {ranges.LineRange}
     return result
 end
 
-local function stmt_own_surface_ranges(stmt: parser.Node): {ranges.LineRange}
-    return ranges.subtract_many(
+local function stmt_own_surface_ranges(stmt: parser.Node): {source.Range}
+    return source.subtract_many(
         { stmt_surface_range(stmt) },
         stmt_child_surface_ranges(stmt)
     )
 end
 
 local function stmt_overlaps_fmt_off(
-    stmt: parser.Node, fmt_off_regions: ast_utils.FmtOffRegions
+    stmt: parser.Node, fmt_off_regions: source.Regions
 ): boolean
     local surface_ranges = stmt_own_surface_ranges(stmt)
     for _, range in ipairs(surface_ranges) do
@@ -328,7 +324,7 @@ end
 
 local function build_block_layout(
     block: parser.Node,
-    fmt_off_regions: ast_utils.FmtOffRegions,
+    fmt_off_regions: source.Regions,
     source_lines: {string}
 ): BlockLayout | nil
     if #block == 0 then
@@ -404,7 +400,7 @@ local function build_block_layout(
 end
 
 local function block_is_structurally_eligible(
-    block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
+    block: parser.Node, lines: {string}, fmt_off_regions: source.Regions
 ): boolean
     if #block == 0 then
         return true
@@ -453,10 +449,10 @@ local function block_is_structurally_eligible(
     return true
 end
 
-function structural_render_analysis.analyze_block(
+function layout_analysis.analyze_block(
     block: parser.Node,
     source_lines: {string},
-    fmt_off_regions: ast_utils.FmtOffRegions
+    fmt_off_regions: source.Regions
 ): AnalysisResult
     local block_layout = build_block_layout(block, fmt_off_regions, source_lines)
     if block_layout == nil then
@@ -464,7 +460,7 @@ function structural_render_analysis.analyze_block(
     end
 
     local can_render_structurally = block_is_structurally_eligible(
-        block, source_lines, ast_utils.FmtOffRegions.new({})
+        block, source_lines, source.Regions.new({})
     )
     if not can_render_structurally then
         return AnalysisResult.new(false, nil)
@@ -473,4 +469,4 @@ function structural_render_analysis.analyze_block(
     return AnalysisResult.new(true, block_layout)
 end
 
-return structural_render_analysis
+return layout_analysis

@@ -1,9 +1,10 @@
 -- Alphabetically re-orders consecutive top-level local require declarations.
 -- Only sorts contiguous groups; stops at the first non-require statement.
-local ast_utils = require("formatter.ast_utils")
+local ast_traversal = require("formatter.ast_traversal")
 local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
+local source = require("formatter.source")
 local tl = require("tl")
 
 local require_sort = {}
@@ -40,14 +41,6 @@ function RequireBlock.new(
     self.last_line = last_line
     self.decls = decls
     return self
-end
-
-local function split_preserving_trailing_newline(source: string): {string}
-    local lines: {string} = {}
-    for line_str in (source .. "\n"):gmatch("([^\n]*)\n") do
-        table.insert(lines, line_str)
-    end
-    return lines
 end
 
 local function render_require_decl(decl: RequireDecl, indent: string): doc.Doc
@@ -118,7 +111,7 @@ local function has_comment(
 end
 
 local function collect_require_blocks(
-    ast: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
+    ast: parser.Node, lines: {string}, fmt_off_regions: source.Regions
 ): {RequireBlock}
     local decls = collect_require_decls(ast)
     local result: {RequireBlock} = {}
@@ -211,15 +204,16 @@ local function sort_require_blocks(
     return result
 end
 
-function require_sort.rewrite(source: string, filename: string): string, {tl.Error}
-    local ast, parse_errors = parser.parse(source, filename)
+function require_sort.rewrite(source_: string, filename: string): string, {tl.Error}
+    local ast, parse_errors = parser.parse(source_, filename)
     if #parse_errors > 0 then
-        return source, parse_errors
+        return source_, parse_errors
     end
 
-    local lines = split_preserving_trailing_newline(source)
-    local source_blocks = ast_utils.collect_block_spans(ast)
-    local fmt_off_regions = ast_utils.collect_fmt_off_regions(lines, source_blocks)
+    local source_text = source.Text.new(source_)
+    local lines = source_text.lines
+    local source_blocks = ast_traversal.collect_block_ranges(ast)
+    local fmt_off_regions = source.collect_fmt_off_regions(source_text, source_blocks)
     local require_blocks = collect_require_blocks(ast, lines, fmt_off_regions)
     local output_lines = sort_require_blocks(lines, require_blocks)
 

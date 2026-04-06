@@ -5,8 +5,10 @@
 `rewriter.rewrite(source, filename)` does:
 
 1. Parse source to AST (`parser.parse`).
-2. Build formatting context (lines + `fmt:off` regions from `ast_utils`).
-3. Structural analysis (`structural_render_analysis.analyze_block`):
+2. Build source context:
+   - `source.Text` for line view
+   - `ast_traversal.collect_block_ranges` + `source.collect_fmt_off_regions`.
+3. Layout analysis (`layout_analysis.analyze_block`):
    - returns `{ can_render_structurally, block_layout }`.
 4. If structural render is allowed, render full AST block via doc tree:
    - `block_doc` -> `stmt_doc` -> `expr_doc`/`call_doc`/`table_doc`/`signature_doc`
@@ -19,8 +21,9 @@ If structural render is blocked or rendering fails, keep original source and sti
 
 - `rewriter.tl`: pipeline orchestration.
 - `parser.tl`: typed Teal AST parser.
-- `ast_utils.tl`: AST walking + `fmt:off` region collection.
-- `structural_render_analysis.tl`: layout/eligibility analysis.
+- `ast_traversal.tl`: AST traversal + AST-derived block ranges.
+- `source.tl`: source domain (`Text`, `Range`, `Region/Regions`, fmt-region collection).
+- `layout_analysis.tl`: layout/eligibility analysis.
 - `layout_types.tl`: `BlockLayout`/`StatementLayout` types.
 - `doc.tl`: document algebra and renderer.
 - `block_doc.tl`: block-level rendering and statement glue.

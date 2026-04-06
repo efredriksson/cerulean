@@ -72,13 +72,11 @@ function render_builders.classify_comments_by_previous_end_line(
     local trailing: {parser.Comment} = {}
     local leading: {parser.Comment} = {}
 
-    if node.comments ~= nil then
-        for _, comment in ipairs(node.comments) do
-            if comment.y <= previous_end_line then
-                table.insert(trailing, comment)
-            else
-                table.insert(leading, comment)
-            end
+    for _, comment in ipairs(node.comments or {}) do
+        if comment.y <= previous_end_line then
+            table.insert(trailing, comment)
+        else
+            table.insert(leading, comment)
         end
     end
 
