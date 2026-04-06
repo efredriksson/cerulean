@@ -375,6 +375,15 @@ local function append_return_type(
     return signature
 end
 
+local function render_string_literal(node: parser.Node): doc.Doc
+    if node.is_longstring then
+        return doc.text(node.tk)
+    end
+
+    local content = node.tk:sub(2, -2)
+    return doc.text('"' .. content .. '"')
+end
+
 local function render_statement(stmt: parser.Node): doc.Doc
     if stmt.kind == "return" then
         local parts: {doc.Doc} = {}
@@ -519,7 +528,9 @@ end
 render_expr = function(node: parser.Node, parent_prec: integer): doc.Doc
     if node.kind == "variable" or node.kind == "identifier" or node.kind == "..." then
         return doc.text(node.tk)
-    elseif node.kind == "string" or node.kind == "number" or node.kind == "integer" then
+    elseif node.kind == "string" then
+        return render_string_literal(node)
+    elseif node.kind == "number" or node.kind == "integer" then
         return doc.text(node.tk)
     elseif node.kind == "boolean" or node.kind == "nil" then
         return doc.text(node.tk)

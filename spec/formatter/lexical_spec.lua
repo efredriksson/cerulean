@@ -108,6 +108,16 @@ describe("formatter lexical transforms", function()
       ]], [[
          local x = "hello"
       ]]))
+
+      it("converts empty single-quoted strings to double quotes", helpers.format([[
+         local x = ''
+      ]], [[
+         local x = ""
+      ]]))
+
+      it("does not change long string literals", helpers.check([=[
+         local x = [[hello]]
+      ]=]))
    end)
 
    describe("indentation", function()
