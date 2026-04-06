@@ -2,7 +2,6 @@ local helpers = require("spec.formatter.helpers")
 
 describe("formatter integration", function()
 
-
    describe("fmt: off / fmt: on", function()
       it("skips formatting between directives and resumes after", helpers.format([[
          local function example()
@@ -36,6 +35,83 @@ describe("formatter integration", function()
          end
 
          local b = {4, 5, 6}
+      ]]))
+
+      it("keeps structural formatting enabled around fmt:off in the same block", helpers.format([[
+         local function demo()
+            local before = one +  two
+            -- fmt: off
+            local frozen  =   one+two
+            -- fmt: on
+            local after = three +  four
+         end
+      ]], [[
+         local function demo()
+             local before = one + two
+            -- fmt: off
+            local frozen  =   one+two
+             -- fmt: on
+             local after = three + four
+         end
+      ]]))
+
+      it("supports multiple fmt:off regions in a single block", helpers.format([[
+         local function demo()
+            local first = one +  two
+            -- fmt: off
+            local frozen_a  =   one+two
+            -- fmt: on
+            local middle = three +  four
+            -- fmt: off
+            local frozen_b  =   five+six
+            -- fmt: on
+            local last = seven +  eight
+         end
+      ]], [[
+         local function demo()
+             local first = one + two
+            -- fmt: off
+            local frozen_a  =   one+two
+             -- fmt: on
+             local middle = three + four
+            -- fmt: off
+            local frozen_b  =   five+six
+             -- fmt: on
+             local last = seven + eight
+         end
+      ]]))
+
+      it("keeps nested fmt:off region frozen while formatting sibling statements", helpers.format([[
+         local function nested()
+            if enabled then
+               local before = one +  two
+               -- fmt: off
+               local frozen  =   one+two
+               -- fmt: on
+               local after = three +  four
+            end
+         end
+      ]], [[
+         local function nested()
+             if enabled then
+                 local before = one + two
+               -- fmt: off
+               local frozen  =   one+two
+                 -- fmt: on
+                 local after = three + four
+             end
+         end
+      ]]))
+
+      it("keeps a nested literal block unchanged inside fmt:off", helpers.check([[
+         local config = {
+             entries = {
+               -- fmt: off
+               ALPHA = 1,
+               BETA  = 2,
+               -- fmt: on
+             },
+         }
       ]]))
    end)
 
@@ -98,6 +174,14 @@ describe("formatter integration", function()
       it("fmt: off at top level freezes to end of file", helpers.check([[
          -- fmt: off
          local x = {1,  2,  3}
+      ]]))
+
+      it("does not crash on anonymous function expressions with unsupported statement kinds", helpers.check([[
+         local value = function()
+             if enabled then
+                 return 1
+             end
+         end
       ]]))
 
       it("reports a lex error for an unclosed string", helpers.parse_error([[

@@ -4,12 +4,15 @@
 local ast_utils = require("formatter.ast_utils")
 local fmt_logger = require("formatter.fmt_logger")
 local parser = require("formatter.parser")
+local ranges = require("formatter.ranges")
 local tl = require("tl")
 
 local record StatementLayout
     preserve_blank_line_after: boolean
+    render_mode: string
+    verbatim_lines: {string} | nil
     body_layout: BlockLayout
-    if_block_layouts: {BlockLayout} | nil
+    if_block_layouts: {BlockLayout}
 end
 
 local record BlockLayout
@@ -23,8 +26,10 @@ local structural_render_analysis = {
 function StatementLayout.new(): StatementLayout
     local self: StatementLayout = setmetatable({}, { __index = StatementLayout })
     self.preserve_blank_line_after = false
+    self.render_mode = "format"
+    self.verbatim_lines = nil
     self.body_layout = nil
-    self.if_block_layouts = nil
+    self.if_block_layouts = {}
     return self
 end
 
@@ -109,22 +114,46 @@ local function count_leading_comments_for_stmt(
     return count
 end
 
-local function node_contains_multi_statement_function(node: parser.Node): boolean
-    if node.kind == "function" and node.body ~= nil and #node.body > 1 then
+local function anonymous_function_stmt_is_renderable(stmt: parser.Node): boolean
+    return stmt.kind == "return"
+        or stmt.kind == "assignment"
+        or stmt.kind == "local_declaration"
+end
+
+local function anonymous_function_is_renderable(node: parser.Node): boolean
+    if node.kind ~= "function" then
         return true
     end
+    if node.body == nil or #node.body == 0 then
+        return true
+    end
+    if #node.body > 1 then
+        return false
+    end
+    return anonymous_function_stmt_is_renderable(node.body[1])
+end
+
+local function node_contains_unrenderable_anonymous_function(
+    node: parser.Node
+): boolean
+    if not anonymous_function_is_renderable(node) then
+        return true
+    end
+
     local found = false
     ast_utils.walk_descendants(node, function(child: parser.Node)
-        if child.kind == "function" and child.body ~= nil and #child.body > 1 then
+        if not found and child.kind == "function" and not anonymous_function_is_renderable(child) then
             found = true
         end
     end)
     return found
 end
 
-local function exps_contain_multi_statement_function(exps: {parser.Node}): boolean
+local function exps_contain_unrenderable_anonymous_function(
+    exps: {parser.Node}
+): boolean
     for _, exp in ipairs(exps) do
-        if node_contains_multi_statement_function(exp) then
+        if node_contains_unrenderable_anonymous_function(exp) then
             return true
         end
     end
@@ -207,23 +236,22 @@ end
 
 local function stmt_is_ast_renderable(stmt: parser.Node): boolean
     if stmt.kind == "return" then
-        return stmt.exps == nil or not exps_contain_multi_statement_function(stmt.exps)
+        return stmt.exps == nil
+            or not exps_contain_unrenderable_anonymous_function(stmt.exps)
     elseif stmt.kind == "assignment" then
-        return not exps_contain_multi_statement_function(stmt.exps)
+        return not exps_contain_unrenderable_anonymous_function(stmt.exps)
     elseif stmt.kind == "local_declaration" then
-        return (stmt.exps == nil or not exps_contain_multi_statement_function(
-            stmt.exps
-        ))
+        return (stmt.exps == nil or not exps_contain_unrenderable_anonymous_function(stmt.exps))
             and (stmt.exps == nil or not exps_contain_multiline_table(stmt.exps))
     elseif stmt.kind == "local_type" then
         return local_type_is_ast_renderable(stmt)
     elseif stmt.kind == "op" then
         if stmt.op ~= nil and stmt.op.op == "@funcall" then
-            return not node_contains_multi_statement_function(stmt)
+            return not node_contains_unrenderable_anonymous_function(stmt)
         end
         return node_is_single_line(
             stmt
-        ) and not node_contains_multi_statement_function(stmt)
+        ) and not node_contains_unrenderable_anonymous_function(stmt)
     elseif stmt.kind == "break" then
         return true
     elseif stmt.kind == "local_function"
@@ -262,7 +290,76 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
     return false
 end
 
-local function build_block_layout(block: parser.Node): BlockLayout | nil
+local function max_stmt_line(stmt: parser.Node): integer
+    local stmt_end = max_statement_source_line(stmt)
+    return math.max(stmt_end, stmt.y)
+end
+
+local function stmt_surface_range(stmt: parser.Node): ranges.LineRange
+    return ranges.new(stmt.y, max_stmt_line(stmt))
+end
+
+local function stmt_child_surface_ranges(stmt: parser.Node): {ranges.LineRange}
+    local result: {ranges.LineRange} = {}
+
+    if stmt.body ~= nil then
+        table.insert(result, stmt_surface_range(stmt.body))
+    end
+
+    for _, if_block in ipairs(stmt.if_blocks or {}) do
+        table.insert(result, stmt_surface_range(if_block))
+    end
+
+    return result
+end
+
+local function stmt_own_surface_ranges(stmt: parser.Node): {ranges.LineRange}
+    return ranges.subtract_many(
+        { stmt_surface_range(stmt) },
+        stmt_child_surface_ranges(stmt)
+    )
+end
+
+local function stmt_overlaps_fmt_off(
+    stmt: parser.Node, fmt_off_regions: ast_utils.FmtOffRegions
+): boolean
+    local surface_ranges = stmt_own_surface_ranges(stmt)
+    for _, range in ipairs(surface_ranges) do
+        if fmt_off_regions:includes_range(range.first_line, range.last_line) then
+            return true
+        end
+    end
+    return false
+end
+
+local function collect_verbatim_lines(
+    source_lines: {string},
+    stmt: parser.Node,
+    stmt_end_line: integer,
+    previous_end_line: integer
+): {string}
+    local first_line = stmt.y
+
+    for _, comment in ipairs(stmt.comments or {}) do
+        if comment.y > previous_end_line then
+            first_line = math.min(first_line, comment.y)
+        end
+    end
+
+    local result: {string} = {}
+    for line = first_line, stmt_end_line do
+        local source_line = source_lines[line] or ""
+        table.insert(result, source_line)
+    end
+
+    return result
+end
+
+local function build_block_layout(
+    block: parser.Node,
+    fmt_off_regions: ast_utils.FmtOffRegions,
+    source_lines: {string}
+): BlockLayout | nil
     if #block == 0 then
         return BlockLayout.new({})
     end
@@ -282,41 +379,52 @@ local function build_block_layout(block: parser.Node): BlockLayout | nil
                 statement_layouts[#statement_layouts].preserve_blank_line_after = true
             end
         end
-        if not stmt_is_ast_renderable(stmt) then
-            fmt_logger.info(
-                "[structural] blocked at line %s: %s has unsafe source shape",
-                tostring(stmt.y),
-                stmt.kind
-            )
-            return nil
-        end
         local statement_layout = StatementLayout.new()
+        local stmt_is_verbatim = stmt_overlaps_fmt_off(stmt, fmt_off_regions)
+
+        if stmt_is_verbatim then
+            statement_layout.render_mode = "verbatim"
+            statement_layout.verbatim_lines = collect_verbatim_lines(
+                source_lines, stmt, stmt_end, previous_end or 0
+            )
+        else
+            if not stmt_is_ast_renderable(stmt) then
+                fmt_logger.info(
+                    "[structural] blocked at line %s: %s has unsafe source shape",
+                    tostring(stmt.y),
+                    stmt.kind
+                )
+                return nil
+            end
+        end
+
         if stmt.body ~= nil then
-            local body_layout = build_block_layout(stmt.body)
+            local body_layout = build_block_layout(
+                stmt.body, fmt_off_regions, source_lines
+            )
             if body_layout == nil then
                 return nil
             end
             statement_layout.body_layout = body_layout
         end
-        if stmt.if_blocks ~= nil then
-            local if_block_layouts: {BlockLayout} = {}
-            for _, if_block in ipairs(stmt.if_blocks) do
-                if if_block.body == nil then
-                    fmt_logger.info(
-                        "[structural] blocked at line %s: if block at line %s has no body",
-                        tostring(stmt.y),
-                        tostring(if_block.y)
-                    )
-                    return nil
-                end
-                local if_block_layout = build_block_layout(if_block.body)
-                if if_block_layout is nil then
-                    return nil
-                end
-                table.insert(if_block_layouts, if_block_layout)
+        for _, if_block in ipairs(stmt.if_blocks or {}) do
+            if if_block.body == nil then
+                fmt_logger.info(
+                    "[structural] blocked at line %s: if block at line %s has no body",
+                    tostring(stmt.y),
+                    tostring(if_block.y)
+                )
+                return nil
             end
-            statement_layout.if_block_layouts = if_block_layouts
+            local if_block_layout = build_block_layout(
+                if_block.body, fmt_off_regions, source_lines
+            )
+            if if_block_layout is nil then
+                return nil
+            end
+            table.insert(statement_layout.if_block_layouts, if_block_layout)
         end
+
         table.insert(statement_layouts, statement_layout)
         previous_end = stmt_end
     end
@@ -374,20 +482,23 @@ local function block_is_structurally_eligible(
     return true
 end
 
-function structural_render_analysis.analyze_block_layout(block: parser.Node): BlockLayout | nil
-    return build_block_layout(block)
+function structural_render_analysis.analyze_block_layout(
+    block: parser.Node,
+    fmt_off_regions: ast_utils.FmtOffRegions,
+    source_lines: {string}
+): BlockLayout | nil
+    return build_block_layout(block, fmt_off_regions, source_lines)
 end
 
 function structural_render_analysis.can_use_block_doc_formatter(
     block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
 ): boolean
-    if #block == 0 then
+    if structural_render_analysis.analyze_block_layout(
+        block, fmt_off_regions, lines
+    ) == nil then
         return false
     end
-    if structural_render_analysis.analyze_block_layout(block) == nil then
-        return false
-    end
-    return block_is_structurally_eligible(block, lines, fmt_off_regions)
+    return block_is_structurally_eligible(block, lines, ast_utils.FmtOffRegions.new({}))
 end
 
 return structural_render_analysis

@@ -3,6 +3,7 @@
 local record Doc
     kind: string
     text: string
+    raw_lines: {string}
     close_text: string
     flat_text: string
     broken_text: string
@@ -70,6 +71,12 @@ end
 function doc.text(text: string): Doc
     local result = new_doc("text")
     result.text = text
+    return result
+end
+
+function doc.raw(lines: {string}): Doc
+    local result = new_doc("raw")
+    result.raw_lines = lines
     return result
 end
 
@@ -228,6 +235,9 @@ local function has_line_break_opportunity(node: Doc): boolean
         or node.kind == "break_parent" then
         return true
     end
+    if node.kind == "raw" then
+        return false
+    end
 
     if node.kind == "concat" then
         for _, part in ipairs(node.parts or {}) do
@@ -273,6 +283,19 @@ local function push_pending_line_suffixes(
     return suffix_count
 end
 
+local function write_raw_lines(state: RenderState, raw_lines: {string})
+    assert(
+        state.current_line:match("^%s*$"), "doc.raw must be emitted at line boundary"
+    )
+    for i, raw_line in ipairs(raw_lines) do
+        state.current_line = raw_line
+        state.column = #raw_line
+        if i < #raw_lines then
+            table.insert(state.lines, state.current_line)
+        end
+    end
+end
+
 local function fits(
     remaining_width: integer,
     commands: {RenderCommand},
@@ -290,6 +313,8 @@ local function fits(
 
         if node.kind == "text" then
             remaining_width = remaining_width - #(node.text or "")
+        elseif node.kind == "raw" then
+            return false
         elseif node.kind == "break_text" then
             if flat then
                 remaining_width = remaining_width - #(node.flat_text or "")
@@ -376,6 +401,8 @@ local function render_doc(
 
         if node.kind == "text" then
             append_text(state, node.text or "")
+        elseif node.kind == "raw" then
+            write_raw_lines(state, node.raw_lines or {})
         elseif node.kind == "close" then
             local indent_text = string.rep(" ", indent)
             if state.current_line:match("^%s*$") ~= nil then

@@ -58,6 +58,19 @@ local function classify_statement_comments(
     return trailing, leading
 end
 
+local function statement_is_verbatim(layout: StatementLayout | nil): boolean
+    return not (layout is nil) and layout.render_mode == "verbatim"
+end
+
+local function render_verbatim(statement_layout: StatementLayout): doc.Doc
+    local verbatim_lines = statement_layout.verbatim_lines
+    if verbatim_lines is nil then
+        assert(false, "Lines not setup correctly")
+        return
+    end
+    return doc.raw(verbatim_lines)
+end
+
 local function render_block_doc_with(
     block: parser.Node, layout: BlockLayout
 ): doc.Doc | nil
@@ -88,9 +101,10 @@ local function render_block_doc_with(
             local non_nil_layout = typed_layout
             statement_layout = non_nil_layout.statements[index]
         end
+        local stmt_is_verbatim = statement_is_verbatim(statement_layout)
 
         if index == 1 then
-            if stmt.comments ~= nil then
+            if not stmt_is_verbatim and stmt.comments ~= nil then
                 for _, comment in ipairs(stmt.comments) do
                     if comment.y < stmt.y then
                         table.insert(parts, doc.text(comment.text))
@@ -123,24 +137,30 @@ local function render_block_doc_with(
                 end
             end
 
-            for _, comment in ipairs(leading_comments) do
-                table.insert(parts, doc.text(comment.text))
-                table.insert(parts, doc.line(""))
+            if not stmt_is_verbatim then
+                for _, comment in ipairs(leading_comments) do
+                    table.insert(parts, doc.text(comment.text))
+                    table.insert(parts, doc.line(""))
+                end
             end
         end
 
-        local stmt_doc_node = stmt_doc.render_statement_doc(
-            stmt, render_block_doc_with, statement_layout
-        )
-        if stmt_doc_node is nil then
-            fmt_logger.info(
-                "[structural] blocked at line %s: could not render doc for %s",
-                tostring(stmt.y),
-                stmt.kind
+        if stmt_is_verbatim and not (statement_layout is nil) then
+            table.insert(parts, render_verbatim(statement_layout))
+        else
+            local stmt_doc_node = stmt_doc.render_statement_doc(
+                stmt, render_block_doc_with, statement_layout
             )
-            return nil
+            if stmt_doc_node is nil then
+                fmt_logger.info(
+                    "[structural] blocked at line %s: could not render doc for %s",
+                    tostring(stmt.y),
+                    stmt.kind
+                )
+                return nil
+            end
+            table.insert(parts, stmt_doc_node)
         end
-        table.insert(parts, stmt_doc_node)
     end
 
     if block.end_comments ~= nil and #block.end_comments > 0 then
