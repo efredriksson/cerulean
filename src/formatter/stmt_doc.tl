@@ -459,11 +459,9 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
             for _, comment in ipairs(overload_comments) do
                 local attacted_to_item = comment_after_prev_item(comment)
                 if not (attacted_to_item is nil) then
-                    if not (attacted_to_item is nil) then
-                        attacted_to_item.comment = comment
-                    else
-                        table.insert(record_lines, RecordItemDoc.new(nil, nil, comment))
-                    end
+                    attacted_to_item.comment = comment
+                else
+                    table.insert(record_lines, RecordItemDoc.new(nil, nil, comment))
                 end
             end
         end

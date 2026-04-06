@@ -53,12 +53,10 @@ local function build_signature_item_text(arg_node: parser.Node): string
     end
 
     if arg_node.argtype ~= nil then
-        text = text
-            .. ": "
-            .. assert(
-                arg_node.argtype.source_text,
-                "missing source_text for signature argument type"
-            )
+        text = text .. ": " .. assert(
+            arg_node.argtype.source_text,
+            "missing source_text for signature argument type"
+        )
     end
 
     return text
@@ -94,22 +92,27 @@ local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
 end
 
 local function build_delimited_sequence_doc(
-    item_docs: {doc.Doc},
-    opts: DelimitedSequenceOptions,
-    compact_when_possible: boolean
+    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions, compact_when_possible: boolean
 ): doc.Doc
     if #item_docs == 0 then
         return doc.text(opts.open_delim .. opts.close_delim)
     elseif #item_docs == 1 then
-        local result = doc.concat({
-            doc.text(opts.open_delim),
-            doc.indent(opts.compact_indent_amount, doc.concat({
+        local result = doc.concat(
+            {
+                doc.text(opts.open_delim),
+                doc.indent(
+                    opts.compact_indent_amount,
+                    doc.concat(
+                        {
+                            doc.line(""),
+                            item_docs[1],
+                        }
+                    )
+                ),
                 doc.line(""),
-                item_docs[1],
-            })),
-            doc.line(""),
-            doc.text(opts.close_delim),
-        })
+                doc.text(opts.close_delim),
+            }
+        )
         if compact_when_possible then
             return doc.group(result)
         end
@@ -117,16 +120,22 @@ local function build_delimited_sequence_doc(
     end
 
     local items_doc = doc.group(doc.concat(build_item_docs(item_docs)))
-    local result = doc.concat({
-        doc.text(opts.open_delim),
-        doc.indent(opts.compact_indent_amount, doc.concat({
+    local result = doc.concat(
+        {
+            doc.text(opts.open_delim),
+            doc.indent(
+                opts.compact_indent_amount,
+                doc.concat(
+                    {
+                        doc.line(""),
+                        items_doc,
+                    }
+                )
+            ),
             doc.line(""),
-            items_doc,
-        })),
-        doc.line(""),
-        doc.text(opts.close_delim),
-    })
-
+            doc.text(opts.close_delim),
+        }
+    )
     if compact_when_possible then
         return doc.group(result)
     end

@@ -52,12 +52,11 @@ end
 
 local function render_require_decl(decl: RequireDecl, indent: string): doc.Doc
     local node = decl.node
-    if node.kind == "local_declaration"
-        and node.vars ~= nil
-        and #node.vars == 1
-        and node.exps ~= nil
-        and #node.exps == 1
-    then
+    if node.kind == "local_declaration" and
+        node.vars ~= nil and
+        #node.vars == 1 and
+        node.exps ~= nil and
+        #node.exps == 1 then
         local text = "local " .. node.vars[1].tk
         if node.vars[1].attribute ~= nil then
             text = text .. " <" .. node.vars[1].attribute .. ">"
@@ -65,9 +64,9 @@ local function render_require_decl(decl: RequireDecl, indent: string): doc.Doc
         if node.decltuple ~= nil and node.decltuple.source_text ~= nil then
             text = text .. node.decltuple.source_text
         end
-        return doc.concat({
-            doc.text(indent .. text .. " = "), expr_doc.render_expr(node.exps[1])
-        })
+        return doc.concat(
+            {doc.text(indent .. text .. " = "), expr_doc.render_expr(node.exps[1])}
+        )
     elseif node.kind == "local_type" and node.var ~= nil and node.value ~= nil then
         local lhs = doc.text(indent .. "local type " .. node.var.tk .. " = ")
         return doc.concat({lhs, expr_doc.render_expr(node.value)})
@@ -80,27 +79,25 @@ local function collect_require_decls(ast: parser.Node): {RequireDecl}
     local result: {RequireDecl} = {}
     for _, node in ipairs(ast) do
         local call_node: parser.Node
-        if node.kind == "local_declaration"
-            and node.vars ~= nil
-            and #node.vars == 1
-            and node.exps ~= nil
-            and #node.exps == 1
-            and node.exps[1] ~= nil
-        then
+        if node.kind == "local_declaration" and
+            node.vars ~= nil and
+            #node.vars == 1 and
+            node.exps ~= nil and
+            #node.exps == 1 and
+            node.exps[1] ~= nil then
             call_node = node.exps[1]
         elseif node.kind == "local_type" and node.value ~= nil then
             call_node = node.value
         end
-        if call_node ~= nil
-            and call_node.kind == "op"
-            and call_node.op ~= nil
-            and call_node.op.op == "@funcall"
-            and call_node.e1 ~= nil
-            and call_node.e1.tk == "require"
-            and call_node.e2 ~= nil
-            and #call_node.e2 == 1
-            and call_node.e2[1].kind == "string"
-        then
+        if call_node ~= nil and
+            call_node.kind == "op" and
+            call_node.op ~= nil and
+            call_node.op.op == "@funcall" and
+            call_node.e1 ~= nil and
+            call_node.e1.tk == "require" and
+            call_node.e2 ~= nil and
+            #call_node.e2 == 1 and
+            call_node.e2[1].kind == "string" then
             local module_path = call_node.e2[1].conststr or ""
             local last_line = call_node.e2.yend or call_node.e2.y or node.y
             table.insert(result, RequireDecl.new(node.y, last_line, module_path, node))
@@ -139,6 +136,7 @@ local function collect_require_blocks(
                 current_block
             )
         )
+
         current_block = {}
     end
 

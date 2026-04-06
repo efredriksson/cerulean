@@ -10,7 +10,7 @@ local record Args
 end
 
 function Args.new(check_only: boolean, log_level: string, files: {string}): Args
-    local self: Args = setmetatable({}, { __index = Args })
+    local self: Args = setmetatable({}, {__index = Args})
     self.check_only = check_only
     self.log_level = log_level
     self.files = files
@@ -69,7 +69,9 @@ local function parse_args(script_args: {string}): Args
     end
 
     if #files == 0 then
-        write_error("usage: tl run src/formatter/init.tl -- [--check] [--log-level <level>] <file...>")
+        write_error(
+            "usage: tl run src/formatter/init.tl -- [--check] [--log-level <level>] <file...>"
+        )
         os.exit(1)
     end
 

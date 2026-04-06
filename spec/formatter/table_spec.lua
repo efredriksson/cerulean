@@ -153,4 +153,59 @@ describe("formatter table constructor wrapping", function()
       local t = {key = foo(a, b)}
    ]]))
 
+   it("keeps assert call wrapped in table entry inside return doc.concat (anonymized regression)", helpers.format([[
+      local function build_entry_text(entry, render_value)
+          local label_text = entry.key.conststr or entry.key.tk
+          return doc.concat(
+              {
+                  doc.text(label_text .. ": " .. assert(
+                          entry.meta.value_text,
+                          "missing value text for table field"
+                      ) .. " = "),
+                  render_value(entry.value),
+              }
+          )
+      end
+   ]], [[
+      local function build_entry_text(entry, render_value)
+          local label_text = entry.key.conststr or entry.key.tk
+          return doc.concat(
+              {
+                  doc.text(
+                      label_text .. ": " .. assert(
+                          entry.meta.value_text, "missing value text for table field"
+                      ) .. " = "
+                  ),
+                  render_value(entry.value),
+              }
+          )
+      end
+   ]]))
+
+   it("wraps long typed table field text assembly in table item docs (anonymized regression)", helpers.format([[
+      local function build_typed_field(item, render_value)
+          local name_text = item.key.conststr or item.key.tk
+          return doc.concat(
+              {
+                  doc.text(name_text .. ": " .. assert(item.itemtype.source_text, "missing item type source text") .. " = "),
+                  render_value(item.value),
+              }
+          )
+      end
+   ]], [[
+      local function build_typed_field(item, render_value)
+          local name_text = item.key.conststr or item.key.tk
+          return doc.concat(
+              {
+                  doc.text(
+                      name_text .. ": " .. assert(
+                          item.itemtype.source_text, "missing item type source text"
+                      ) .. " = "
+                  ),
+                  render_value(item.value),
+              }
+          )
+      end
+   ]]))
+
 end)

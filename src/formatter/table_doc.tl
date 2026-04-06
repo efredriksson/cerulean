@@ -1,7 +1,6 @@
 -- Table constructor → doc.Doc (build_table_doc) or {string} (render_table).
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
---local fmt_logger = require("formatter.fmt_logger")
 
 local table_doc = {}
 
@@ -43,19 +42,29 @@ local function build_table_item_text(
     elseif item.key_parsed == "short" then
         local key_text = item.key.conststr or item.key.tk
         if item.itemtype ~= nil then
-            return doc.concat({doc.text(key_text
-                .. ": "
-                .. assert(
-                    item.itemtype.source_text, "missing source_text for table item type"
-                )
-                .. " = "), render_expr(item.value)})
+            return doc.concat(
+                {
+                    doc.text(
+                        key_text .. ": " .. assert(
+                            item.itemtype.source_text,
+                            "missing source_text for table item type"
+                        ) .. " = "
+                    ),
+                    render_expr(item.value),
+                }
+            )
         end
         return doc.concat({doc.text(key_text .. " = "), render_expr(item.value)})
     end
 
-    return doc.concat({
-        doc.text("["), render_expr(item.key), doc.text("] = "), render_expr(item.value)
-    })
+    return doc.concat(
+        {
+            doc.text("["),
+            render_expr(item.key),
+            doc.text("] = "),
+            render_expr(item.value),
+        }
+    )
 end
 
 local function build_table_item_docs(node: parser.Node): {TableItemDoc}
@@ -109,7 +118,6 @@ local function build_delimited_sequence_doc(
     opts: DelimitedSequenceOptions,
     force_wrap: boolean
 ): doc.Doc
-
     local lines: {doc.Doc} = {}
     local table_have_comments = false
     for i, table_item in ipairs(table_items) do
@@ -129,6 +137,8 @@ local function build_delimited_sequence_doc(
         if i < #table_items then
             if table_item.comment then
                 table.insert(lines, doc.hardline())
+            elseif force_wrap then
+                table.insert(lines, doc.hardline())
             else
                 table.insert(lines, doc.line(""))
             end
@@ -139,18 +149,24 @@ local function build_delimited_sequence_doc(
     if not (force_wrap or table_have_comments) then
         items_doc = doc.group(items_doc)
     end
-    local talbe_doc = doc.concat({
-        doc.text(opts.open_delim),
-        doc.indent(opts.compact_indent_amount, doc.concat({
-            doc.line(""),
-            items_doc,
-        })),
-        doc.line(""),
-        doc.text(opts.close_delim),
-    })
-
+    local talbe_doc = doc.concat(
+        {
+            doc.text(opts.open_delim),
+            doc.indent(
+                opts.compact_indent_amount,
+                doc.concat(
+                    {
+                        force_wrap and doc.hardline() or doc.line(""),
+                        items_doc,
+                    }
+                )
+            ),
+            force_wrap and doc.hardline() or doc.line(""),
+            doc.text(opts.close_delim),
+        }
+    )
     if force_wrap or table_have_comments then
-        return talbe_doc
+        return doc.concat({doc.break_parent(), talbe_doc})
     else
         return doc.group(talbe_doc)
     end

@@ -803,4 +803,44 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]]))
    end)
+
+   describe("known comment regressions", function()
+      it("preserves multiline table shape and trailing comma when call closing line has a trailing comment", helpers.format([[
+         local function f()
+           return process(
+             {
+               a = 1,
+               b = 2,
+             }
+           ) -- trailing call comment
+         end
+      ]], [[
+         local function f()
+             return process(
+                 {
+                     a = 1,
+                     b = 2,
+                 }
+             ) -- trailing call comment
+         end
+      ]]))
+
+      it("preserves inline interface field comments in local type interface declarations (anonymized)", helpers.format([[
+         local type EntityType = interface
+           method_a: function(self)
+           method_b: function(self, value: number)
+           method_c: function(self)
+           -- Internal-only field marker:
+           extra_flag: boolean
+         end
+      ]], [[
+         local type EntityType = interface
+             method_a: function(self)
+             method_b: function(self, value: number)
+             method_c: function(self)
+             -- Internal-only field marker:
+             extra_flag: boolean
+         end
+      ]]))
+   end)
 end)

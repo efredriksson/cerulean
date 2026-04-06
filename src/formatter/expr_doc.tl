@@ -203,16 +203,6 @@ local function build_delimited_sequence_doc(
     return doc.group(build_broken_delimited_sequence_doc(item_docs, opts))
 end
 
-local function args_have_inline_comments(args: parser.Node): boolean
-    for _, arg_node in ipairs(args) do
-        if arg_node.comments ~= nil and #arg_node.comments > 0 then
-            return true
-        end
-    end
-
-    return false
-end
-
 local function build_call_arg_doc(node: parser.Node): doc.Doc
     if node.kind == "literal_table" then
         return doc.group(table_doc.build_table_doc(
@@ -224,7 +214,7 @@ local function build_call_arg_doc(node: parser.Node): doc.Doc
     return render_expr(node, 0)
 end
 
-local function build_call_arg_items_doc_with_comments(args: parser.Node): doc.Doc
+local function build_call_arg_items_doc(args: parser.Node): doc.Doc
     local parts: {doc.Doc} = {}
     local prev_arg_end_line: integer | nil = nil
 
@@ -244,8 +234,12 @@ local function build_call_arg_items_doc_with_comments(args: parser.Node): doc.Do
                 for _, comment in ipairs(trailing_comments) do
                     table.insert(parts, doc.text(" " .. comment.text))
                 end
+                table.insert(parts, doc.hardline())
+            elseif #leading_comments > 0 then
+                table.insert(parts, doc.hardline())
+            else
+                table.insert(parts, doc.line(" "))
             end
-            table.insert(parts, doc.hardline())
         end
 
         if #leading_comments > 0 then
@@ -262,43 +256,29 @@ local function build_call_arg_items_doc_with_comments(args: parser.Node): doc.Do
     return doc.concat(parts)
 end
 
-local function build_call_arg_item_docs(args: parser.Node): {doc.Doc}
-    local result: {doc.Doc} = {}
-    for _, arg_node in ipairs(args) do
-        table.insert(result, build_call_arg_doc(arg_node))
-    end
-    return result
-end
-
 local function build_call_expr_doc(node: parser.Node): doc.Doc
     local callee_doc = render_expr(node.e1, PRECEDENCE["@funcall"])
-    local item_docs = build_call_arg_item_docs(node.e2)
     local opts = DelimitedSequenceOptions.new("(", ")", 4)
+    local has_trailing_comment = node.e2.trailing_comment ~= nil
+    local call_args_doc: doc.Doc
 
-    if args_have_inline_comments(node.e2) or node.e2.trailing_comment ~= nil then
-        local call_args_doc = build_broken_delimited_sequence_doc(item_docs, opts)
-        if args_have_inline_comments(node.e2) then
-            call_args_doc = build_broken_delimited_sequence_doc_from_items(
-                build_call_arg_items_doc_with_comments(node.e2), opts
-            )
-        end
-        local call_node = doc.concat({
-            callee_doc,
-            call_args_doc,
-        })
-        if node.e2.trailing_comment ~= nil then
-            return doc.concat({
-                call_node,
-                doc.text(" " .. node.e2.trailing_comment.text),
-            })
-        end
-        return call_node
+    if #node.e2 == 0 then
+        call_args_doc = build_delimited_sequence_doc({}, opts)
+    else
+        call_args_doc = build_broken_delimited_sequence_doc_from_items(
+            doc.group(build_call_arg_items_doc(node.e2)), opts
+        )
     end
-
     local call_node = doc.concat({
         callee_doc,
-        build_delimited_sequence_doc(item_docs, opts),
+        call_args_doc,
     })
+    if has_trailing_comment then
+        return doc.concat({
+            call_node,
+            doc.text(" " .. node.e2.trailing_comment.text),
+        })
+    end
     return doc.group(call_node)
 end
 
@@ -461,11 +441,8 @@ local function render_op(node: parser.Node, parent_prec: integer): doc.Doc
 
         local left = maybe_parenthesize(left_doc, node.e1, op, 2, false)
         local right = maybe_parenthesize(right_doc, node.e2, op, 2, true)
-        local rendered = doc.concat({
-            left,
-            doc.text(" " .. op .. " "),
-            right,
-        })
+        local separator = doc.text(" " .. op .. " ")
+        local rendered = doc.concat({left, separator, right})
         if parent_prec == 0 then
             rendered = doc.group(rendered)
         end

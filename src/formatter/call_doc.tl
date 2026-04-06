@@ -58,13 +58,12 @@ end
 
 local function call_arg_effective_end_line(node: parser.Node): integer
     local end_line = node_end_line(node)
-    if node.kind == "op"
-        and node.op ~= nil
-        and node.op.op == "@funcall"
-        and node.e2 ~= nil
-        and node.e2.yend ~= nil
-        and node.e2.yend > end_line
-    then
+    if node.kind == "op" and
+        node.op ~= nil and
+        node.op.op == "@funcall" and
+        node.e2 ~= nil and
+        node.e2.yend ~= nil and
+        node.e2.yend > end_line then
         end_line = node.e2.yend
     end
     return end_line
@@ -90,15 +89,22 @@ end
 local function build_broken_delimited_sequence_doc_from_items(
     items_doc: doc.Doc, opts: DelimitedSequenceOptions
 ): doc.Doc
-    return doc.concat({
-        doc.text(opts.open_delim),
-        doc.indent(opts.compact_indent_amount, doc.concat({
+    return doc.concat(
+        {
+            doc.text(opts.open_delim),
+            doc.indent(
+                opts.compact_indent_amount,
+                doc.concat(
+                    {
+                        doc.line(""),
+                        items_doc,
+                    }
+                )
+            ),
             doc.line(""),
-            items_doc,
-        })),
-        doc.line(""),
-        doc.text(opts.close_delim),
-    })
+            doc.text(opts.close_delim),
+        }
+    )
 end
 
 local function build_broken_delimited_sequence_doc(
@@ -116,9 +122,7 @@ end
 local function build_delimited_sequence_doc(
     item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
 ): doc.Doc
-    return doc.group(build_broken_delimited_sequence_doc(
-        item_docs, opts
-    ))
+    return doc.group(build_broken_delimited_sequence_doc(item_docs, opts))
 end
 
 local function args_have_inline_comments(args: parser.Node): boolean
@@ -187,33 +191,34 @@ function call_doc.build_call_expr_doc(node: parser.Node): doc.Doc
     local callee_doc = expr_doc.render_expr(node.e1)
     local item_docs = build_call_arg_item_docs(node.e2)
     local opts = DelimitedSequenceOptions.new("(", ")", 4)
-    -- Wrap in a group so the renderer tries the compact (flat) form first.
-    -- Without a group the doc.line breaks inside build_delimited_sequence_doc
-    -- always expand, wrapping even short calls that fit on one line.
-    if args_have_inline_comments(node.e2) or node.e2.trailing_comment ~= nil then
-        local call_args_doc = build_broken_delimited_sequence_doc(item_docs, opts)
-        if args_have_inline_comments(node.e2) then
-            call_args_doc = build_broken_delimited_sequence_doc_from_items(
-                build_call_arg_items_doc_with_comments(node.e2), opts
-            )
-        end
-        local call_node = doc.concat({
+    local has_inline_comments = args_have_inline_comments(node.e2)
+    local has_trailing_comment = node.e2.trailing_comment ~= nil
+    local call_args_doc = build_delimited_sequence_doc(item_docs, opts)
+    if has_inline_comments or has_trailing_comment then
+        call_args_doc = build_broken_delimited_sequence_doc(item_docs, opts)
+    end
+    if has_inline_comments then
+        call_args_doc = build_broken_delimited_sequence_doc_from_items(
+            build_call_arg_items_doc_with_comments(node.e2), opts
+        )
+    end
+    local call_node = doc.concat(
+        {
             callee_doc,
             call_args_doc,
-        })
-        if node.e2.trailing_comment ~= nil then
-            return doc.concat({
+        }
+    )
+    if has_trailing_comment then
+        return doc.concat(
+            {
                 call_node,
                 doc.text(" " .. node.e2.trailing_comment.text),
-            })
-        end
+            }
+        )
+    end
+    if has_inline_comments or has_trailing_comment then
         return call_node
     end
-    local call_args_doc = build_delimited_sequence_doc(item_docs, opts)
-    local call_node = doc.concat({
-        callee_doc,
-        call_args_doc,
-    })
     return doc.group(call_node)
 end
 

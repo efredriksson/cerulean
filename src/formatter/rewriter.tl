@@ -19,7 +19,7 @@ end
 function Edit.new(
     line: integer, col_start: integer, col_end: integer, replacement: string
 ): Edit
-    local self: Edit = setmetatable({}, { __index = Edit })
+    local self: Edit = setmetatable({}, {__index = Edit})
     self.line = line
     self.col_start = col_start
     self.col_end = col_end
@@ -36,7 +36,7 @@ end
 function Rewrite.new(
     output: string, changed: boolean, parse_errors: {tl.Error}
 ): Rewrite
-    local self: Rewrite = setmetatable({}, { __index = Rewrite })
+    local self: Rewrite = setmetatable({}, {__index = Rewrite})
     self.output = output
     self.changed = changed
     self.parse_errors = parse_errors
@@ -58,7 +58,7 @@ function FormatterContext.new(
     lines: {string},
     fmt_off_regions: ast_utils.FmtOffRegions
 ): FormatterContext
-    local self: FormatterContext = setmetatable({}, { __index = FormatterContext })
+    local self: FormatterContext = setmetatable({}, {__index = FormatterContext})
     self.ast = ast
     self.tokens = tokens
     self.edits = edits
@@ -113,7 +113,9 @@ local VALUE_ENDING_KINDS: {string: boolean} = {
     ["integer"] = true,
     ["number"] = true,
     ["string"] = true,
-    [")"] = true, ["]"] = true, ["}"] = true,
+    [")"] = true,
+    ["]"] = true,
+    ["}"] = true,
 }
 
 local function is_binary_minus(prev: tl.Token): boolean
@@ -128,6 +130,7 @@ local function collect_op_edits(tokens: {tl.Token}): {Edit}
     for i = 2, #tokens - 1 do
         local token = tokens[i]
         if not BINARY_OP_TOKENS[token.tk] then
+
         else
             local prev = tokens[i - 1]
             local next_token = tokens[i + 1]
@@ -353,7 +356,7 @@ local function run_structural_phase(
         structural_layout = structural_render_analysis.analyze_block_layout(context.ast)
     end
 
-    if not structural_layout is nil then
+    if not (structural_layout is nil) then
         local structurally_rendered = block_doc.render_block(
             context.ast, structural_layout
         )

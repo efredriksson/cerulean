@@ -24,6 +24,10 @@ describe("formatter function call wrapping", function()
          local x = foo.new_selection(field_a, field_b)
    ]]))
 
+   it("does not wrap a short assert call with a string message", helpers.check([[
+         local ok = assert(#sel < #all, "too many")
+   ]]))
+
    it("re-wraps an already-wrapped call whose args line is too long", helpers.format([[
       foo.new_number(
          "long_label_here", 110, nbr_lightning_bombs_selected, settings.set_spawn_of_lightning_bombs
