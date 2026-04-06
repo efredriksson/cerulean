@@ -1,12 +1,12 @@
 local doc = require("formatter.doc")
 local fmt_logger = require("formatter.fmt_logger")
+local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
 local stmt_doc = require("formatter.stmt_doc")
-local structural_render_analysis = require("formatter.structural_render_analysis")
 
-local type BlockLayout = structural_render_analysis.BlockLayout
-local type StatementLayout = structural_render_analysis.StatementLayout
+local type BlockLayout = layout_types.BlockLayout
+local type StatementLayout = layout_types.StatementLayout
 
 local block_doc = {}
 

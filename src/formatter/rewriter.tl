@@ -69,17 +69,12 @@ local function run_structural_phase(
     source: string, filename: string, ast: parser.Node
 ): string
     local context = build_formatter_context(source, filename, ast)
-
-    if structural_render_analysis.can_use_block_doc_formatter(
+    local structural_analysis = structural_render_analysis.analyze_block(
         context.ast, context.lines, context.fmt_off_regions
-    ) then
-        local structural_layout = structural_render_analysis.analyze_block_layout(
-            context.ast, context.fmt_off_regions, context.lines
-        )
-
-        local structurally_rendered = block_doc.render_block(
-            context.ast, structural_layout
-        )
+    )
+    if structural_analysis.can_render_structurally then
+        local block_layout = structural_analysis.block_layout
+        local structurally_rendered = block_doc.render_block(context.ast, block_layout)
         if structurally_rendered ~= nil then
             local rendered_source = table.concat(structurally_rendered, "\n") .. "\n"
             return rendered_source

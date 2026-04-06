@@ -3,39 +3,31 @@
 -- multi-statement anonymous functions in expressions, or multi-line conditions.
 local ast_utils = require("formatter.ast_utils")
 local fmt_logger = require("formatter.fmt_logger")
+local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local ranges = require("formatter.ranges")
 local tl = require("tl")
 
-local record StatementLayout
-    preserve_blank_line_after: boolean
-    render_mode: string
-    verbatim_lines: {string} | nil
-    body_layout: BlockLayout
-    if_block_layouts: {BlockLayout}
-end
+local type StatementLayout = layout_types.StatementLayout
+local type BlockLayout = layout_types.BlockLayout
 
-local record BlockLayout
-    statements: {StatementLayout}
+local record AnalysisResult
+    can_render_structurally: boolean
+    block_layout: BlockLayout
 end
 
 local structural_render_analysis = {
-    BlockLayout = BlockLayout, StatementLayout = StatementLayout
+    BlockLayout = layout_types.BlockLayout,
+    StatementLayout = layout_types.StatementLayout,
+    AnalysisResult = AnalysisResult,
 }
 
-function StatementLayout.new(): StatementLayout
-    local self: StatementLayout = setmetatable({}, { __index = StatementLayout })
-    self.preserve_blank_line_after = false
-    self.render_mode = "format"
-    self.verbatim_lines = nil
-    self.body_layout = nil
-    self.if_block_layouts = {}
-    return self
-end
-
-function BlockLayout.new(statements: {StatementLayout}): BlockLayout
-    local self: BlockLayout = setmetatable({}, { __index = BlockLayout })
-    self.statements = statements
+function AnalysisResult.new(
+    can_render_structurally: boolean, block_layout: BlockLayout
+): AnalysisResult
+    local self: AnalysisResult = setmetatable({}, {__index = AnalysisResult})
+    self.can_render_structurally = can_render_structurally
+    self.block_layout = block_layout
     return self
 end
 
@@ -340,7 +332,7 @@ local function build_block_layout(
     source_lines: {string}
 ): BlockLayout | nil
     if #block == 0 then
-        return BlockLayout.new({})
+        return layout_types.BlockLayout.new({})
     end
 
     local previous_end: integer | nil = nil
@@ -358,7 +350,7 @@ local function build_block_layout(
                 statement_layouts[#statement_layouts].preserve_blank_line_after = true
             end
         end
-        local statement_layout = StatementLayout.new()
+        local statement_layout = layout_types.StatementLayout.new()
         local stmt_is_verbatim = stmt_overlaps_fmt_off(stmt, fmt_off_regions)
 
         if stmt_is_verbatim then
@@ -408,7 +400,7 @@ local function build_block_layout(
         previous_end = stmt_end
     end
 
-    return BlockLayout.new(statement_layouts)
+    return layout_types.BlockLayout.new(statement_layouts)
 end
 
 local function block_is_structurally_eligible(
@@ -461,23 +453,24 @@ local function block_is_structurally_eligible(
     return true
 end
 
-function structural_render_analysis.analyze_block_layout(
+function structural_render_analysis.analyze_block(
     block: parser.Node,
-    fmt_off_regions: ast_utils.FmtOffRegions,
-    source_lines: {string}
-): BlockLayout | nil
-    return build_block_layout(block, fmt_off_regions, source_lines)
-end
-
-function structural_render_analysis.can_use_block_doc_formatter(
-    block: parser.Node, lines: {string}, fmt_off_regions: ast_utils.FmtOffRegions
-): boolean
-    if structural_render_analysis.analyze_block_layout(
-        block, fmt_off_regions, lines
-    ) == nil then
-        return false
+    source_lines: {string},
+    fmt_off_regions: ast_utils.FmtOffRegions
+): AnalysisResult
+    local block_layout = build_block_layout(block, fmt_off_regions, source_lines)
+    if block_layout == nil then
+        return AnalysisResult.new(false, nil)
     end
-    return block_is_structurally_eligible(block, lines, ast_utils.FmtOffRegions.new({}))
+
+    local can_render_structurally = block_is_structurally_eligible(
+        block, source_lines, ast_utils.FmtOffRegions.new({})
+    )
+    if not can_render_structurally then
+        return AnalysisResult.new(false, nil)
+    end
+
+    return AnalysisResult.new(true, block_layout)
 end
 
 return structural_render_analysis

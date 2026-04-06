@@ -1,14 +1,14 @@
 -- Single AST statement → doc.Doc. Returns nil for unsupported statement shapes.
 local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
+local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
 local signature_doc = require("formatter.signature_doc")
-local structural_render_analysis = require("formatter.structural_render_analysis")
 local tl = require("tl")
 
-local type BlockLayout = structural_render_analysis.BlockLayout
-local type StatementLayout = structural_render_analysis.StatementLayout
+local type BlockLayout = layout_types.BlockLayout
+local type StatementLayout = layout_types.StatementLayout
 
 local stmt_doc = {}
 
