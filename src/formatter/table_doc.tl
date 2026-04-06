@@ -1,6 +1,7 @@
 -- Table constructor → doc.Doc (build_table_doc) or {string} (render_table).
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
+local render_builders = require("formatter.render_builders")
 
 local table_doc = {}
 
@@ -13,24 +14,6 @@ function TableItemDoc.new(item: parser.Node, comment: parser.Comment): TableItem
     local self: TableItemDoc = setmetatable({}, {__index = TableItemDoc})
     self.item = item
     self.comment = comment
-    return self
-end
-
-local record DelimitedSequenceOptions
-    open_delim: string
-    close_delim: string
-    compact_indent_amount: integer
-end
-
-function DelimitedSequenceOptions.new(
-    open_delim: string, close_delim: string, compact_indent_amount: integer
-): DelimitedSequenceOptions
-    local self: DelimitedSequenceOptions = setmetatable(
-        {}, {__index = DelimitedSequenceOptions}
-    )
-    self.open_delim = open_delim
-    self.close_delim = close_delim
-    self.compact_indent_amount = compact_indent_amount
     return self
 end
 
@@ -77,7 +60,7 @@ local function build_table_item_docs(node: parser.Node): {TableItemDoc}
             return nil
         end
 
-        local previous_item_line = previous_item.item.yend or previous_item.item.y
+        local previous_item_line = render_builders.node_end_line(previous_item.item)
         if previous_item_line == comment.y then
             return previous_item
         end
@@ -85,29 +68,25 @@ local function build_table_item_docs(node: parser.Node): {TableItemDoc}
         return nil
     end
 
-    for _, item in ipairs(node) do
-        for _, comment in ipairs(item.comments or {}) do
-            local attacted_to_item = comment_after_prev_item(comment)
-            if not (attacted_to_item is nil) then
-                attacted_to_item.comment = comment
+    local function append_comments(comments: {parser.Comment})
+        for _, comment in ipairs(comments) do
+            local attached_to_item = comment_after_prev_item(comment)
+            if not (attached_to_item is nil) then
+                attached_to_item.comment = comment
             else
                 table.insert(result, TableItemDoc.new(nil, comment))
             end
         end
+    end
+
+    for _, item in ipairs(node) do
+        append_comments(item.comments or {})
         local table_item_doc = TableItemDoc.new(item, nil)
         table.insert(result, table_item_doc)
         previous_item = table_item_doc
     end
 
-    for _, comment in ipairs(node.end_comments or {}) do
-        -- TODO: code duplication!
-        local attacted_to_item = comment_after_prev_item(comment)
-        if not (attacted_to_item is nil) then
-            attacted_to_item.comment = comment
-        else
-            table.insert(result, TableItemDoc.new(nil, comment))
-        end
-    end
+    append_comments(node.end_comments or {})
 
     return result
 end
@@ -115,7 +94,7 @@ end
 local function build_delimited_sequence_doc(
     table_items: {TableItemDoc},
     render_expr: function(parser.Node): doc.Doc,
-    opts: DelimitedSequenceOptions,
+    opts: render_builders.DelimitedSequenceOptions,
     force_wrap: boolean
 ): doc.Doc
     local lines: {doc.Doc} = {}
@@ -175,7 +154,7 @@ end
 function table_doc.build_table_doc(
     node: parser.Node, render_expr: function(parser.Node): doc.Doc
 ): doc.Doc
-    local opts = DelimitedSequenceOptions.new("{", "}", 4)
+    local opts = render_builders.DelimitedSequenceOptions.new("{", "}", 4)
     return build_delimited_sequence_doc(
         build_table_item_docs(node), render_expr, opts, node.trailing_comma
     )

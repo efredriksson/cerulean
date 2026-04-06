@@ -2,27 +2,10 @@
 -- render_signature is used by the span pass in rewriter.tl.
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
+local render_builders = require("formatter.render_builders")
 local tl = require("tl")
 
 local signature_doc = {}
-
-local record DelimitedSequenceOptions
-    open_delim: string
-    close_delim: string
-    compact_indent_amount: integer
-end
-
-function DelimitedSequenceOptions.new(
-    open_delim: string, close_delim: string, compact_indent_amount: integer
-): DelimitedSequenceOptions
-    local self: DelimitedSequenceOptions = setmetatable(
-        {}, {__index = DelimitedSequenceOptions}
-    )
-    self.open_delim = open_delim
-    self.close_delim = close_delim
-    self.compact_indent_amount = compact_indent_amount
-    return self
-end
 
 local function build_signature_item_doc(arg_node: parser.Node): doc.Doc
     local parts: {doc.Doc} = {
@@ -74,68 +57,12 @@ local function build_signature_item_docs(args: parser.Node): {doc.Doc}
     return result
 end
 
-local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
-    local result: {doc.Doc} = {}
-
-    for i, item_doc in ipairs(item_docs) do
-        local item_parts: {doc.Doc} = {
-            item_doc,
-        }
-        if i < #item_docs then
-            table.insert(item_parts, doc.text(","))
-            table.insert(item_parts, doc.line())
-        end
-        table.insert(result, doc.concat(item_parts))
-    end
-
-    return result
-end
-
 local function build_delimited_sequence_doc(
-    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions, compact_when_possible: boolean
+    item_docs: {doc.Doc},
+    opts: render_builders.DelimitedSequenceOptions,
+    compact_when_possible: boolean
 ): doc.Doc
-    if #item_docs == 0 then
-        return doc.text(opts.open_delim .. opts.close_delim)
-    elseif #item_docs == 1 then
-        local result = doc.concat(
-            {
-                doc.text(opts.open_delim),
-                doc.indent(
-                    opts.compact_indent_amount,
-                    doc.concat(
-                        {
-                            doc.softline(),
-                            item_docs[1],
-                        }
-                    )
-                ),
-                doc.softline(),
-                doc.text(opts.close_delim),
-            }
-        )
-        if compact_when_possible then
-            return doc.group(result)
-        end
-        return result
-    end
-
-    local items_doc = doc.group(doc.concat(build_item_docs(item_docs)))
-    local result = doc.concat(
-        {
-            doc.text(opts.open_delim),
-            doc.indent(
-                opts.compact_indent_amount,
-                doc.concat(
-                    {
-                        doc.softline(),
-                        items_doc,
-                    }
-                )
-            ),
-            doc.softline(),
-            doc.text(opts.close_delim),
-        }
-    )
+    local result = render_builders.build_broken_delimited_sequence_doc(item_docs, opts)
     if compact_when_possible then
         return doc.group(result)
     end
@@ -143,15 +70,15 @@ local function build_delimited_sequence_doc(
 end
 
 local function build_compact_delimited_sequence_doc(
-    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
+    item_docs: {doc.Doc}, opts: render_builders.DelimitedSequenceOptions
 ): doc.Doc
     local parts: {doc.Doc} = {
         doc.text(opts.open_delim),
     }
 
-    for i, item_doc in ipairs(item_docs) do
+    for index, item_doc in ipairs(item_docs) do
         table.insert(parts, item_doc)
-        if i < #item_docs then
+        if index < #item_docs then
             table.insert(parts, doc.text(", "))
         end
     end
@@ -186,7 +113,7 @@ end
 function signature_doc.render_signature_doc(
     args: parser.Node, compact: boolean, force_wrap?: boolean
 ): doc.Doc
-    local opts = DelimitedSequenceOptions.new("(", ")", 4)
+    local opts = render_builders.DelimitedSequenceOptions.new("(", ")", 4)
     local item_docs = build_signature_item_docs(args)
     local should_force_wrap = force_wrap or false
 
