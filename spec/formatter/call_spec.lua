@@ -138,10 +138,15 @@ describe("formatter function call wrapping", function()
       local x = f(g(1, 2), {alpha = 1, beta = 2})
    ]]))
 
-   it("does not change a wrapped call whose arguments include inline comments", helpers.check([[
+   it("reindents a wrapped call whose arguments include inline comments", helpers.format([[
       local x = f(
          alpha, -- keep alpha grouped here
          beta
+      )
+   ]], [[
+      local x = f(
+          alpha, -- keep alpha grouped here
+          beta
       )
    ]]))
 

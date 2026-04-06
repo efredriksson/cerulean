@@ -873,7 +873,7 @@ function stmt_doc.render_statement_doc(
         return render_return_doc(node)
     elseif node.kind == "assignment" and end_line == node.y then
         return render_assignment_doc(node)
-    elseif node.kind == "local_declaration" and end_line == node.y then
+    elseif node.kind == "local_declaration" then
         return render_local_declaration_doc(node)
     elseif node.kind == "local_type" then
         return render_local_type_doc(node)

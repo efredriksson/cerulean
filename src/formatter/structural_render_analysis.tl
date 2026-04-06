@@ -95,20 +95,6 @@ local function node_list_is_single_line(nodes: parser.Node): boolean
     return true
 end
 
-local function has_non_comment_non_empty_line_between(
-    lines: {string}, start_line: integer, end_line: integer
-): boolean
-    for line = start_line, end_line do
-        local line_str = lines[line]
-        if line_str ~= nil and line_str:match("%S") ~= nil then
-            if not line_str:match("^%s*%-%-") then
-                return true
-            end
-        end
-    end
-    return false
-end
-
 local function count_leading_comments_for_stmt(
     stmt: parser.Node, previous_end_line: integer
 ): integer
@@ -121,29 +107,6 @@ local function count_leading_comments_for_stmt(
         end
     end
     return count
-end
-
-local function node_contains_call_with_inline_comments(node: parser.Node): boolean
-    local function check_call(n: parser.Node): boolean
-        if n.kind == "op" and n.op ~= nil and n.op.op == "@funcall" and n.e2 ~= nil then
-            for _, call_arg in ipairs(n.e2) do
-                if call_arg.comments ~= nil and #call_arg.comments > 0 then
-                    return true
-                end
-            end
-        end
-        return false
-    end
-    if check_call(node) then
-        return true
-    end
-    local found = false
-    ast_utils.walk_descendants(node, function(child: parser.Node)
-        if not found and check_call(child) then
-            found = true
-        end
-    end)
-    return found
 end
 
 local function node_contains_multi_statement_function(node: parser.Node): boolean
@@ -190,7 +153,10 @@ local function top_level_block_has_leading_prelude(
     local first_stmt = block[1]
     for line = 1, first_stmt.y - 1 do
         local line_str = lines[line]
-        if line_str ~= nil and line_str:match("%S") ~= nil then
+        if line_str ~= nil
+            and line_str:match("%S") ~= nil
+            and line_str:match("^%s*%-%-") == nil
+        then
             return true
         end
     end
@@ -240,9 +206,6 @@ local function local_type_is_ast_renderable(stmt: parser.Node): boolean
 end
 
 local function stmt_is_ast_renderable(stmt: parser.Node): boolean
-    if node_contains_call_with_inline_comments(stmt) then
-        return false
-    end
     if stmt.kind == "return" then
         return stmt.exps == nil or not exps_contain_multi_statement_function(stmt.exps)
     elseif stmt.kind == "assignment" then
@@ -269,11 +232,6 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
     then
         return stmt.args ~= nil
     elseif stmt.kind == "if" and stmt.if_blocks ~= nil then
-        for _, if_block in ipairs(stmt.if_blocks) do
-            if if_block.exp ~= nil and not node_is_single_line(if_block.exp) then
-                return false
-            end
-        end
         return true
     elseif stmt.kind == "while" and stmt.exp ~= nil then
         return node_is_single_line(stmt.exp)
@@ -372,16 +330,11 @@ local function block_is_structurally_eligible(
     if #block == 0 then
         return true
     end
-    if block.end_comments ~= nil and #block.end_comments > 0 then
-        fmt_logger.info("[structural] blocked: block has end comments")
-        return false
-    end
     if top_level_block_has_leading_prelude(block, lines) then
         fmt_logger.info("[structural] blocked: top-level block has leading prelude")
         return false
     end
 
-    local previous_end: integer | nil = nil
     for _, stmt in ipairs(block) do
         local stmt_end = max_statement_source_line(stmt)
         if fmt_off_regions:includes_range(stmt.y, stmt_end) then
@@ -391,18 +344,6 @@ local function block_is_structurally_eligible(
                 stmt.kind
             )
             return false
-        end
-        if not (previous_end is nil) and stmt.y > previous_end + 1 then
-            if has_non_comment_non_empty_line_between(
-                lines, previous_end + 1, stmt.y - 1
-            ) then
-                fmt_logger.info(
-                    "[structural] blocked at line %s: unexpected gap before %s",
-                    tostring(stmt.y),
-                    stmt.kind
-                )
-                return false
-            end
         end
         if stmt.body ~= nil and not block_is_structurally_eligible(
             stmt.body, lines, fmt_off_regions
@@ -428,7 +369,6 @@ local function block_is_structurally_eligible(
                 end
             end
         end
-        previous_end = stmt_end
     end
 
     return true

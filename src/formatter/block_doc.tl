@@ -20,19 +20,25 @@ end
 -- be misclassified as a leading comment of the next statement.
 local function stmt_effective_end_line(stmt: parser.Node): integer
     local end_line = node_end_line(stmt)
-    if stmt.exps ~= nil then
-        for _, exp in ipairs(stmt.exps) do
-            if exp.kind == "op" and
-                exp.op ~= nil and
-                exp.op.op == "@funcall" and
-                exp.e2 ~= nil and
-                exp.e2.trailing_comment ~= nil and
-                exp.e2.yend ~= nil and
-                exp.e2.yend > end_line then
-                end_line = exp.e2.yend
-            end
+
+    local function consider_call_exp(exp: parser.Node)
+        if exp.kind == "op"
+            and exp.op ~= nil
+            and exp.op.op == "@funcall"
+            and exp.e2 ~= nil
+            and exp.e2.yend ~= nil
+            and exp.e2.yend > end_line
+        then
+            end_line = exp.e2.yend
         end
     end
+
+    if stmt.exps ~= nil then
+        for _, exp in ipairs(stmt.exps) do
+            consider_call_exp(exp)
+        end
+    end
+    consider_call_exp(stmt)
     return end_line
 end
 
@@ -60,6 +66,21 @@ local function render_block_doc_with(
     local typed_layout: BlockLayout | nil = nil
     if not (layout is nil) then
         typed_layout = layout
+    end
+
+    if block.unattached_comments ~= nil and #block.unattached_comments > 0 then
+        for index, comment in ipairs(block.unattached_comments) do
+            if index > 1 then
+                table.insert(parts, doc.line(""))
+            end
+            if index > 1 and comment.blank_line_before then
+                table.insert(parts, doc.line(""))
+            end
+            table.insert(parts, doc.text(comment.text))
+        end
+        if #block > 0 then
+            table.insert(parts, doc.line(""))
+        end
     end
 
     for index, stmt in ipairs(block) do
@@ -121,6 +142,31 @@ local function render_block_doc_with(
             return nil
         end
         table.insert(parts, stmt_doc_node)
+    end
+
+    if block.end_comments ~= nil and #block.end_comments > 0 then
+        local previous_line = 0
+        if #block > 0 then
+            previous_line = stmt_effective_end_line(block[#block])
+        end
+
+        local line_broken = #block == 0
+        for _, comment in ipairs(block.end_comments) do
+            if comment.y == previous_line and #block > 0 then
+                table.insert(parts, doc.text(" " .. comment.text))
+                line_broken = false
+            else
+                if not line_broken then
+                    table.insert(parts, doc.line(""))
+                end
+                if comment.y > previous_line + 1 then
+                    table.insert(parts, doc.line(""))
+                end
+                table.insert(parts, doc.text(comment.text))
+                line_broken = false
+            end
+            previous_line = comment.y
+        end
     end
 
     return doc.concat(parts)

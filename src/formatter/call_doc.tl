@@ -38,6 +38,55 @@ local function build_item_docs(item_docs: {doc.Doc}): {doc.Doc}
     return result
 end
 
+local function build_comment_lines_doc(comments: {parser.Comment}): {doc.Doc}
+    local parts: {doc.Doc} = {}
+    for index, comment in ipairs(comments) do
+        if index > 1 then
+            table.insert(parts, doc.hardline())
+        end
+        if index > 1 and comment.blank_line_before then
+            table.insert(parts, doc.hardline())
+        end
+        table.insert(parts, doc.text(comment.text))
+    end
+    return parts
+end
+
+local function node_end_line(node: parser.Node): integer
+    return node.yend or node.y
+end
+
+local function call_arg_effective_end_line(node: parser.Node): integer
+    local end_line = node_end_line(node)
+    if node.kind == "op"
+        and node.op ~= nil
+        and node.op.op == "@funcall"
+        and node.e2 ~= nil
+        and node.e2.yend ~= nil
+        and node.e2.yend > end_line
+    then
+        end_line = node.e2.yend
+    end
+    return end_line
+end
+
+local function classify_arg_comments(
+    node: parser.Node, prev_arg_end_line: integer
+): {parser.Comment}, {parser.Comment}
+    local trailing: {parser.Comment} = {}
+    local leading: {parser.Comment} = {}
+    if node.comments ~= nil then
+        for _, comment in ipairs(node.comments) do
+            if comment.y <= prev_arg_end_line then
+                table.insert(trailing, comment)
+            else
+                table.insert(leading, comment)
+            end
+        end
+    end
+    return trailing, leading
+end
+
 local function build_broken_delimited_sequence_doc_from_items(
     items_doc: doc.Doc, opts: DelimitedSequenceOptions
 ): doc.Doc
@@ -88,6 +137,44 @@ local function build_call_arg_doc(node: parser.Node): doc.Doc
     return expr_doc.render_expr(node)
 end
 
+local function build_call_arg_items_doc_with_comments(args: parser.Node): doc.Doc
+    local parts: {doc.Doc} = {}
+    local prev_arg_end_line: integer | nil = nil
+
+    for index, arg_node in ipairs(args) do
+        local trailing_comments: {parser.Comment} = {}
+        local leading_comments: {parser.Comment} = arg_node.comments or {}
+        if not (prev_arg_end_line is nil) then
+            local non_nil_prev_arg_end_line = prev_arg_end_line
+            trailing_comments, leading_comments = classify_arg_comments(
+                arg_node, non_nil_prev_arg_end_line
+            )
+        end
+
+        if index > 1 then
+            table.insert(parts, doc.text(","))
+            if #trailing_comments > 0 then
+                for _, comment in ipairs(trailing_comments) do
+                    table.insert(parts, doc.text(" " .. comment.text))
+                end
+            end
+            table.insert(parts, doc.hardline())
+        end
+
+        if #leading_comments > 0 then
+            for _, comment_part in ipairs(build_comment_lines_doc(leading_comments)) do
+                table.insert(parts, comment_part)
+            end
+            table.insert(parts, doc.hardline())
+        end
+
+        table.insert(parts, build_call_arg_doc(arg_node))
+        prev_arg_end_line = call_arg_effective_end_line(arg_node)
+    end
+
+    return doc.concat(parts)
+end
+
 local function build_call_arg_item_docs(args: parser.Node): {doc.Doc}
     local result: {doc.Doc} = {}
     for _, arg_node in ipairs(args) do
@@ -104,9 +191,15 @@ function call_doc.build_call_expr_doc(node: parser.Node): doc.Doc
     -- Without a group the doc.line breaks inside build_delimited_sequence_doc
     -- always expand, wrapping even short calls that fit on one line.
     if args_have_inline_comments(node.e2) or node.e2.trailing_comment ~= nil then
+        local call_args_doc = build_broken_delimited_sequence_doc(item_docs, opts)
+        if args_have_inline_comments(node.e2) then
+            call_args_doc = build_broken_delimited_sequence_doc_from_items(
+                build_call_arg_items_doc_with_comments(node.e2), opts
+            )
+        end
         local call_node = doc.concat({
             callee_doc,
-            build_broken_delimited_sequence_doc(item_docs, opts),
+            call_args_doc,
         })
         if node.e2.trailing_comment ~= nil then
             return doc.concat({
