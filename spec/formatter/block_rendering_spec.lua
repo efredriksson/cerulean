@@ -91,6 +91,20 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("reindents and normalises a compact numeric for range", helpers.format([[
+         local function f()
+           for i=1,2 do
+             tick(i)
+           end
+         end
+      ]], [[
+         local function f()
+             for i = 1, 2 do
+                 tick(i)
+             end
+         end
+      ]]))
+
       it("reindents a clean generic for block with wrong space indentation", helpers.format([[
          local function f(items: {string})
            for _, item in ipairs(items) do

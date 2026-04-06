@@ -82,16 +82,6 @@ local function node_is_single_line(node: parser.Node): boolean
     return max_source_line(node) == node.y
 end
 
-local function node_list_is_single_line(nodes: parser.Node): boolean
-    for _, child in ipairs(nodes) do
-        if not node_is_single_line(child) then
-            return false
-        end
-    end
-
-    return true
-end
-
 local function count_leading_comments_for_stmt(
     stmt: parser.Node, previous_end_line: integer
 ): integer
@@ -269,10 +259,8 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
             return false
         end
         return true
-    elseif stmt.kind == "forin" and stmt.vars ~= nil and stmt.exps ~= nil then
-        return node_list_is_single_line(
-            stmt.vars
-        ) and node_list_is_single_line(stmt.exps)
+    elseif stmt.kind == "forin" then
+        return true
     elseif stmt.kind == "repeat" and stmt.exp ~= nil then
         return node_is_single_line(stmt.exp)
     elseif stmt.kind == "do" then
