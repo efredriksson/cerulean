@@ -160,32 +160,8 @@ local function collect_op_edits(tokens: {tl.Token}): {Edit}
     return edits
 end
 
--- Collect edits for "exactly one space after comma" rule.
--- Only fires when comma and the next token are on the same line and
--- the gap between them is not exactly one space.
-local function collect_comma_edits(tokens: {tl.Token}): {Edit}
-    local edits: {Edit} = {}
-    for i = 1, #tokens - 1 do
-        local current = tokens[i]
-        local next_token = tokens[i + 1]
-        if current.kind == "," and next_token.y == current.y then
-            local comma_end = current.x + #current.tk
-            local gap = next_token.x - comma_end
-            if gap ~= 1 then
-                table.insert(
-                    edits, Edit.new(current.y, comma_end, next_token.x - 1, " ")
-                )
-            end
-        end
-    end
-    return edits
-end
-
 local function collect_all_edits(tokens: {tl.Token}): {Edit}
     local edits: {Edit} = {}
-    for _, edit in ipairs(collect_comma_edits(tokens)) do
-        table.insert(edits, edit)
-    end
     for _, edit in ipairs(collect_op_edits(tokens)) do
         table.insert(edits, edit)
     end

@@ -43,19 +43,11 @@ local function node_end_line(node: parser.Node): integer
     return node.yend or node.y
 end
 
-local function node_child_end_line(node: parser.Node): integer
-    if node.kind == "expression_list" then
-        return node.y
-    end
-
-    return node_end_line(node)
-end
-
 local function max_source_line(node: parser.Node): integer
-    local max_line = node.y
+    local max_line = node.yend or node.y
 
     ast_utils.walk_descendants(node, function(child: parser.Node)
-        local child_end = node_child_end_line(child)
+        local child_end = node_end_line(child)
         if child_end > max_line then
             max_line = child_end
         end
@@ -64,26 +56,26 @@ local function max_source_line(node: parser.Node): integer
     return max_line
 end
 
-local function max_statement_source_line(node: parser.Node): integer
-    local max_line = node.y
+local function min_source_line(node: parser.Node): integer
+    local min_line = node.y
 
-    local function consider(child: parser.Node)
-        local child_end = node_child_end_line(child)
-        if child_end > max_line then
-            max_line = child_end
-        end
-
-        if child.kind == "op" and child.op ~= nil and child.op.op == "@funcall" and child.e2 ~= nil then
-            local args_end = max_source_line(child.e2)
-            if args_end > child.e2.y and args_end + 1 > max_line then
-                max_line = args_end + 1
+    local function consider_comments(comments: {parser.Comment})
+        for _, comment in ipairs(comments) do
+            if comment.y < min_line then
+                min_line = comment.y
             end
         end
     end
 
-    consider(node)
-    ast_utils.walk_descendants(node, consider)
-    return max_line
+    local function consider_node_comments(candidate: parser.Node)
+        consider_comments(candidate.comments or {})
+        consider_comments(candidate.end_comments or {})
+        consider_comments(candidate.unattached_comments or {})
+    end
+
+    consider_node_comments(node)
+    ast_utils.walk_descendants(node, consider_node_comments)
+    return min_line
 end
 
 local function node_is_single_line(node: parser.Node): boolean
@@ -290,24 +282,23 @@ local function stmt_is_ast_renderable(stmt: parser.Node): boolean
     return false
 end
 
-local function max_stmt_line(stmt: parser.Node): integer
-    local stmt_end = max_statement_source_line(stmt)
-    return math.max(stmt_end, stmt.y)
+local function stmt_surface_range(stmt: parser.Node): ranges.LineRange
+    return ranges.new(stmt.y, max_source_line(stmt))
 end
 
-local function stmt_surface_range(stmt: parser.Node): ranges.LineRange
-    return ranges.new(stmt.y, max_stmt_line(stmt))
+local function block_surface_range(block: parser.Node): ranges.LineRange
+    return ranges.new(min_source_line(block), max_source_line(block))
 end
 
 local function stmt_child_surface_ranges(stmt: parser.Node): {ranges.LineRange}
     local result: {ranges.LineRange} = {}
 
     if stmt.body ~= nil then
-        table.insert(result, stmt_surface_range(stmt.body))
+        table.insert(result, block_surface_range(stmt.body))
     end
 
     for _, if_block in ipairs(stmt.if_blocks or {}) do
-        table.insert(result, stmt_surface_range(if_block))
+        table.insert(result, block_surface_range(if_block))
     end
 
     return result
@@ -367,7 +358,7 @@ local function build_block_layout(
     local previous_end: integer | nil = nil
     local statement_layouts: {StatementLayout} = {}
     for _, stmt in ipairs(block) do
-        local stmt_end = max_statement_source_line(stmt)
+        local stmt_end = max_source_line(stmt)
         if not (previous_end is nil) and stmt.y > previous_end + 1 then
             local non_nil_previous_end = previous_end
             local leading_comment_count = count_leading_comments_for_stmt(
@@ -444,7 +435,7 @@ local function block_is_structurally_eligible(
     end
 
     for _, stmt in ipairs(block) do
-        local stmt_end = max_statement_source_line(stmt)
+        local stmt_end = max_source_line(stmt)
         if fmt_off_regions:includes_range(stmt.y, stmt_end) then
             fmt_logger.info(
                 "[structural] blocked at line %s: fmt:off covers %s",

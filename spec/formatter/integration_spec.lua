@@ -16,8 +16,8 @@ describe("formatter integration", function()
             -- fmt: off
             local a = {1,  2,  3}
             local b = {4,  5,  6}
-            -- fmt: on
-            local c = {7, 8, 9}
+             -- fmt: on
+             local c = {7, 8, 9}
          end
       ]]))
 
