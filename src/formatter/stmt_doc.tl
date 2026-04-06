@@ -1,5 +1,4 @@
 -- Single AST statement → doc.Doc. Returns nil for unsupported statement shapes.
-local call_doc = require("formatter.call_doc")
 local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
@@ -145,9 +144,6 @@ local function block_with_close(
 end
 
 local function build_exp_doc(node: parser.Node): doc.Doc
-    if node.kind == "op" and node.op ~= nil and node.op.op == "@funcall" then
-        return call_doc.build_call_expr_doc(node)
-    end
     return expr_doc.render_expr(node)
 end
 
@@ -947,9 +943,6 @@ function stmt_doc.render_statement_doc(
     elseif node.kind == "break" then
         return doc.text("break")
     elseif node.kind == "op" then
-        if node.op ~= nil and node.op.op == "@funcall" then
-            return call_doc.build_call_expr_doc(node)
-        end
         if end_line == node.y then
             return build_exp_doc(node)
         end
