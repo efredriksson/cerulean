@@ -60,6 +60,16 @@ describe("formatter doc primitives", function()
         assert.same("alpha\nbeta\nouter-broken", render(tree, 6))
     end)
 
+    it("keeps flat if_break branch for unbreakable target groups that only overflow width", function()
+        local tagged_group = doc.group_ref()
+        local tree = doc.concat({
+            tagged_group:group(doc.text("supercalifragilisticexpialidocious")),
+            tagged_group:if_break(doc.text("[broken]"), doc.text("[flat]")),
+        })
+
+        assert.same("supercalifragilisticexpialidocious[flat]", render(tree, 6))
+    end)
+
     it("break_parent forces the containing group to break", function()
         local tagged_group = doc.group_ref()
         local tree = tagged_group:group(doc.concat({

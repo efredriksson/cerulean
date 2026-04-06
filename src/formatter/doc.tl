@@ -220,6 +220,44 @@ local function should_take_break_branch(
     return not flat
 end
 
+local function has_line_break_opportunity(node: Doc): boolean
+    if node.kind == "line"
+        or node.kind == "hardline"
+        or node.kind == "blankline"
+        or node.kind == "close"
+        or node.kind == "break_parent" then
+        return true
+    end
+
+    if node.kind == "concat" then
+        for _, part in ipairs(node.parts or {}) do
+            if has_line_break_opportunity(part) then
+                return true
+            end
+        end
+        return false
+    end
+
+    if node.kind == "indent" or node.kind == "group" or node.kind == "line_suffix" then
+        if node.child == nil then
+            return false
+        end
+        return has_line_break_opportunity(node.child)
+    end
+
+    if node.kind == "if_break" then
+        if node.break_child ~= nil and has_line_break_opportunity(node.break_child) then
+            return true
+        end
+        if node.flat_child ~= nil and has_line_break_opportunity(node.flat_child) then
+            return true
+        end
+        return false
+    end
+
+    return false
+end
+
 local function push_pending_line_suffixes(
     commands: {RenderCommand}, state: RenderState
 ): integer
@@ -432,7 +470,9 @@ local function render_doc(
                 local fits_flat = fits(
                     state.max_width - state.column, trial, state.broken_groups
                 )
-                if group_id ~= nil and not fits_flat then
+                if group_id ~= nil
+                    and not fits_flat
+                    and has_line_break_opportunity(node.child) then
                     state.broken_groups[group_id] = true
                 end
                 table.insert(

@@ -62,6 +62,21 @@ describe("formatter integration", function()
       ]]))
    end)
 
+   describe("line width guards", function()
+      it("does not collapse a wrapped and-or call argument when the single-line form would exceed 88 columns", helpers.format([[
+         local values = {
+            write_text(use_first_value and ("prefix_" .. first_name_long_identifier .. first_suffix_long_identifier .. "_tail") or ("prefix_" .. second_name_long_identifier .. second_suffix_long_identifier .. "_tail")),
+         }
+      ]], [[
+         local values = {
+             write_text(
+                 use_first_value and ("prefix_" .. first_name_long_identifier .. first_suffix_long_identifier .. "_tail")
+                     or ("prefix_" .. second_name_long_identifier .. second_suffix_long_identifier .. "_tail")
+             ),
+         }
+      ]]))
+   end)
+
    describe("resilience", function()
       it("returns an empty file unchanged", helpers.check([[
       ]]))
