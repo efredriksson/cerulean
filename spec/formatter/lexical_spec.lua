@@ -109,6 +109,10 @@ describe("formatter lexical transforms", function()
          local x = "hello"
       ]]))
 
+      it("does not convert a single-quoted string that contains a double quote", helpers.check([[
+         local x = 'say "hello"'
+      ]]))
+
       it("converts empty single-quoted strings to double quotes", helpers.format([[
          local x = ''
       ]], [[

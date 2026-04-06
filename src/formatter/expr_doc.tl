@@ -381,6 +381,9 @@ local function render_string_literal(node: parser.Node): doc.Doc
     end
 
     local content = node.tk:sub(2, -2)
+    if content:find('"', 1, true) then
+        return doc.text(node.tk)
+    end
     return doc.text('"' .. content .. '"')
 end
 

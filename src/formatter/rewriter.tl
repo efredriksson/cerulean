@@ -65,64 +65,28 @@ local function build_formatter_context(
     return FormatterContext.new(ast, tokens, lines, fmt_off_regions)
 end
 
-local function run_final_cleanup_pass(
-    _context: FormatterContext, lines: {string}
-): {string}
-    local cleaned_lines: {string} = {}
-    for _, line_str in ipairs(lines) do
-        local cleaned = line_str
-        if cleaned:match("^%s*$") then
-            table.insert(cleaned_lines, "")
-        else
-            table.insert(cleaned_lines, cleaned)
-        end
-    end
-
-    return cleaned_lines
-end
-
 local function run_structural_phase(
     source: string, filename: string, ast: parser.Node
 ): string
     local context = build_formatter_context(source, filename, ast)
 
-    local output_lines = context.lines
-
-    local cleaned_source = table.concat(output_lines, "\n")
-    local cleaned_ast, cleaned_parse_errors = parser.parse(cleaned_source, filename)
-    if #cleaned_parse_errors == 0 then
-        context = build_formatter_context(cleaned_source, filename, cleaned_ast)
-        output_lines = context.lines
-    end
-
-    local structural_layout: structural_render_analysis.BlockLayout | nil = nil
     if structural_render_analysis.can_use_block_doc_formatter(
-        context.ast, output_lines, context.fmt_off_regions
+        context.ast, context.lines, context.fmt_off_regions
     ) then
-        structural_layout = structural_render_analysis.analyze_block_layout(
-            context.ast, context.fmt_off_regions, output_lines
+        local structural_layout = structural_render_analysis.analyze_block_layout(
+            context.ast, context.fmt_off_regions, context.lines
         )
-    end
 
-    if not (structural_layout is nil) then
         local structurally_rendered = block_doc.render_block(
             context.ast, structural_layout
         )
         if structurally_rendered ~= nil then
             local rendered_source = table.concat(structurally_rendered, "\n") .. "\n"
-            local rendered_ast, parse_errors = parser.parse(rendered_source, filename)
-            if #parse_errors == 0 then
-                context = build_formatter_context(
-                    rendered_source, filename, rendered_ast
-                )
-                output_lines = context.lines
-            end
+            return rendered_source
         end
     end
 
-    output_lines = run_final_cleanup_pass(context, output_lines)
-
-    return table.concat(output_lines, "\n")
+    return source
 end
 
 local function run_require_sort_phase(source: string, filename: string): Rewrite
