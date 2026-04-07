@@ -602,7 +602,7 @@ local function render_function_definition_doc(
     end
 
     local sig_doc = append_return_type(
-        signature_doc.render_signature_doc(node.args, true), rets_source_text
+        signature_doc.render_signature_doc(node.args), rets_source_text
     )
 
     if #node.body == 0 then

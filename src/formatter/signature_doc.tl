@@ -38,26 +38,11 @@ local function build_signature_item_docs(args: parser.Node): {doc.Doc}
     return result
 end
 
-local function build_delimited_sequence_doc(
-    item_docs: {doc.Doc},
-    opts: render_builders.DelimitedSequenceOptions,
-    compact_when_possible: boolean
-): doc.Doc
-    local result = render_builders.build_delimited_sequence_doc(item_docs, opts)
-    if compact_when_possible then
-        return doc.group(result)
-    end
-    return result
-end
-
-function signature_doc.render_signature_doc(
-    args: parser.Node, force_wrap?: boolean
-): doc.Doc
+function signature_doc.render_signature_doc(args: parser.Node): doc.Doc
     local opts = render_builders.DelimitedSequenceOptions.new("(", ")", 4)
     local item_docs = build_signature_item_docs(args)
-    local should_force_wrap = force_wrap or false
 
-    return build_delimited_sequence_doc(item_docs, opts, not should_force_wrap)
+    return doc.group(render_builders.build_delimited_sequence_doc(item_docs, opts))
 end
 
 return signature_doc

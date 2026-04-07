@@ -5,8 +5,7 @@ local render_builders = require("formatter.render_builders")
 
 local call_doc = {}
 
-local type RenderCallee = function(parser.Node): doc.Doc
-local type RenderArg = function(parser.Node): doc.Doc
+local type Renderer = function(parser.Node): doc.Doc
 
 local function args_have_inline_comments(args: parser.Node): boolean
     for _, call_arg in ipairs(args) do
@@ -18,7 +17,7 @@ local function args_have_inline_comments(args: parser.Node): boolean
 end
 
 local function build_call_arg_items_doc_with_comments(
-    args: parser.Node, render_arg: RenderArg
+    args: parser.Node, render_arg: Renderer
 ): doc.Doc
     local parts: {doc.Doc} = {}
     local prev_arg_end_line: integer | nil = nil
@@ -60,7 +59,7 @@ local function build_call_arg_items_doc_with_comments(
 end
 
 local function build_call_arg_item_docs(
-    args: parser.Node, render_arg: RenderArg
+    args: parser.Node, render_arg: Renderer
 ): {doc.Doc}
     local result: {doc.Doc} = {}
     for _, arg_node in ipairs(args) do
@@ -69,10 +68,8 @@ local function build_call_arg_item_docs(
     return result
 end
 
-function call_doc.build_call_expr_doc(
-    node: parser.Node, render_callee: RenderCallee, render_arg: RenderArg
-): doc.Doc
-    local callee_doc = render_callee(node.e1)
+function call_doc.build_call_expr_doc(node: parser.Node, render_arg: Renderer): doc.Doc
+    local callee_doc = render_arg(node.e1)
     local item_docs = build_call_arg_item_docs(node.e2, render_arg)
     local opts = render_builders.DelimitedSequenceOptions.new("(", ")", 4)
     local has_inline_comments = args_have_inline_comments(node.e2)

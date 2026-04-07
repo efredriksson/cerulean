@@ -100,33 +100,7 @@ local function maybe_parenthesize(
 end
 
 local function build_call_expr_doc(node: parser.Node): doc.Doc
-    local function render_callee(callee_node: parser.Node): doc.Doc
-        return render_expr(callee_node, PRECEDENCE["@funcall"])
-    end
-
-    local function render_arg(arg_node: parser.Node): doc.Doc
-        if arg_node.kind == "literal_table" then
-            return doc.group(table_doc.build_table_doc(
-                arg_node, render_root_expr
-            ))
-        end
-        return render_root_expr(arg_node)
-    end
-
-    return call_doc.build_call_expr_doc(node, render_callee, render_arg)
-end
-
-local function render_call_aware_expr(
-    node: parser.Node, parent_prec: integer
-): doc.Doc
-    if node.kind == "op"
-        and node.op ~= nil
-        and node.op.op == "@funcall"
-    then
-        return build_call_expr_doc(node)
-    end
-
-    return render_expr(node, parent_prec)
+    return call_doc.build_call_expr_doc(node, render_root_expr)
 end
 
 local function collect_top_level_logical_terms(
@@ -157,7 +131,7 @@ local function render_top_level_logical_chain(
     for index, term in ipairs(terms) do
         local term_group_ref = doc.group_ref()
         table.insert(
-            parts, term_group_ref:group(render_call_aware_expr(term, operator_prec))
+            parts, term_group_ref:group(render_expr(term, operator_prec))
         )
         if index < #terms then
             local default_separator = doc.indent(4, doc.concat({
@@ -237,7 +211,7 @@ local function render_function_expr(node: parser.Node): doc.Doc
     end
 
     local signature = append_return_type(
-        signature_doc.render_signature_doc(node.args, false), rets_source_text
+        signature_doc.render_signature_doc(node.args), rets_source_text
     )
 
     if node.body == nil or #node.body == 0 then
@@ -288,7 +262,7 @@ local function render_op(node: parser.Node, parent_prec: integer): doc.Doc
     elseif node.op.arity == 1 then
         local op_prec = precedence_for_op(op, 1)
         local child = maybe_parenthesize(
-            render_call_aware_expr(node.e1, op_prec), node.e1, op, 1, true
+            render_expr(node.e1, op_prec), node.e1, op, 1, true
         )
         local rendered = doc.concat({doc.text(op == "not" and "not " or op), child})
         return wrap_for_parent_precedence(rendered, op, 1, parent_prec)
@@ -298,8 +272,8 @@ local function render_op(node: parser.Node, parent_prec: integer): doc.Doc
         end
 
         local op_prec = precedence_for_op(op, 2)
-        local left_doc = render_call_aware_expr(node.e1, op_prec)
-        local right_doc = render_call_aware_expr(node.e2, op_prec)
+        local left_doc = render_expr(node.e1, op_prec)
+        local right_doc = render_expr(node.e2, op_prec)
 
         local left = maybe_parenthesize(left_doc, node.e1, op, 2, false)
         local right = maybe_parenthesize(right_doc, node.e2, op, 2, true)
