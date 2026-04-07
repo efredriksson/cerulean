@@ -691,6 +691,15 @@ describe("formatter comment matrix (single-line)", function()
             end
          ]]))
 
+      it("keeps a single blank line before a lone end comment stable", helpers.check([[
+         local function f()
+             local x = 1
+             return x
+
+             -- comment before end
+         end
+      ]]))
+
       it("preserves a leading comment on the sole statement of an if body",
          helpers.format([[
             local function f(flag: boolean)

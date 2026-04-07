@@ -6,7 +6,6 @@ local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
 local signature_doc = require("formatter.signature_doc")
-local tl = require("tl")
 
 local type BlockLayout = layout_types.BlockLayout
 local type StatementLayout = layout_types.StatementLayout
@@ -26,12 +25,12 @@ local function get_body_layout(layout: StatementLayout | nil): BlockLayout | nil
     return layout.body_layout
 end
 
-local function render_type_constraint_text(constraint: tl.Type): string | nil
+local function render_type_constraint_text(constraint: parser.Type): string | nil
     if constraint.source_text ~= nil and constraint.source_text ~= "" then
         return constraint.source_text
     end
 
-    if constraint is tl.NominalType then
+    if constraint is parser.NominalType then
         local parts: {string} = {table.concat(constraint.names, ".")}
         if constraint.typevals ~= nil and #constraint.typevals > 0 then
             local typevals: {string} = {}
@@ -49,7 +48,7 @@ local function render_type_constraint_text(constraint: tl.Type): string | nil
     return nil
 end
 
-local function render_typearg_list(typeargs: {tl.TypeArgType}): string
+local function render_typearg_list(typeargs: {parser.TypeArgType}): string
     if #typeargs == 0 then
         return ""
     end
@@ -151,45 +150,7 @@ local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
     return inline_stmt_doc.render_local_declaration_doc(stmt, build_exp_doc)
 end
 
-local function append_line_entry_doc(
-    parts: {doc.Doc}, item_text: string | nil, comment: tl.LexerComment | nil
-)
-    if item_text is nil then
-        if comment is nil then
-            return
-        end
-        table.insert(parts, doc.text(comment.text))
-        table.insert(parts, doc.hardline())
-        return
-    end
-
-    if comment is nil then
-        table.insert(parts, doc.text(item_text))
-        table.insert(parts, doc.line())
-        return
-    end
-
-    table.insert(parts, doc.text(item_text .. " " .. comment.text))
-    table.insert(parts, doc.line())
-end
-
-local record EnumItemDoc
-    type_text: string
-    comment: tl.LexerComment
-    line: integer
-end
-
-function EnumItemDoc.new(
-    type_text: string, comment: tl.LexerComment, line: integer
-): EnumItemDoc
-    local self: EnumItemDoc = setmetatable({}, {__index = EnumItemDoc})
-    self.type_text = type_text
-    self.comment = comment
-    self.line = line
-    return self
-end
-
-local function render_enum_doc(stmt: parser.Node, def: tl.EnumType): doc.Doc
+local function render_enum_doc(stmt: parser.Node, def: parser.EnumType): doc.Doc
     local header: doc.Doc
     if stmt.is_type_declaration then
         header = doc.text("local type " .. def.declname .. " = enum")
@@ -197,70 +158,32 @@ local function render_enum_doc(stmt: parser.Node, def: tl.EnumType): doc.Doc
         header = doc.text("local enum " .. def.declname)
     end
 
-    local enum_values: {EnumItemDoc} = {}
-    local previous_item: EnumItemDoc | nil = nil
+    local enum_items = render_builders.CommentLineItems.new()
     local previous_item_line = stmt.y
-
-    local function comment_after_prev_item(comment: tl.LexerComment): EnumItemDoc | nil
-        if previous_item is nil then
-            return nil
-        end
-
-        if previous_item.line == comment.y then
-            return previous_item
-        end
-
-        return nil
-    end
 
     for _, enum_str in ipairs(def.enumset) do
         local item_line = previous_item_line + 1
-        for _, comment in ipairs((def.value_comments or {})[enum_str] or {}) do
-            local attached_to_item = comment_after_prev_item(comment)
-            if not (attached_to_item is nil) then
-                attached_to_item.comment = comment
-            else
-                table.insert(enum_values, EnumItemDoc.new(nil, comment, comment.y))
-                if comment.y >= item_line then
-                    item_line = comment.y + 1
-                end
+        local comments = ((def.value_comments or {})[enum_str] or {})
+        for _, comment in ipairs(comments) do
+            if comment.y >= item_line then
+                item_line = comment.y + 1
             end
         end
-        local enum_item = EnumItemDoc.new('"' .. enum_str .. '"', nil, item_line)
-        table.insert(enum_values, enum_item)
-        previous_item = enum_item
+        enum_items:add(doc.text('"' .. enum_str .. '"'), item_line, comments, false)
         previous_item_line = item_line
     end
-    for _, comment in ipairs(def.end_comments or stmt.end_comments or {}) do
-        local attached_to_item = comment_after_prev_item(comment)
-        if not (attached_to_item is nil) then
-            attached_to_item.comment = comment
-        else
-            table.insert(enum_values, EnumItemDoc.new(nil, comment, comment.y))
-        end
+
+    local enum_end_comments: {parser.Comment} = {}
+    if def.end_comments ~= nil then
+        enum_end_comments = def.end_comments
+    elseif stmt.end_comments ~= nil then
+        enum_end_comments = stmt.end_comments
     end
+    enum_items:add_end_comments(enum_end_comments)
 
-    local enum_docs: {doc.Doc} = {}
-    for _, enum_value in ipairs(enum_values) do
-        append_line_entry_doc(enum_docs, enum_value.type_text, enum_value.comment)
-    end
-    return block_with_close(header, doc.concat(enum_docs), "end")
-end
-
-local record RecordItemDoc
-    item: parser.Node
-    type_text: string
-    comment: tl.LexerComment
-end
-
-function RecordItemDoc.new(
-    item: parser.Node, type_text: string, comment: tl.LexerComment
-): RecordItemDoc
-    local self: RecordItemDoc = setmetatable({}, {__index = RecordItemDoc})
-    self.item = item
-    self.type_text = type_text
-    self.comment = comment
-    return self
+    return block_with_close(
+        header, render_builders.render_line_entries(enum_items, nil, nil), "end"
+    )
 end
 
 local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
@@ -273,35 +196,36 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     end
     local def = newtype.def
     local declaration_keyword: string
-    local record_def: tl.RecordLikeType
+    local record_def: parser.RecordLikeType
     local is_type_declaration = stmt.is_type_declaration
     local typeargs_str = ""
 
-    if def is tl.GenericType then
-        typeargs_str = render_typearg_list(def.typeargs)
-        def = def.t
+    if def is parser.GenericType then
+        local generic_def = def
+        typeargs_str = render_typearg_list(generic_def.typeargs or {})
+        def = generic_def.t
         if def == nil then
             return nil
         end
     end
-    if def is tl.InterfaceType then
+    if def is parser.InterfaceType then
         declaration_keyword = "interface"
         record_def = def
-    elseif def is tl.RecordType then
+    elseif def is parser.RecordType then
         declaration_keyword = "record"
         record_def = def
-    elseif def is tl.EnumType then
+    elseif def is parser.EnumType then
         return render_enum_doc(stmt, def)
     else
         return nil
     end
 
-    local function render_record_interface_doc(iface: tl.Type): doc.Doc | nil
+    local function render_record_interface_doc(iface: parser.Type): doc.Doc | nil
         if iface.source_text ~= nil and iface.source_text ~= "" then
             return doc.text(iface.source_text)
         end
 
-        if iface is tl.NominalType then
+        if iface is parser.NominalType then
             local parts: {doc.Doc} = {
                 doc.text(table.concat(iface.names, ".")),
             }
@@ -319,7 +243,7 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
                 table.insert(parts, doc.text(">"))
             end
             return doc.concat(parts)
-        elseif iface is tl.ArrayType then
+        elseif iface is parser.ArrayType then
             if iface.elements == nil or iface.elements.source_text == nil then
                 return nil
             end
@@ -358,7 +282,7 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
         and record_def.meta_fields ~= nil
         and record_def.meta_fields["__is"] ~= nil then
         local where_function = record_def.meta_fields["__is"]
-        if not (where_function is tl.FunctionType)
+        if not (where_function is parser.FunctionType)
             or where_function.macroexp == nil then
             return nil
         end
@@ -370,66 +294,31 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
         table.insert(header_parts, build_exp_doc(where_macroexp.exp))
     end
 
-    local record_lines: {RecordItemDoc} = {}
-    local previous_item: RecordItemDoc | nil = nil
-
-    local function comment_after_prev_item(
-        comment: tl.LexerComment
-    ): RecordItemDoc | nil
-        if previous_item is nil then
-            return nil
-        end
-
-        local previous_item_line = previous_item.item.yend or previous_item.item.y
-        if previous_item_line == comment.y then
-            return previous_item
-        end
-
-        return nil
-    end
-
+    local record_items = render_builders.CommentLineItems.new()
     for _, field_name in ipairs(record_def.field_order) do
         local field_type = record_def.fields[field_name]
         if field_type == nil or field_type.source_text == nil then
             return nil
         end
 
-        local field_comments = (record_def.field_comments or {})[field_name] or {}
-        -- TODO: Comments here can come from type overloaded fields?
+        local field_comments = ((record_def.field_comments or {})[field_name]
+            or {}) as {{parser.Comment}}
+        local parser_comments: {parser.Comment} = {}
         for _, overload_comments in ipairs(field_comments) do
             for _, comment in ipairs(overload_comments) do
-                local attached_to_item = comment_after_prev_item(comment)
-                if not (attached_to_item is nil) then
-                    attached_to_item.comment = comment
-                else
-                    table.insert(record_lines, RecordItemDoc.new(nil, nil, comment))
-                end
+                table.insert(parser_comments, comment)
             end
         end
 
         local field_text = field_name .. ": " .. field_type.source_text
-        local record_item = RecordItemDoc.new(
-            field_type as parser.Node, field_text, nil
+        record_items:add(
+            doc.text(field_text),
+            render_builders.node_end_line(field_type as parser.Node),
+            parser_comments,
+            false
         )
-        table.insert(record_lines, record_item)
-        previous_item = record_item
     end
-
-    for _, comment in ipairs(stmt.end_comments or {}) do
-        local attached_to_item = comment_after_prev_item(comment)
-        if not (attached_to_item is nil) then
-            attached_to_item.comment = comment
-        else
-            table.insert(record_lines, RecordItemDoc.new(nil, nil, comment))
-        end
-    end
-
-    local field_docs: {doc.Doc} = {}
-
-    for _, record_line in ipairs(record_lines) do
-        append_line_entry_doc(field_docs, record_line.type_text, record_line.comment)
-    end
-
+    record_items:add_end_comments(stmt.end_comments or {})
     return doc.concat(
         {
             doc.concat(header_parts),
@@ -438,7 +327,7 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
                 doc.concat(
                     {
                         doc.line(),
-                        doc.concat(field_docs),
+                        render_builders.render_line_entries(record_items, nil, nil),
                     }
                 )
             ),

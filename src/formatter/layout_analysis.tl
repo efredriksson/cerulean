@@ -6,7 +6,6 @@ local fmt_logger = require("formatter.fmt_logger")
 local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local source = require("formatter.source")
-local tl = require("tl")
 
 local type StatementLayout = layout_types.StatementLayout
 local type BlockLayout = layout_types.BlockLayout
@@ -177,7 +176,7 @@ local function local_type_is_ast_renderable(stmt: parser.Node): boolean
     if def == nil then
         return false
     end
-    if def is tl.GenericType then
+    if def is parser.GenericType then
         def = def.t
         if def == nil then
             return false
@@ -187,12 +186,13 @@ local function local_type_is_ast_renderable(stmt: parser.Node): boolean
         return true
     end
 
-    local record_like = def as tl.RecordLikeType
+    local record_like = def as parser.RecordLikeType
     if record_like.meta_field_order ~= nil and #record_like.meta_field_order > 0 then
         if def.typename ~= "interface" then
             return false
         end
-        if #record_like.meta_field_order ~= 1 or record_like.meta_field_order[1] ~= "__is" then
+        if #record_like.meta_field_order ~= 1
+            or record_like.meta_field_order[1] ~= "__is" then
             return false
         end
         local where_function = record_like.meta_fields["__is"]

@@ -1,21 +1,44 @@
 -- Adapted from tl.tl (the teal-lang project), version 0.24.8.
 -- This is a typed copy of the tl parser. It will be simplified over time.
 
+local parser_types = require("formatter.parser_types")
 local tl = require("tl")
 
+local type Error = tl.Error
+local type Token = tl.Token
+
 local record parser
+    type NodeKind = parser_types.NodeKind
+    type Where = parser_types.Where
+    type Type = parser_types.Type
+    type TypeArgType = parser_types.TypeArgType
+    type NominalType = parser_types.NominalType
+    type GenericType = parser_types.GenericType
+    type FunctionType = parser_types.FunctionType
+    type ArrayType = parser_types.ArrayType
+    type RecordType = parser_types.RecordType
+    type InterfaceType = parser_types.InterfaceType
+    type RecordLikeType = parser_types.RecordLikeType
+    type EnumType = parser_types.EnumType
+    type Attribute = parser_types.Attribute
+    type TypeDeclType = parser_types.TypeDeclType
+    type TupleType = parser_types.TupleType
+    type Comment = parser_types.Comment
+    type Error = tl.Error
+    type Token = tl.Token
+
     record Node
-        is {Node}, tl.Where
+        is {Node}, parser_types.Where
         where self.kind ~= nil
 
         record ExpectedContext
-            kind: tl.NodeKind
+            kind: parser_types.NodeKind
             name: string
         end
 
         -- fmt: off
         tk:                             string
-        kind:                           tl.NodeKind
+        kind:                           parser_types.NodeKind
         comments:                       {Comment}
         symbol_list_slot:               integer
         semicolon:                      boolean
@@ -25,21 +48,21 @@ local record parser
         yend:                           integer
         xend:                           integer
         known:                          Fact
-        expected:                       tl.Type
+        expected:                       parser_types.Type
         expected_context:               Node.ExpectedContext
         key:                            Node
         value:                          Node
         key_parsed:                     KeyParsed
-        typeargs:                       {tl.TypeArgType}
+        typeargs:                       {parser_types.TypeArgType}
         min_arity:                      integer
         args:                           Node
-        rets:                           tl.TupleType
+        rets:                           parser_types.TupleType
         body:                           Node
         implicit_global_function:       boolean
         is_predeclared_local_function:  boolean
         name:                           Node
         is_repeat:                      boolean
-        attribute:                      tl.Attribute
+        attribute:                      parser_types.Attribute
         fn_owner:                       Node
         is_method:                      boolean
         exp:                            Node
@@ -54,7 +77,7 @@ local record parser
         step:                           Node
         vars:                           Node
         exps:                           Node
-        newtype:                        tl.TypeDeclType
+        newtype:                        parser_types.TypeDeclType
         elide_type:                     boolean
         op:                             Operator
         e1:                             Node
@@ -63,88 +86,80 @@ local record parser
         conststr:                       string
         failstore:                      boolean
         discarded_tuple:                boolean
-        receiver:                       tl.Type
+        receiver:                       parser_types.Type
         array_len:                      integer
         is_total:                       boolean
         missing:                        {string}
         label:                          string
         used_label:                     boolean
-        casttype:                       tl.Type
+        casttype:                       parser_types.Type
         is_lvalue:                      boolean
         macrodef:                       Node
         expanded:                       Node
-        argtype:                        tl.Type
-        itemtype:                       tl.Type
-        decltuple:                      tl.TupleType
+        argtype:                        parser_types.Type
+        itemtype:                       parser_types.Type
+        decltuple:                      parser_types.TupleType
         pkey:                           string
         pvalue:                         string
         opt:                            boolean
         trailing_comma:                 boolean
         end_comments:                   {Comment}
         trailing_comment:               Comment
-        debug_type:                     tl.Type
+        debug_type:                     parser_types.Type
         is_self:                        boolean
         is_type_declaration:            boolean
         f:                              string
         -- fmt: on
     end
 
-    record Comment
-        is tl.LexerComment
-        blank_line_before: boolean
-    end
-
     parse_program: function(
         tokens: {tl.Token},
-        errs: {tl.Error},
+        errs: {Error},
         filename?: string,
-        parse_lang?: tl.ParseLang,
         source_lines?: {string}
     ): Node, {string}
     parse: function(
         input: string,
-        filename: string,
-        parse_lang?: tl.ParseLang
-    ): Node, {tl.Error}, {string}
+        filename: string
+    ): Node, {Error}, {string}
+    lex: function(input: string, filename: string): {Token}, {Error}
+    loader: function()
 end
 
--- ── Type aliases for tl public types ────────────────────────────────────────
+-- ── Type aliases for parser_types public types ──────────────────────────────
 
 -- Local alias so internal code can refer to the exported Node without the
 -- 'parser.' prefix.
 local type Node = parser.Node
 
-local type Token = tl.Token
-local type Error = tl.Error
-local type ParseLang = tl.ParseLang
-local type NodeKind = tl.NodeKind
-local type Where = tl.Where
-local type TypeName = tl.TypeName
-local type Type = tl.Type
-local type GenericType = tl.GenericType
-local type TypeDeclType = tl.TypeDeclType
-local type TupleType = tl.TupleType
-local type TypeArgType = tl.TypeArgType
-local type NominalType = tl.NominalType
-local type FunctionType = tl.FunctionType
-local type Attribute = tl.Attribute
+local type NodeKind = parser_types.NodeKind
+local type Where = parser_types.Where
+local type TypeName = parser_types.TypeName
+local type Type = parser_types.Type
+local type GenericType = parser_types.GenericType
+local type TypeDeclType = parser_types.TypeDeclType
+local type TupleType = parser_types.TupleType
+local type TypeArgType = parser_types.TypeArgType
+local type NominalType = parser_types.NominalType
+local type FunctionType = parser_types.FunctionType
+local type Attribute = parser_types.Attribute
 
--- tl-internal structural types exposed through the public declaration file
-local type FirstOrderType = tl.FirstOrderType
-local type FirstClassType = tl.FirstClassType
-local type StructuralType = tl.StructuralType
-local type ArrayType = tl.ArrayType
-local type RecordLikeType = tl.RecordLikeType
-local type NilType = tl.NilType
-local type UnionType = tl.UnionType
-local type TupleTableType = tl.TupleTableType
-local type MapType = tl.MapType
-local type PolyType = tl.PolyType
-local type EnumType = tl.EnumType
-local type SelfType = tl.SelfType
+-- parser_types-internal structural types exposed through the public declaration file
+local type FirstOrderType = parser_types.FirstOrderType
+local type FirstClassType = parser_types.FirstClassType
+local type StructuralType = parser_types.StructuralType
+local type ArrayType = parser_types.ArrayType
+local type RecordLikeType = parser_types.RecordLikeType
+local type NilType = parser_types.NilType
+local type UnionType = parser_types.UnionType
+local type TupleTableType = parser_types.TupleTableType
+local type MapType = parser_types.MapType
+local type PolyType = parser_types.PolyType
+local type EnumType = parser_types.EnumType
+local type SelfType = parser_types.SelfType
 local type TokenKind = tl.TokenKind
 
--- ── Internal types from tl.tl ────────────────────────────────────────────────
+-- ── Internal types from parser_types.tl ─────────────────────────────────────
 
 local type Comment = parser.Comment
 
@@ -282,7 +297,6 @@ local record ParseState
    source_lines: {string}
 
    required_modules: {string}
-   parse_lang: ParseLang
 end
 
 local enum ParseTypeListMode
@@ -591,7 +605,6 @@ local function skip(
       errs = {},
       source_lines = ps.source_lines,
       required_modules = {},
-      parse_lang = ps.parse_lang,
    }
    return skip_fn(err_ps, i)
 end
@@ -714,7 +727,6 @@ local function parse_table_item(
             errs = {},
             source_lines = ps.source_lines,
             required_modules = ps.required_modules,
-            parse_lang = ps.parse_lang,
          }
          i, node.key = verify_kind(try_ps, i, "identifier", "string")
          node.key.conststr = node.key.tk
@@ -843,7 +855,6 @@ local function parse_trying_list<T>(
       errs = {},
       source_lines = ps.source_lines,
       required_modules = ps.required_modules,
-      parse_lang = ps.parse_lang
    }
    local tryi, item: integer, T = parse_item(try_ps, i)
    if not item then
@@ -1363,7 +1374,7 @@ do
             e1 = { f = ps.filename, y = tkop.y, x = tkop.x, kind = "op", op = op, e1 = e1, e2 = key }
          elseif tkop.tk == "(" then
             local prev_tk = ps.tokens[i - 1]
-            if tkop.y > prev_tk.y and ps.parse_lang ~= "lua" then
+            if tkop.y > prev_tk.y then
                table.insert(
                    ps.tokens,
                    i,
@@ -2027,7 +2038,7 @@ local function store_field_in_record(
 ): boolean
    local field_order: {string}
    local fields: {string:Type}
-   local field_comments: {string:{{tl.LexerComment}}}
+   local field_comments: {string:{{Comment}}}
    if meta then
       field_order, fields, field_comments = def.meta_field_order, def.meta_fields, def.meta_field_comments
    else
@@ -2046,7 +2057,7 @@ local function store_field_in_record(
    if not fields[field_name] then
       fields[field_name] = newt
       if comments then
-         field_comments[field_name] = {comments as {tl.LexerComment}}
+         field_comments[field_name] = {comments}
       end
       table.insert(field_order, field_name)
       return true
@@ -2064,7 +2075,9 @@ local function store_field_in_record(
                field_comments[field_name][idx] = {}
             end
          end
-         table.insert(field_comments[field_name], comments as {tl.LexerComment})
+         table.insert(
+             field_comments[field_name], comments
+         )
       elseif field_comments and field_comments[field_name] then
          table.insert(field_comments[field_name], {})
       end
@@ -2096,9 +2109,9 @@ local function set_declname(def: Type, declname: string)
       def = def.t
    end
 
-   if def is tl.RecordType or def is tl.InterfaceType or def is EnumType then
-      if not (def as tl.HasDeclName).declname then
-         (def as tl.HasDeclName).declname = declname
+   if def is parser_types.RecordType or def is parser_types.InterfaceType or def is EnumType then
+      if not (def as parser_types.HasDeclName).declname then
+         (def as parser_types.HasDeclName).declname = declname
       end
    end
 end
@@ -2417,7 +2430,7 @@ parse_record_body = function(
          a_type(where_macroexp as Where, "self", { display_type = def } as SelfType),
       })
       typ.rets = new_tuple(ps, wstart, { new_type(ps, wstart, "boolean") })
-      typ.macroexp = where_macroexp as tl.Node
+      typ.macroexp = where_macroexp as parser_types.Node
 
       def.meta_fields = {}
       def.meta_field_order = {}
@@ -2528,7 +2541,7 @@ parse_record_body = function(
                if tt is FunctionType then
                   local macroexp_node: Node
                   i, macroexp_node = parse_macroexp(ps, i + 1, i + 2)
-                  tt.macroexp = macroexp_node as tl.Node
+                  tt.macroexp = macroexp_node as parser_types.Node
                else
                   fail(ps, i + 1, "macroexp must have a function type")
                end
@@ -3067,7 +3080,6 @@ parser.parse_program = function(
     tokens: {Token},
     errs: {Error},
     filename?: string,
-    parse_lang?: ParseLang,
     source_lines?: {string}
 ): Node, {string}
    errs = errs or {}
@@ -3077,7 +3089,6 @@ parser.parse_program = function(
       filename = filename or "",
       source_lines = source_lines or {},
       required_modules = {},
-      parse_lang = parse_lang,
    }
    local i = 1
    local hashbang: string
@@ -3096,16 +3107,14 @@ end
 
 parser.parse = function(
     input: string,
-    filename: string,
-    parse_lang?: ParseLang
-): Node, {tl.Error}, {string}
+    filename: string
+): Node, {Error}, {string}
    local tokens, errs = tl.lex(input, filename)
    local source_lines = split_source_lines(input)
    local node, required_modules = parser.parse_program(
        tokens,
        errs,
        filename,
-       parse_lang,
        source_lines
    )
    return node, errs, required_modules

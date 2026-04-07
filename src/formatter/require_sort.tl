@@ -5,7 +5,6 @@ local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
 local source = require("formatter.source")
-local tl = require("tl")
 
 local require_sort = {}
 
@@ -204,7 +203,7 @@ local function sort_require_blocks(
     return result
 end
 
-function require_sort.rewrite(source_: string, filename: string): string, {tl.Error}
+function require_sort.rewrite(source_: string, filename: string): string, {parser.Error}
     local ast, parse_errors = parser.parse(source_, filename)
     if #parse_errors > 0 then
         return source_, parse_errors

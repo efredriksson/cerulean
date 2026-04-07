@@ -10,34 +10,6 @@ local type StatementLayout = layout_types.StatementLayout
 
 local block_doc = {}
 
--- Returns the last source line occupied by stmt, accounting for call args
--- that end on a line below the statement's own yend/y. This matters for
--- assignment statements (whose yend is nil) containing a call whose closing
--- paren carries a trailing_comment — without this, the trailing comment would
--- be misclassified as a leading comment of the next statement.
-local function stmt_effective_end_line(stmt: parser.Node): integer
-    local end_line = render_builders.node_end_line(stmt)
-
-    local function consider_call_exp(exp: parser.Node)
-        if exp.kind == "op"
-            and exp.op ~= nil
-            and exp.op.op == "@funcall"
-            and exp.e2 ~= nil
-            and exp.e2.yend ~= nil
-            and exp.e2.yend > end_line then
-            end_line = exp.e2.yend
-        end
-    end
-
-    if stmt.exps ~= nil then
-        for _, exp in ipairs(stmt.exps) do
-            consider_call_exp(exp)
-        end
-    end
-    consider_call_exp(stmt)
-    return end_line
-end
-
 local function statement_is_verbatim(layout: StatementLayout | nil): boolean
     return not (layout is nil) and layout.render_mode == "verbatim"
 end
@@ -54,22 +26,10 @@ end
 local function render_block_doc_with(
     block: parser.Node, layout: BlockLayout
 ): doc.Doc | nil
-    local parts: {doc.Doc} = {}
+    local line_items = render_builders.CommentLineItems.new()
     local typed_layout: BlockLayout | nil = nil
     if not (layout is nil) then
         typed_layout = layout
-    end
-
-    if block.unattached_comments ~= nil and #block.unattached_comments > 0 then
-        local comment_parts = render_builders.build_comment_lines_doc(
-            block.unattached_comments
-        )
-        for _, comment_part in ipairs(comment_parts) do
-            table.insert(parts, comment_part)
-        end
-        if #block > 0 then
-            table.insert(parts, doc.line())
-        end
     end
 
     for index, stmt in ipairs(block) do
@@ -79,53 +39,11 @@ local function render_block_doc_with(
             statement_layout = non_nil_layout.statements[index]
         end
         local stmt_is_verbatim = statement_is_verbatim(statement_layout)
-
-        if index == 1 then
-            if not stmt_is_verbatim and stmt.comments ~= nil then
-                for _, comment in ipairs(stmt.comments) do
-                    if comment.y < stmt.y then
-                        table.insert(parts, doc.text(comment.text))
-                        table.insert(parts, doc.line())
-                    end
-                end
-            end
-        elseif index > 1 then
-            local prev_stmt = block[index - 1]
-            local prev_end_line = stmt_effective_end_line(prev_stmt)
-            local trailing_comments, leading_comments = render_builders.classify_comments_by_previous_end_line(
-                stmt, prev_end_line
-            )
-
-            for _, comment in ipairs(trailing_comments) do
-                table.insert(parts, doc.text(" " .. comment.text))
-            end
-
-            table.insert(parts, doc.line())
-
-            local prev_statement_layout: StatementLayout | nil = nil
-            if not (typed_layout is nil) then
-                local non_nil_layout = typed_layout
-                prev_statement_layout = non_nil_layout.statements[index - 1]
-            end
-            if not (prev_statement_layout is nil) then
-                local non_nil_prev_layout = prev_statement_layout
-                if non_nil_prev_layout.preserve_blank_line_after then
-                    table.insert(parts, doc.line())
-                end
-            end
-
-            if not stmt_is_verbatim then
-                for _, comment in ipairs(leading_comments) do
-                    table.insert(parts, doc.text(comment.text))
-                    table.insert(parts, doc.line())
-                end
-            end
-        end
-
+        local stmt_doc_node: doc.Doc | nil = nil
         if stmt_is_verbatim and not (statement_layout is nil) then
-            table.insert(parts, render_verbatim(statement_layout))
+            stmt_doc_node = render_verbatim(statement_layout)
         else
-            local stmt_doc_node = stmt_doc.render_statement_doc(
+            stmt_doc_node = stmt_doc.render_statement_doc(
                 stmt, render_block_doc_with, statement_layout
             )
             if stmt_doc_node is nil then
@@ -136,36 +54,40 @@ local function render_block_doc_with(
                 )
                 return nil
             end
-            table.insert(parts, stmt_doc_node)
         end
+
+        local comments: {parser.Comment} = {}
+        if not stmt_is_verbatim then
+            comments = stmt.comments or {}
+        end
+
+        local preserve_blank_line_after = false
+        if not (statement_layout is nil) then
+            preserve_blank_line_after = statement_layout.preserve_blank_line_after
+        end
+
+        line_items:add(
+            stmt_doc_node,
+            render_builders.statement_effective_end_line(stmt),
+            comments,
+            preserve_blank_line_after
+        )
     end
 
-    if block.end_comments ~= nil and #block.end_comments > 0 then
-        local previous_line = 0
-        if #block > 0 then
-            previous_line = stmt_effective_end_line(block[#block])
-        end
+    line_items:add_end_comments(block.end_comments or {})
+    line_items:add_prefixed_comments(block.unattached_comments or {})
 
-        local line_broken = #block == 0
-        for _, comment in ipairs(block.end_comments) do
-            if comment.y == previous_line and #block > 0 then
-                table.insert(parts, doc.text(" " .. comment.text))
-                line_broken = false
-            else
-                if not line_broken then
-                    table.insert(parts, doc.line())
-                end
-                if comment.y > previous_line + 1 then
-                    table.insert(parts, doc.line())
-                end
-                table.insert(parts, doc.text(comment.text))
-                line_broken = false
+    local function entry_separator(ctx: render_builders.EntrySeparatorContext): doc.Doc
+        if ctx.previous_preserve_blank_line_after then
+            if ctx.next_starts_with_blank_line then
+                return doc.line()
             end
-            previous_line = comment.y
+            return doc.concat({doc.line(), doc.line()})
         end
+        return doc.line()
     end
 
-    return doc.concat(parts)
+    return render_builders.render_line_entries(line_items, nil, entry_separator)
 end
 
 function block_doc.render_block(block: parser.Node, layout: BlockLayout): {string} | nil

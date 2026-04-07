@@ -1,12 +1,11 @@
 -- AST traversal helpers and AST-derived source span collection.
 local parser = require("formatter.parser")
 local source = require("formatter.source")
-local tl = require("tl")
 
 local ast_traversal = {}
 
 -- fmt: off
-local BLOCK_NODE_KINDS: {tl.NodeKind: boolean} = {
+local BLOCK_NODE_KINDS: {parser.NodeKind: boolean} = {
     ["function"]        = true,
     ["local_function"]  = true,
     ["global_function"] = true,
@@ -20,7 +19,7 @@ local BLOCK_NODE_KINDS: {tl.NodeKind: boolean} = {
     ["newtype"]         = true,
 }
 
-local FUNCTION_DEF_KINDS: {tl.NodeKind: boolean} = {
+local FUNCTION_DEF_KINDS: {parser.NodeKind: boolean} = {
     ["local_function"]  = true,
     ["global_function"] = true,
     ["record_function"] = true,

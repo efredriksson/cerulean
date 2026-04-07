@@ -13,11 +13,11 @@ local rewriter = {}
 local record Rewrite
     output: string
     changed: boolean
-    parse_errors: {tl.Error}
+    parse_errors: {parser.Error}
 end
 
 function Rewrite.new(
-    output: string, changed: boolean, parse_errors: {tl.Error}
+    output: string, changed: boolean, parse_errors: {parser.Error}
 ): Rewrite
     local self: Rewrite = setmetatable({}, {__index = Rewrite})
     self.output = output
@@ -28,14 +28,14 @@ end
 
 local record FormatterContext
     ast: parser.Node
-    tokens: {tl.Token}
+    tokens: {parser.Token}
     source_text: source.Text
     fmt_off_regions: source.Regions
 end
 
 function FormatterContext.new(
     ast: parser.Node,
-    tokens: {tl.Token},
+    tokens: {parser.Token},
     source_text: source.Text,
     fmt_off_regions: source.Regions
 ): FormatterContext
