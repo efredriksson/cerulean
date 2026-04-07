@@ -68,6 +68,26 @@ local function render_typearg_list(typeargs: {tl.TypeArgType}): string
     return "<" .. table.concat(parts, ", ") .. ">"
 end
 
+local function with_indented_body(
+    header: doc.Doc, body: doc.Doc, tail: doc.Doc
+): doc.Doc
+    return doc.concat(
+        {
+            header,
+            doc.indent(
+                4,
+                doc.concat(
+                    {
+                        doc.line(),
+                        body,
+                    }
+                )
+            ),
+            tail,
+        }
+    )
+end
+
 local function function_with_indent(
     name_prefix: string, signature: doc.Doc, body: doc.Doc
 ): doc.Doc
@@ -79,63 +99,19 @@ local function function_with_indent(
             }
         )
     )
-
-    return doc.concat(
-        {
-            header,
-            doc.indent(
-                4,
-                doc.concat(
-                    {
-                        doc.line(),
-                        body,
-                    }
-                )
-            ),
-            doc.close("end"),
-        }
-    )
+    return with_indented_body(header, body, doc.close("end"))
 end
 
 local function block_with_indent(
     header: doc.Doc, body: doc.Doc, footer: doc.Doc
 ): doc.Doc
-    return doc.concat(
-        {
-            header,
-            doc.indent(
-                4,
-                doc.concat(
-                    {
-                        doc.line(),
-                        body,
-                    }
-                )
-            ),
-            doc.line(),
-            footer,
-        }
-    )
+    return with_indented_body(header, body, doc.concat({doc.line(), footer}))
 end
 
 local function block_with_close(
     header: doc.Doc, body: doc.Doc, close_text: string
 ): doc.Doc
-    return doc.concat(
-        {
-            header,
-            doc.indent(
-                4,
-                doc.concat(
-                    {
-                        doc.line(),
-                        body,
-                    }
-                )
-            ),
-            doc.close(close_text),
-        }
-    )
+    return with_indented_body(header, body, doc.close(close_text))
 end
 
 local function build_exp_doc(node: parser.Node): doc.Doc
@@ -173,6 +149,28 @@ end
 
 local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
     return inline_stmt_doc.render_local_declaration_doc(stmt, build_exp_doc)
+end
+
+local function append_line_entry_doc(
+    parts: {doc.Doc}, item_text: string | nil, comment: tl.LexerComment | nil
+)
+    if item_text is nil then
+        if comment is nil then
+            return
+        end
+        table.insert(parts, doc.text(comment.text))
+        table.insert(parts, doc.hardline())
+        return
+    end
+
+    if comment is nil then
+        table.insert(parts, doc.text(item_text))
+        table.insert(parts, doc.line())
+        return
+    end
+
+    table.insert(parts, doc.text(item_text .. " " .. comment.text))
+    table.insert(parts, doc.line())
 end
 
 local record EnumItemDoc
@@ -218,9 +216,9 @@ local function render_enum_doc(stmt: parser.Node, def: tl.EnumType): doc.Doc
     for _, enum_str in ipairs(def.enumset) do
         local item_line = previous_item_line + 1
         for _, comment in ipairs((def.value_comments or {})[enum_str] or {}) do
-            local attacted_to_item = comment_after_prev_item(comment)
-            if not (attacted_to_item is nil) then
-                attacted_to_item.comment = comment
+            local attached_to_item = comment_after_prev_item(comment)
+            if not (attached_to_item is nil) then
+                attached_to_item.comment = comment
             else
                 table.insert(enum_values, EnumItemDoc.new(nil, comment, comment.y))
                 if comment.y >= item_line then
@@ -234,9 +232,9 @@ local function render_enum_doc(stmt: parser.Node, def: tl.EnumType): doc.Doc
         previous_item_line = item_line
     end
     for _, comment in ipairs(def.end_comments or stmt.end_comments or {}) do
-        local attacted_to_item = comment_after_prev_item(comment)
-        if not (attacted_to_item is nil) then
-            attacted_to_item.comment = comment
+        local attached_to_item = comment_after_prev_item(comment)
+        if not (attached_to_item is nil) then
+            attached_to_item.comment = comment
         else
             table.insert(enum_values, EnumItemDoc.new(nil, comment, comment.y))
         end
@@ -244,19 +242,7 @@ local function render_enum_doc(stmt: parser.Node, def: tl.EnumType): doc.Doc
 
     local enum_docs: {doc.Doc} = {}
     for _, enum_value in ipairs(enum_values) do
-        if enum_value.comment ~= nil and enum_value.type_text == nil then
-            table.insert(enum_docs, doc.text(enum_value.comment.text))
-            table.insert(enum_docs, doc.hardline())
-        elseif enum_value.comment == nil and enum_value.type_text ~= nil then
-            table.insert(enum_docs, doc.text(enum_value.type_text))
-            table.insert(enum_docs, doc.line())
-        elseif enum_value.comment ~= nil and enum_value.type_text ~= nil then
-            table.insert(
-                enum_docs,
-                doc.text(enum_value.type_text .. " " .. enum_value.comment.text)
-            )
-            table.insert(enum_docs, doc.line())
-        end
+        append_line_entry_doc(enum_docs, enum_value.type_text, enum_value.comment)
     end
     return block_with_close(header, doc.concat(enum_docs), "end")
 end
@@ -412,9 +398,9 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
         -- TODO: Comments here can come from type overloaded fields?
         for _, overload_comments in ipairs(field_comments) do
             for _, comment in ipairs(overload_comments) do
-                local attacted_to_item = comment_after_prev_item(comment)
-                if not (attacted_to_item is nil) then
-                    attacted_to_item.comment = comment
+                local attached_to_item = comment_after_prev_item(comment)
+                if not (attached_to_item is nil) then
+                    attached_to_item.comment = comment
                 else
                     table.insert(record_lines, RecordItemDoc.new(nil, nil, comment))
                 end
@@ -430,10 +416,9 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     end
 
     for _, comment in ipairs(stmt.end_comments or {}) do
-        local attacted_to_item = comment_after_prev_item(comment)
-        -- TODO: code duplication!
-        if not (attacted_to_item is nil) then
-            attacted_to_item.comment = comment
+        local attached_to_item = comment_after_prev_item(comment)
+        if not (attached_to_item is nil) then
+            attached_to_item.comment = comment
         else
             table.insert(record_lines, RecordItemDoc.new(nil, nil, comment))
         end
@@ -442,19 +427,7 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     local field_docs: {doc.Doc} = {}
 
     for _, record_line in ipairs(record_lines) do
-        if record_line.comment ~= nil and record_line.item == nil then
-            table.insert(field_docs, doc.text(record_line.comment.text))
-            table.insert(field_docs, doc.hardline())
-        elseif record_line.comment == nil and record_line.item ~= nil then
-            table.insert(field_docs, doc.text(record_line.type_text))
-            table.insert(field_docs, doc.line())
-        elseif record_line.comment ~= nil and record_line.item ~= nil then
-            table.insert(
-                field_docs,
-                doc.text(record_line.type_text .. " " .. record_line.comment.text)
-            )
-            table.insert(field_docs, doc.line())
-        end
+        append_line_entry_doc(field_docs, record_line.type_text, record_line.comment)
     end
 
     return doc.concat(
