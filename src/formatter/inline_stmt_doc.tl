@@ -1,30 +1,10 @@
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
+local render_builders = require("formatter.render_builders")
 
 local inline_stmt_doc = {}
 
 local type RenderExpr = function(parser.Node): doc.Doc
-
-local function build_comma_separated_docs(item_docs: {doc.Doc}): doc.Doc
-    local parts: {doc.Doc} = {}
-    for index, item_doc in ipairs(item_docs) do
-        table.insert(parts, item_doc)
-        if index < #item_docs then
-            table.insert(parts, doc.text(", "))
-        end
-    end
-    return doc.concat(parts)
-end
-
-local function build_comma_separated_node_docs(
-    nodes: {parser.Node}, render_node: function(parser.Node): doc.Doc
-): doc.Doc
-    local item_docs: {doc.Doc} = {}
-    for _, node in ipairs(nodes) do
-        table.insert(item_docs, render_node(node))
-    end
-    return build_comma_separated_docs(item_docs)
-end
 
 function inline_stmt_doc.render_return_doc(
     stmt: parser.Node, render_expr: RenderExpr
@@ -36,7 +16,7 @@ function inline_stmt_doc.render_return_doc(
     return doc.concat(
         {
             doc.text("return "),
-            build_comma_separated_node_docs(stmt.exps, render_expr),
+            render_builders.build_mapped_comma_separated_docs(stmt.exps, render_expr),
         }
     )
 end
@@ -46,9 +26,9 @@ function inline_stmt_doc.render_assignment_doc(
 ): doc.Doc
     return doc.concat(
         {
-            build_comma_separated_node_docs(stmt.vars, render_expr),
+            render_builders.build_mapped_comma_separated_docs(stmt.vars, render_expr),
             doc.text(" = "),
-            build_comma_separated_node_docs(stmt.exps, render_expr),
+            render_builders.build_mapped_comma_separated_docs(stmt.exps, render_expr),
         }
     )
 end
@@ -82,7 +62,7 @@ function inline_stmt_doc.render_local_declaration_doc(
     return doc.concat(
         {
             doc.text(prefix .. " = "),
-            build_comma_separated_node_docs(stmt.exps, render_expr),
+            render_builders.build_mapped_comma_separated_docs(stmt.exps, render_expr),
         }
     )
 end

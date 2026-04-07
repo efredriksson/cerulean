@@ -26,27 +26,6 @@ local function get_body_layout(layout: StatementLayout | nil): BlockLayout | nil
     return layout.body_layout
 end
 
-local function build_comma_separated_docs(item_docs: {doc.Doc}): doc.Doc
-    local parts: {doc.Doc} = {}
-    for index, item_doc in ipairs(item_docs) do
-        table.insert(parts, item_doc)
-        if index < #item_docs then
-            table.insert(parts, doc.text(", "))
-        end
-    end
-    return doc.concat(parts)
-end
-
-local function build_comma_separated_node_docs(
-    nodes: {parser.Node}, render_node: function(parser.Node): doc.Doc
-): doc.Doc
-    local item_docs: {doc.Doc} = {}
-    for _, node in ipairs(nodes) do
-        table.insert(item_docs, render_node(node))
-    end
-    return build_comma_separated_docs(item_docs)
-end
-
 local function render_type_constraint_text(constraint: tl.Type): string | nil
     if constraint.source_text ~= nil and constraint.source_text ~= "" then
         return constraint.source_text
@@ -752,9 +731,11 @@ local function render_forin_doc(
     local header = doc.concat(
         {
             doc.text("for "),
-            build_comma_separated_docs(var_docs),
+            render_builders.build_comma_separated_docs(var_docs),
             doc.text(" in "),
-            build_comma_separated_node_docs(node.exps, build_exp_doc),
+            render_builders.build_mapped_comma_separated_docs(
+                node.exps, build_exp_doc
+            ),
             doc.text(" do"),
         }
     )

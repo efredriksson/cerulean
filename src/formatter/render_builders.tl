@@ -21,36 +21,51 @@ function DelimitedSequenceOptions.new(
     return self
 end
 
-function render_builders.build_comma_line_item_docs(item_docs: {doc.Doc}): {doc.Doc}
-    local result: {doc.Doc} = {}
+function render_builders.build_comma_line_item_docs(item_docs: {doc.Doc}): doc.Doc
+    local parts: {doc.Doc} = {}
 
     for index, item_doc in ipairs(item_docs) do
-        table.insert(result, item_doc)
+        table.insert(parts, item_doc)
         if index < #item_docs then
-            table.insert(result, doc.text(","))
-            table.insert(result, doc.line())
+            table.insert(parts, doc.text(","))
+            table.insert(parts, doc.line())
         end
     end
 
-    return result
+    return doc.concat(parts)
 end
 
-function render_builders.build_compact_delimited_sequence_doc(
-    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
-): doc.Doc
-    local parts: {doc.Doc} = {
-        doc.text(opts.open_delim),
-    }
-
+function render_builders.build_comma_separated_docs(item_docs: {doc.Doc}): doc.Doc
+    local parts: {doc.Doc} = {}
     for index, item_doc in ipairs(item_docs) do
         table.insert(parts, item_doc)
         if index < #item_docs then
             table.insert(parts, doc.text(", "))
         end
     end
-
-    table.insert(parts, doc.text(opts.close_delim))
     return doc.concat(parts)
+end
+
+function render_builders.build_mapped_comma_separated_docs(
+    nodes: {parser.Node}, render_node: function(parser.Node): doc.Doc
+): doc.Doc
+    local item_docs: {doc.Doc} = {}
+    for _, node in ipairs(nodes) do
+        table.insert(item_docs, render_node(node))
+    end
+    return render_builders.build_comma_separated_docs(item_docs)
+end
+
+function render_builders.build_compact_delimited_sequence_doc(
+    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
+): doc.Doc
+    return doc.concat(
+        {
+            doc.text(opts.open_delim),
+            render_builders.build_comma_separated_docs(item_docs),
+            doc.text(opts.close_delim),
+        }
+    )
 end
 
 function render_builders.build_delimited_body_doc(
@@ -136,8 +151,7 @@ function render_builders.build_broken_delimited_sequence_doc(
     end
 
     return render_builders.build_broken_delimited_sequence_doc_from_items(
-        doc.group(doc.concat(render_builders.build_comma_line_item_docs(item_docs))),
-        opts
+        doc.group(render_builders.build_comma_line_item_docs(item_docs)), opts
     )
 end
 
