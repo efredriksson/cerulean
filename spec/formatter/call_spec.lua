@@ -153,7 +153,7 @@ describe("formatter function call wrapping", function()
       )
    ]]))
 
-   it("does not change an assignment call with a trailing inline comment on its closing line", helpers.format([[
+   it("collapses an assignment call with a short inline comment on its closing line", helpers.format([[
       local function f()
          result = math.min(
             result,
@@ -163,9 +163,24 @@ describe("formatter function call wrapping", function()
       end
    ]], [[
       local function f()
+          result = math.min(result, factor * 2) -- clamp result
+          other_call()
+      end
+   ]]))
+
+   it("does not change an assignment call with a long trailing inline comment on its closing line", helpers.format([[
+      local function f()
+         result = math.min(
+            result,
+            factor * 2
+         ) -- clamp result with a very long and elaborate description on what it does
+         other_call()
+      end
+   ]], [[
+      local function f()
           result = math.min(
               result, factor * 2
-          ) -- clamp result
+          ) -- clamp result with a very long and elaborate description on what it does
           other_call()
       end
    ]]))
@@ -359,6 +374,16 @@ describe("formatter function call wrapping", function()
                   end
               end
           end
+      end
+   ]]))
+
+   it("wrap long function signatures with single argument", helpers.format([[
+      function my_module.selection_of_stuff_long_name(on_by_default: boolean): StuffSelection<boolean>
+      end
+   ]], [[
+      function my_module.selection_of_stuff_long_name(
+          on_by_default: boolean
+      ): StuffSelection<boolean>
       end
    ]]))
 end)

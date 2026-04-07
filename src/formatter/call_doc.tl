@@ -77,19 +77,16 @@ function call_doc.build_call_expr_doc(
     local opts = render_builders.DelimitedSequenceOptions.new("(", ")", 4)
     local has_inline_comments = args_have_inline_comments(node.e2)
     local has_trailing_comment = node.e2.trailing_comment ~= nil
-    local call_args_doc = render_builders.build_grouped_delimited_sequence_doc(
-        item_docs, opts
-    )
-    if has_inline_comments or has_trailing_comment then
-        call_args_doc = render_builders.build_broken_delimited_sequence_doc(
-            item_docs, opts
-        )
-    end
+
+    local call_args_doc: doc.Doc
     if has_inline_comments then
         call_args_doc = render_builders.build_broken_delimited_sequence_doc_from_items(
             build_call_arg_items_doc_with_comments(node.e2, render_arg), opts
         )
+    else
+        call_args_doc = render_builders.build_delimited_sequence_doc(item_docs, opts)
     end
+
     local call_node = doc.concat(
         {
             callee_doc,
@@ -104,7 +101,7 @@ function call_doc.build_call_expr_doc(
             }
         )
     end
-    if has_inline_comments or has_trailing_comment then
+    if has_inline_comments then
         return call_node
     end
     return doc.group(call_node)

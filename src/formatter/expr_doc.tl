@@ -2,6 +2,7 @@
 -- Use call_doc.build_call_expr_doc / table_doc.build_table_doc when wrapping is needed.
 local call_doc = require("formatter.call_doc")
 local doc = require("formatter.doc")
+local inline_stmt_doc = require("formatter.inline_stmt_doc")
 local parser = require("formatter.parser")
 local signature_doc = require("formatter.signature_doc")
 local table_doc = require("formatter.table_doc")
@@ -51,6 +52,10 @@ local render_expr: function(parser.Node, integer): doc.Doc
 local wrap_for_parent_precedence: function(
     doc.Doc, string, integer, integer
 ): doc.Doc
+
+local function render_root_expr(node: parser.Node): doc.Doc
+    return render_expr(node, 0)
+end
 
 local function precedence_for_op(op: string, arity: integer): integer
     if arity == 1 and op == "-" then
@@ -102,12 +107,10 @@ local function build_call_expr_doc(node: parser.Node): doc.Doc
     local function render_arg(arg_node: parser.Node): doc.Doc
         if arg_node.kind == "literal_table" then
             return doc.group(table_doc.build_table_doc(
-                arg_node, function(child: parser.Node): doc.Doc
-                    return render_expr(child, 0)
-                end
+                arg_node, render_root_expr
             ))
         end
-        return render_expr(arg_node, 0)
+        return render_root_expr(arg_node)
     end
 
     return call_doc.build_call_expr_doc(node, render_callee, render_arg)
@@ -217,58 +220,11 @@ end
 
 local function render_statement(stmt: parser.Node): doc.Doc
     if stmt.kind == "return" then
-        local parts: {doc.Doc} = {}
-        if stmt.exps ~= nil then
-            for i, exp_node in ipairs(stmt.exps) do
-                table.insert(parts, render_expr(exp_node, 0))
-                if i < #stmt.exps then
-                    table.insert(parts, doc.text(", "))
-                end
-            end
-        end
-        if #parts == 0 then
-            return doc.text("return")
-        end
-        return doc.concat({doc.text("return "), doc.concat(parts)})
+        return inline_stmt_doc.render_return_doc(stmt, render_root_expr)
     elseif stmt.kind == "assignment" then
-        local vars: {doc.Doc} = {}
-        local exps: {doc.Doc} = {}
-        for i, var_node in ipairs(stmt.vars) do
-            table.insert(vars, render_expr(var_node, 0))
-            if i < #stmt.vars then
-                table.insert(vars, doc.text(", "))
-            end
-        end
-        for i, exp_node in ipairs(stmt.exps) do
-            table.insert(exps, render_expr(exp_node, 0))
-            if i < #stmt.exps then
-                table.insert(exps, doc.text(", "))
-            end
-        end
-        return doc.concat({doc.concat(vars), doc.text(" = "), doc.concat(exps)})
+        return inline_stmt_doc.render_assignment_doc(stmt, render_root_expr)
     elseif stmt.kind == "local_declaration" then
-        local vars: {doc.Doc} = {}
-        local exps: {doc.Doc} = {}
-        for i, var_node in ipairs(stmt.vars) do
-            table.insert(vars, doc.text(var_node.tk))
-            if i < #stmt.vars then
-                table.insert(vars, doc.text(", "))
-            end
-        end
-        for i, exp_node in ipairs(stmt.exps) do
-            table.insert(exps, render_expr(exp_node, 0))
-            if i < #stmt.exps then
-                table.insert(exps, doc.text(", "))
-            end
-        end
-        local result = doc.concat({doc.text("local "), doc.concat(vars)})
-        if stmt.decltuple ~= nil and stmt.decltuple.source_text ~= nil then
-            result = doc.concat({result, doc.text(stmt.decltuple.source_text)})
-        end
-        if #exps > 0 then
-            result = doc.concat({result, doc.text(" = "), doc.concat(exps)})
-        end
-        return result
+        return inline_stmt_doc.render_local_declaration_doc(stmt, render_root_expr)
     end
 
     error("unsupported anonymous function statement: " .. stmt.kind)
@@ -317,7 +273,7 @@ local function render_op(node: parser.Node, parent_prec: integer): doc.Doc
         return doc.concat({
             render_expr(node.e1, PRECEDENCE[op]),
             doc.text("["),
-            render_expr(node.e2, 0),
+            render_root_expr(node.e2),
             doc.text("]"),
         })
     elseif op == "@funcall" then
@@ -366,13 +322,9 @@ render_expr = function(node: parser.Node, parent_prec: integer): doc.Doc
     elseif node.kind == "boolean" or node.kind == "nil" then
         return doc.text(node.tk)
     elseif node.kind == "paren" then
-        return doc.concat({doc.text("("), render_expr(node.e1, 0), doc.text(")")})
+        return doc.concat({doc.text("("), render_root_expr(node.e1), doc.text(")")})
     elseif node.kind == "literal_table" then
-        return table_doc.build_table_doc(
-            node, function(child: parser.Node): doc.Doc
-                return render_expr(child, 0)
-            end
-        )
+        return table_doc.build_table_doc(node, render_root_expr)
     elseif node.kind == "function" then
         return render_function_expr(node)
     elseif node.kind == "op" and node.op ~= nil then
@@ -383,14 +335,14 @@ render_expr = function(node: parser.Node, parent_prec: integer): doc.Doc
 end
 
 function expr_doc.render_expr(node: parser.Node): doc.Doc
-    return render_expr(node, 0)
+    return render_root_expr(node)
 end
 
 function expr_doc.render_top_level_expr(node: parser.Node): doc.Doc
     if should_render_top_level_logical_chain(node) then
         return render_top_level_logical_chain(node, 0)
     end
-    return render_expr(node, 0)
+    return render_root_expr(node)
 end
 
 return expr_doc

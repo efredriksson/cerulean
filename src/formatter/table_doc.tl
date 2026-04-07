@@ -128,26 +128,14 @@ local function build_delimited_sequence_doc(
     if not (force_wrap or table_have_comments) then
         items_doc = doc.group(items_doc)
     end
-    local talbe_doc = doc.concat(
-        {
-            doc.text(opts.open_delim),
-            doc.indent(
-                opts.compact_indent_amount,
-                doc.concat(
-                    {
-                        force_wrap and doc.hardline() or doc.softline(),
-                        items_doc,
-                    }
-                )
-            ),
-            force_wrap and doc.hardline() or doc.softline(),
-            doc.text(opts.close_delim),
-        }
+    local line_doc = force_wrap and doc.hardline() or doc.softline()
+    local table_doc_node = render_builders.build_delimited_body_doc(
+        items_doc, opts, line_doc
     )
     if force_wrap or table_have_comments then
-        return doc.concat({doc.break_parent(), talbe_doc})
+        return doc.concat({doc.break_parent(), table_doc_node})
     else
-        return doc.group(talbe_doc)
+        return doc.group(table_doc_node)
     end
 end
 

@@ -35,6 +35,45 @@ function render_builders.build_comma_line_item_docs(item_docs: {doc.Doc}): {doc.
     return result
 end
 
+function render_builders.build_compact_delimited_sequence_doc(
+    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
+): doc.Doc
+    local parts: {doc.Doc} = {
+        doc.text(opts.open_delim),
+    }
+
+    for index, item_doc in ipairs(item_docs) do
+        table.insert(parts, item_doc)
+        if index < #item_docs then
+            table.insert(parts, doc.text(", "))
+        end
+    end
+
+    table.insert(parts, doc.text(opts.close_delim))
+    return doc.concat(parts)
+end
+
+function render_builders.build_delimited_body_doc(
+    items_doc: doc.Doc, opts: DelimitedSequenceOptions, line_doc: doc.Doc
+): doc.Doc
+    return doc.concat(
+        {
+            doc.text(opts.open_delim),
+            doc.indent(
+                opts.compact_indent_amount,
+                doc.concat(
+                    {
+                        line_doc,
+                        items_doc,
+                    }
+                )
+            ),
+            line_doc,
+            doc.text(opts.close_delim),
+        }
+    )
+end
+
 function render_builders.build_comment_lines_doc(comments: {parser.Comment}): {doc.Doc}
     local parts: {doc.Doc} = {}
     for index, comment in ipairs(comments) do
@@ -86,22 +125,7 @@ end
 function render_builders.build_broken_delimited_sequence_doc_from_items(
     items_doc: doc.Doc, opts: DelimitedSequenceOptions
 ): doc.Doc
-    return doc.concat(
-        {
-            doc.text(opts.open_delim),
-            doc.indent(
-                opts.compact_indent_amount,
-                doc.concat(
-                    {
-                        doc.softline(),
-                        items_doc,
-                    }
-                )
-            ),
-            doc.softline(),
-            doc.text(opts.close_delim),
-        }
-    )
+    return render_builders.build_delimited_body_doc(items_doc, opts, doc.softline())
 end
 
 function render_builders.build_broken_delimited_sequence_doc(
@@ -123,6 +147,12 @@ function render_builders.build_grouped_delimited_sequence_doc(
     return doc.group(
         render_builders.build_broken_delimited_sequence_doc(item_docs, opts)
     )
+end
+
+function render_builders.build_delimited_sequence_doc(
+    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
+): doc.Doc
+    return render_builders.build_grouped_delimited_sequence_doc(item_docs, opts)
 end
 
 return render_builders

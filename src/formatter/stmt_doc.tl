@@ -1,6 +1,7 @@
 -- Single AST statement → doc.Doc. Returns nil for unsupported statement shapes.
 local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
+local inline_stmt_doc = require("formatter.inline_stmt_doc")
 local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
@@ -16,6 +17,34 @@ local type RenderBlock = function(parser.Node, BlockLayout | nil): doc.Doc | nil
 
 local function node_end_line(node: parser.Node): integer
     return node.yend or node.y
+end
+
+local function get_body_layout(layout: StatementLayout | nil): BlockLayout | nil
+    if layout is nil then
+        return nil
+    end
+    return layout.body_layout
+end
+
+local function build_comma_separated_docs(item_docs: {doc.Doc}): doc.Doc
+    local parts: {doc.Doc} = {}
+    for index, item_doc in ipairs(item_docs) do
+        table.insert(parts, item_doc)
+        if index < #item_docs then
+            table.insert(parts, doc.text(", "))
+        end
+    end
+    return doc.concat(parts)
+end
+
+local function build_comma_separated_node_docs(
+    nodes: {parser.Node}, render_node: function(parser.Node): doc.Doc
+): doc.Doc
+    local item_docs: {doc.Doc} = {}
+    for _, node in ipairs(nodes) do
+        table.insert(item_docs, render_node(node))
+    end
+    return build_comma_separated_docs(item_docs)
 end
 
 local function render_type_constraint_text(constraint: tl.Type): string | nil
@@ -156,89 +185,15 @@ local function build_control_flow_head_doc(
 end
 
 local function render_return_doc(stmt: parser.Node): doc.Doc
-    if stmt.exps == nil or #stmt.exps == 0 then
-        return doc.text("return")
-    end
-
-    if #stmt.exps == 1 then
-        if stmt.exps[1].kind == "literal_table" then
-            return doc.concat({doc.text("return "), build_exp_doc(stmt.exps[1])})
-        end
-        return doc.group(
-            doc.concat(
-                {
-                    doc.text("return "),
-                    expr_doc.render_top_level_expr(stmt.exps[1]),
-                }
-            )
-        )
-    end
-
-    local parts: {doc.Doc} = {}
-    for i, exp_node in ipairs(stmt.exps) do
-        table.insert(parts, build_exp_doc(exp_node))
-        if i < #stmt.exps then
-            table.insert(parts, doc.text(", "))
-        end
-    end
-    return doc.concat({doc.text("return "), doc.concat(parts)})
+    return inline_stmt_doc.render_return_doc(stmt, build_exp_doc)
 end
 
 local function render_assignment_doc(stmt: parser.Node): doc.Doc
-    local vars: {doc.Doc} = {}
-
-    for i, var_node in ipairs(stmt.vars) do
-        table.insert(vars, build_exp_doc(var_node))
-        if i < #stmt.vars then
-            table.insert(vars, doc.text(", "))
-        end
-    end
-
-    local lhs_doc = doc.concat({doc.concat(vars), doc.text(" = ")})
-
-    local exps: {doc.Doc} = {}
-    for i, exp_node in ipairs(stmt.exps) do
-        table.insert(exps, build_exp_doc(exp_node))
-        if i < #stmt.exps then
-            table.insert(exps, doc.text(", "))
-        end
-    end
-
-    return doc.concat({lhs_doc, doc.concat(exps)})
+    return inline_stmt_doc.render_assignment_doc(stmt, build_exp_doc)
 end
 
 local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
-    local vars: {string} = {}
-
-    for _, var_node in ipairs(stmt.vars) do
-        local var_text = var_node.tk
-        if var_node.attribute ~= nil then
-            var_text = var_text .. " <" .. var_node.attribute .. ">"
-        end
-        table.insert(vars, var_text)
-    end
-
-    local prefix = "local " .. table.concat(vars, ", ")
-    if stmt.decltuple ~= nil and stmt.decltuple.source_text ~= nil then
-        prefix = prefix .. stmt.decltuple.source_text
-    end
-
-    if stmt.exps == nil or #stmt.exps == 0 then
-        return doc.text(prefix)
-    end
-
-    if #stmt.exps == 1 then
-        return doc.concat({doc.text(prefix .. " = "), build_exp_doc(stmt.exps[1])})
-    end
-
-    local exps: {doc.Doc} = {}
-    for i, exp_node in ipairs(stmt.exps) do
-        table.insert(exps, build_exp_doc(exp_node))
-        if i < #stmt.exps then
-            table.insert(exps, doc.text(", "))
-        end
-    end
-    return doc.concat({doc.text(prefix .. " = "), doc.concat(exps)})
+    return inline_stmt_doc.render_local_declaration_doc(stmt, build_exp_doc)
 end
 
 local record EnumItemDoc
@@ -453,7 +408,9 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     local record_lines: {RecordItemDoc} = {}
     local previous_item: RecordItemDoc | nil = nil
 
-    local function comment_after_prev_item(comment: tl.LexerComment): RecordItemDoc | nil
+    local function comment_after_prev_item(
+        comment: tl.LexerComment
+    ): RecordItemDoc | nil
         if previous_item is nil then
             return nil
         end
@@ -645,7 +602,7 @@ local function render_function_definition_doc(
     end
 
     local sig_doc = append_return_type(
-        signature_doc.render_signature_doc(node.args, false, true), rets_source_text
+        signature_doc.render_signature_doc(node.args, true), rets_source_text
     )
 
     if #node.body == 0 then
@@ -734,17 +691,7 @@ local function render_while_doc(
         return nil
     end
 
-    local typed_layout: StatementLayout | nil = nil
-    if not (layout is nil) then
-        typed_layout = layout
-    end
-    local body_layout: BlockLayout | nil = nil
-    if not (typed_layout is nil) then
-        local non_nil_layout = typed_layout
-        body_layout = non_nil_layout.body_layout
-    end
-
-    local body_doc = render_block(node.body, body_layout)
+    local body_doc = render_block(node.body, get_body_layout(layout))
     if body_doc == nil then
         return nil
     end
@@ -764,17 +711,7 @@ local function render_fornum_doc(
         return nil
     end
 
-    local typed_layout: StatementLayout | nil = nil
-    if not (layout is nil) then
-        typed_layout = layout
-    end
-    local body_layout: BlockLayout | nil = nil
-    if not (typed_layout is nil) then
-        local non_nil_layout = typed_layout
-        body_layout = non_nil_layout.body_layout
-    end
-
-    local body_doc = render_block(node.body, body_layout)
+    local body_doc = render_block(node.body, get_body_layout(layout))
     if body_doc == nil then
         return nil
     end
@@ -802,32 +739,12 @@ local function render_forin_doc(
         return nil
     end
 
-    local vars: {doc.Doc} = {}
-    local exps: {doc.Doc} = {}
-    for i, var_node in ipairs(node.vars) do
-        table.insert(vars, doc.text(var_node.tk))
-        if i < #node.vars then
-            table.insert(vars, doc.text(", "))
-        end
-    end
-    for i, exp_node in ipairs(node.exps) do
-        table.insert(exps, build_exp_doc(exp_node))
-        if i < #node.exps then
-            table.insert(exps, doc.text(", "))
-        end
+    local var_docs: {doc.Doc} = {}
+    for _, var_node in ipairs(node.vars) do
+        table.insert(var_docs, doc.text(var_node.tk))
     end
 
-    local typed_layout: StatementLayout | nil = nil
-    if not (layout is nil) then
-        typed_layout = layout
-    end
-    local body_layout: BlockLayout | nil = nil
-    if not (typed_layout is nil) then
-        local non_nil_layout = typed_layout
-        body_layout = non_nil_layout.body_layout
-    end
-
-    local body_doc = render_block(node.body, body_layout)
+    local body_doc = render_block(node.body, get_body_layout(layout))
     if body_doc == nil then
         return nil
     end
@@ -835,9 +752,9 @@ local function render_forin_doc(
     local header = doc.concat(
         {
             doc.text("for "),
-            doc.concat(vars),
+            build_comma_separated_docs(var_docs),
             doc.text(" in "),
-            doc.concat(exps),
+            build_comma_separated_node_docs(node.exps, build_exp_doc),
             doc.text(" do"),
         }
     )
@@ -851,17 +768,7 @@ local function render_repeat_doc(
         return nil
     end
 
-    local typed_layout: StatementLayout | nil = nil
-    if not (layout is nil) then
-        typed_layout = layout
-    end
-    local body_layout: BlockLayout | nil = nil
-    if not (typed_layout is nil) then
-        local non_nil_layout = typed_layout
-        body_layout = non_nil_layout.body_layout
-    end
-
-    local body_doc = render_block(node.body, body_layout)
+    local body_doc = render_block(node.body, get_body_layout(layout))
     if body_doc is nil then
         return nil
     end
@@ -880,17 +787,7 @@ local function render_do_doc(
         return nil
     end
 
-    local typed_layout: StatementLayout | nil = nil
-    if not (layout is nil) then
-        typed_layout = layout
-    end
-    local body_layout: BlockLayout | nil = nil
-    if not (typed_layout is nil) then
-        local non_nil_layout = typed_layout
-        body_layout = non_nil_layout.body_layout
-    end
-
-    local body_doc = render_block(node.body, body_layout)
+    local body_doc = render_block(node.body, get_body_layout(layout))
     if body_doc == nil then
         return nil
     end
