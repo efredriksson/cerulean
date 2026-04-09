@@ -6,6 +6,7 @@ local inline_stmt_doc = require("formatter.inline_stmt_doc")
 local parser = require("formatter.parser")
 local signature_doc = require("formatter.signature_doc")
 local table_doc = require("formatter.table_doc")
+local type_doc = require("formatter.type_doc")
 
 local expr_doc = {}
 
@@ -253,11 +254,10 @@ local function render_op(node: parser.Node, parent_prec: integer): doc.Doc
     elseif op == "@funcall" then
         return build_call_expr_doc(node)
     elseif op == "as" or op == "is" then
-        assert(node.e2.casttype.source_text, "missing source_text for cast type")
         return doc.concat({
             render_expr(node.e1, PRECEDENCE[op]),
             doc.text(" " .. op .. " "),
-            doc.text(node.e2.casttype.source_text),
+            type_doc.render(node.e2.casttype),
         })
     elseif node.op.arity == 1 then
         local op_prec = precedence_for_op(op, 1)

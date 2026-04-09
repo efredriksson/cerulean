@@ -2,6 +2,7 @@
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
+local type_doc = require("formatter.type_doc")
 
 local signature_doc = {}
 
@@ -15,12 +16,8 @@ local function build_signature_item_doc(arg_node: parser.Node): doc.Doc
     end
 
     if arg_node.argtype ~= nil then
-        local type_text = assert(
-            arg_node.argtype.source_text,
-            "missing source_text for signature argument type"
-        )
         table.insert(parts, doc.text(": "))
-        table.insert(parts, doc.text(type_text))
+        table.insert(parts, type_doc.render(arg_node.argtype))
     end
 
     return doc.concat(parts)

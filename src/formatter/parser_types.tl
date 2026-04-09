@@ -28,7 +28,6 @@ local record ParserTypes
       "unresolved_typearg"
       "unresolvable_typearg"
       "circular_require"
-      "boolean_context"
       "tuple"
       "poly"
       "any"
@@ -36,16 +35,6 @@ local record ParserTypes
       "invalid"
       "none"
       "*"
-   end
-
-   record TypeReporter
-      typeid_to_num: {integer: integer}
-      typename_to_num: {TypeName: integer}
-      next_num: integer
-      tr: TypeReport
-
-      get_report: function(self):TypeReport
-      get_typenum: function(self, Type): integer
    end
 
    interface Where
@@ -59,7 +48,8 @@ local record ParserTypes
       typeid: integer       -- unique identifier
       inferred_at: Where    -- for error messages
       needs_compat: boolean -- for Lua compatibilty
-      source_text: string | nil
+      source_text: string
+      paren: boolean
    end
 
    record GenericType is Type where self.typename == "generic"
@@ -93,14 +83,6 @@ local record ParserTypes
       where self.typename == "boolean"
    end
 
-   -- This is a special internal type, to be used only as the node.expected
-   -- type in boolean contexts such as `if _ then`. It behaves exactly like
-   -- boolean except that type variables do not infer to it.
-   record BooleanContextType
-      is StructuralType
-      where self.typename == "boolean_context"
-   end
-
    record TypeDeclType
       is Type
       where self.typename == "typedecl"
@@ -119,16 +101,6 @@ local record ParserTypes
       kname: string
       ktype: FirstClassType
       vtype: FirstClassType
-   end
-
-   record Scope
-      vars: {string:Variable}
-      labels: {string:Node}
-      pending_labels: {string:{Node}}
-      pending_nominals: {string:{NominalType}}
-      pending_global_types: {string:boolean}
-      narrows: {string:boolean}
-      is_transaction: boolean
    end
 
    interface HasDeclName
@@ -352,71 +324,6 @@ local record ParserTypes
       has_been_written_to: boolean
    end
 
-   enum LoadMode
-      "b"
-      "t"
-      "bt"
-      "cb"
-      "ct"
-      "cbt"
-   end
-   type LoadFunction = function(...:any): any...
-
-   enum GenCompat
-      "off"
-      "optional"
-      "required"
-   end
-
-   enum GenTarget
-      "5.1"
-      "5.3"
-      "5.4"
-   end
-
-   enum Feat
-      "on"
-      "off"
-   end
-
-   record GenerateOptions
-      preserve_indent: boolean
-      preserve_newlines: boolean
-      preserve_hashbang: boolean
-   end
-
-   record CheckOptions
-      feat_lax: Feat
-      feat_arity: Feat
-      gen_compat: GenCompat
-      gen_target: GenTarget
-      run_internal_compiler_checks: boolean
-   end
-
-   record Env
-      globals: {string:Variable}
-      modules: {string:Type}
-      module_filenames: {string:string}
-      loaded: {string:Result}
-      loaded_order: {string}
-      reporter: TypeReporter
-      keep_going: boolean
-      report_types: boolean
-      defaults: CheckOptions
-   end
-
-   record Result
-      filename: string
-      ast: Node
-      type: Type
-      syntax_errors: {tl.Error}
-      type_errors: {tl.Error}
-      gen_error: string
-      warnings: {tl.Error}
-      env: Env
-      dependencies: {string:string} -- module name, file found
-   end
-
    record Errors
       filename: string
       errors: {tl.Error}
@@ -446,21 +353,6 @@ local record ParserTypes
       keys: integer -- MAP
       values: integer -- MAP
       elements: integer -- ARRAY
-   end
-
-   record TypeReport
-      type Symbol = {integer, integer, string, integer}
-
-      by_pos: {string: {integer: {integer: integer}}}
-      types: {integer: TypeInfo}
-      symbols: {Symbol}
-      symbols_by_file: {string: {Symbol}}
-      globals: {string: integer}
-   end
-
-   record EnvOptions
-      defaults: CheckOptions
-      predefined_modules: {string}
    end
 
    enum NodeKind

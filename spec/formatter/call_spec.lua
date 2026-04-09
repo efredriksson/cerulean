@@ -386,4 +386,22 @@ describe("formatter function call wrapping", function()
       ): StuffSelection<boolean>
       end
    ]]))
+
+   it("generics types in functions", helpers.format([[
+      function f<T>(var: T): that
+         local x: {boolean:  T} = {[true] = var}
+         return x[true]
+      end
+   ]], [[
+      function f<T>(var: T): that
+          local x: {boolean: T} = {[true] = var}
+          return x[true]
+      end
+   ]]))
+
+   it("union types in variables", helpers.format([[
+      local x: string |  number = 5
+   ]], [[
+      local x: string | number = 5
+   ]]))
 end)

@@ -220,7 +220,7 @@ local function should_take_break_branch(
     target_group_id: integer,
     current_group_id: integer,
     flat: boolean,
-    broken_groups: {integer:boolean}
+    broken_groups: {integer: boolean}
 ): boolean
     if target_group_id ~= nil then
         return broken_groups[target_group_id] == true
@@ -305,7 +305,7 @@ end
 local function fits(
     remaining_width: integer,
     commands: {RenderCommand},
-    broken_groups: {integer:boolean}
+    broken_groups: {integer: boolean}
 ): boolean
     if remaining_width < 0 then
         return false

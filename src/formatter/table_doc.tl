@@ -2,6 +2,7 @@
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
+local type_doc = require("formatter.type_doc")
 
 local table_doc = {}
 
@@ -15,12 +16,9 @@ local function build_table_item_text(
         if item.itemtype ~= nil then
             return doc.concat(
                 {
-                    doc.text(
-                        key_text .. ": " .. assert(
-                            item.itemtype.source_text,
-                            "missing source_text for table item type"
-                        ) .. " = "
-                    ),
+                    doc.text(key_text .. ": "),
+                    type_doc.render(item.itemtype),
+                    doc.text(" = "),
                     render_expr(item.value),
                 }
             )

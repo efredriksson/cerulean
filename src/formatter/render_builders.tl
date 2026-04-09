@@ -192,15 +192,21 @@ function render_builders.build_comma_line_item_docs(item_docs: {doc.Doc}): doc.D
     return doc.concat(parts)
 end
 
-function render_builders.build_comma_separated_docs(item_docs: {doc.Doc}): doc.Doc
+function render_builders.build_separated_docs(
+    item_docs: {doc.Doc}, separator: string
+): doc.Doc
     local parts: {doc.Doc} = {}
     for index, item_doc in ipairs(item_docs) do
         table.insert(parts, item_doc)
         if index < #item_docs then
-            table.insert(parts, doc.text(", "))
+            table.insert(parts, doc.text(separator))
         end
     end
     return doc.concat(parts)
+end
+
+function render_builders.build_comma_separated_docs(item_docs: {doc.Doc}): doc.Doc
+    return render_builders.build_separated_docs(item_docs, ", ")
 end
 
 function render_builders.build_mapped_comma_separated_docs(
@@ -211,18 +217,6 @@ function render_builders.build_mapped_comma_separated_docs(
         table.insert(item_docs, render_node(node))
     end
     return render_builders.build_comma_separated_docs(item_docs)
-end
-
-function render_builders.build_compact_delimited_sequence_doc(
-    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
-): doc.Doc
-    return doc.concat(
-        {
-            doc.text(opts.open_delim),
-            render_builders.build_comma_separated_docs(item_docs),
-            doc.text(opts.close_delim),
-        }
-    )
 end
 
 function render_builders.build_delimited_body_doc(
@@ -294,23 +288,6 @@ end
 
 function render_builders.call_arg_effective_end_line(node: parser.Node): integer
     return render_builders.node_effective_end_line(node)
-end
-
-function render_builders.classify_comments_by_previous_end_line(
-    node: parser.Node, previous_end_line: integer
-): {parser.Comment}, {parser.Comment}
-    local trailing: {parser.Comment} = {}
-    local leading: {parser.Comment} = {}
-
-    for _, comment in ipairs(node.comments or {}) do
-        if comment.y <= previous_end_line then
-            table.insert(trailing, comment)
-        else
-            table.insert(leading, comment)
-        end
-    end
-
-    return trailing, leading
 end
 
 function render_builders.build_comment_line_entries(

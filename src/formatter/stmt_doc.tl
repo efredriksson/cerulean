@@ -6,6 +6,7 @@ local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
 local signature_doc = require("formatter.signature_doc")
+local type_doc = require("formatter.type_doc")
 
 local type BlockLayout = layout_types.BlockLayout
 local type StatementLayout = layout_types.StatementLayout
@@ -25,79 +26,34 @@ local function get_body_layout(layout: StatementLayout | nil): BlockLayout | nil
     return layout.body_layout
 end
 
-local function render_type_constraint_text(constraint: parser.Type): string | nil
-    if constraint.source_text ~= nil and constraint.source_text ~= "" then
-        return constraint.source_text
-    end
-
-    if constraint is parser.NominalType then
-        local parts: {string} = {table.concat(constraint.names, ".")}
-        if constraint.typevals ~= nil and #constraint.typevals > 0 then
-            local typevals: {string} = {}
-            for _, typeval in ipairs(constraint.typevals) do
-                if typeval.source_text == nil or typeval.source_text == "" then
-                    return nil
-                end
-                table.insert(typevals, typeval.source_text)
-            end
-            table.insert(parts, "<" .. table.concat(typevals, ", ") .. ">")
-        end
-        return table.concat(parts)
-    end
-
-    return nil
-end
-
-local function render_typearg_list(typeargs: {parser.TypeArgType}): string
+local function render_typearg_list(typeargs: {parser.TypeArgType}): doc.Doc
     if #typeargs == 0 then
-        return ""
+        return doc.text("")
     end
 
-    local parts: {string} = {}
+    local parts: {doc.Doc} = {}
     for _, typearg in ipairs(typeargs) do
-        local typearg_text = typearg.typearg
-        if typearg.constraint ~= nil then
-            local constraint_text = render_type_constraint_text(typearg.constraint)
-            if not (constraint_text is nil) then
-                typearg_text = typearg_text .. " is " .. constraint_text
-            end
-        end
-        table.insert(parts, typearg_text)
+        table.insert(parts, type_doc.render(typearg))
     end
-    return "<" .. table.concat(parts, ", ") .. ">"
+    return doc.concat(
+        {
+            doc.text("<"),
+            render_builders.build_comma_separated_docs(parts),
+            doc.text(">"),
+        }
+    )
 end
 
 local function with_indented_body(
     header: doc.Doc, body: doc.Doc, tail: doc.Doc
 ): doc.Doc
-    return doc.concat(
-        {
-            header,
-            doc.indent(
-                4,
-                doc.concat(
-                    {
-                        doc.line(),
-                        body,
-                    }
-                )
-            ),
-            tail,
-        }
-    )
+    return doc.concat({header, doc.indent(4, doc.concat({doc.line(), body})), tail})
 end
 
 local function function_with_indent(
-    name_prefix: string, signature: doc.Doc, body: doc.Doc
+    name_prefix: doc.Doc, signature: doc.Doc, body: doc.Doc
 ): doc.Doc
-    local header = doc.group(
-        doc.concat(
-            {
-                doc.text(name_prefix),
-                signature,
-            }
-        )
-    )
+    local header = doc.group(doc.concat({name_prefix, signature}))
     return with_indented_body(header, body, doc.close("end"))
 end
 
@@ -198,7 +154,7 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     local declaration_keyword: string
     local record_def: parser.RecordLikeType
     local is_type_declaration = stmt.is_type_declaration
-    local typeargs_str = ""
+    local typeargs_str = doc.text("")
 
     if def is parser.GenericType then
         local generic_def = def
@@ -220,58 +176,30 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
         return nil
     end
 
-    local function render_record_interface_doc(iface: parser.Type): doc.Doc | nil
-        if iface.source_text ~= nil and iface.source_text ~= "" then
-            return doc.text(iface.source_text)
-        end
-
-        if iface is parser.NominalType then
-            local parts: {doc.Doc} = {
-                doc.text(table.concat(iface.names, ".")),
+    local header_parts: {doc.Doc} = {}
+    if is_type_declaration then
+        local t = doc.concat(
+            {
+                doc.text("local type " .. stmt.var.tk),
+                typeargs_str,
+                doc.text(" = " .. declaration_keyword),
             }
-            if iface.typevals ~= nil and #iface.typevals > 0 then
-                table.insert(parts, doc.text("<"))
-                for index, typeval in ipairs(iface.typevals) do
-                    if typeval.source_text == nil or typeval.source_text == "" then
-                        return nil
-                    end
-                    table.insert(parts, doc.text(typeval.source_text))
-                    if index < #iface.typevals then
-                        table.insert(parts, doc.text(", "))
-                    end
-                end
-                table.insert(parts, doc.text(">"))
-            end
-            return doc.concat(parts)
-        elseif iface is parser.ArrayType then
-            if iface.elements == nil or iface.elements.source_text == nil then
-                return nil
-            end
-            return doc.concat(
-                {
-                    doc.text("{"),
-                    doc.text(iface.elements.source_text),
-                    doc.text("}"),
-                }
-            )
-        end
-
-        return nil
+        )
+        table.insert(header_parts, t)
+    else
+        local t = doc.concat(
+            {
+                doc.text("local " .. declaration_keyword .. " " .. stmt.var.tk),
+                typeargs_str,
+            }
+        )
+        table.insert(header_parts, t)
     end
 
-    local header_parts: {doc.Doc} = {
-        doc.text(
-            is_type_declaration and ("local type " .. stmt.var.tk .. typeargs_str .. " = " .. declaration_keyword)
-                or ("local " .. declaration_keyword .. " " .. stmt.var.tk .. typeargs_str)
-        ),
-    }
     if record_def.interface_list ~= nil and #record_def.interface_list > 0 then
         table.insert(header_parts, doc.text(" is "))
         for index, iface in ipairs(record_def.interface_list) do
-            local iface_doc = render_record_interface_doc(iface)
-            if iface_doc == nil then
-                return nil
-            end
+            local iface_doc = type_doc.render(iface)
             table.insert(header_parts, iface_doc)
             if index < #record_def.interface_list then
                 table.insert(header_parts, doc.text(", "))
@@ -353,19 +281,18 @@ local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil
     local def = stmt.value.newtype.def
     if def.typename == "record"
         or def.typename == "interface"
-        or def.typename == "generic" then
+        or def.typename == "generic"
+        or def.typename == "enum"
+        or def.typename == "typedecl" then
         return render_local_record_doc(stmt)
     end
 
-    local type_text = stmt.value.newtype.def.source_text
-    if type_text ~= nil then
-        return doc.text("local type " .. stmt.var.tk .. " = " .. type_text)
-    end
-
-    return render_local_record_doc(stmt)
+    return doc.concat(
+        {doc.text("local type " .. stmt.var.tk .. " = "), type_doc.render(def)}
+    )
 end
 
-local function render_function_name(node: parser.Node): string | nil
+local function render_function_name(node: parser.Node): doc.Doc | nil
     local function render_function_owner(owner: parser.Node): string | nil
         if owner.kind == "identifier"
             or owner.kind == "type_identifier"
@@ -386,19 +313,26 @@ local function render_function_name(node: parser.Node): string | nil
         return nil
     end
 
-    local function render_function_typeargs(fn_node: parser.Node): string
+    local function render_function_typeargs(fn_node: parser.Node): doc.Doc
         if fn_node.typeargs == nil then
-            return ""
+            return doc.text("")
         end
         return render_typearg_list(fn_node.typeargs)
     end
 
     if node.kind == "local_function" and node.name ~= nil then
-        return "local function " .. node.name.tk .. render_function_typeargs(node)
+        return doc.concat(
+            {
+                doc.text("local function " .. node.name.tk),
+                render_function_typeargs(node),
+            }
+        )
     elseif node.kind == "global_function"
         and node.name ~= nil
         and not node.is_method then
-        return "function " .. node.name.tk .. render_function_typeargs(node)
+        return doc.concat(
+            {doc.text("function " .. node.name.tk), render_function_typeargs(node)}
+        )
     elseif node.kind == "record_function"
         and node.fn_owner ~= nil
         and node.name ~= nil then
@@ -407,8 +341,11 @@ local function render_function_name(node: parser.Node): string | nil
             return nil
         end
         local separator = node.is_method and ":" or "."
-        return "function " .. owner .. separator .. node.name.tk .. render_function_typeargs(
-            node
+        return doc.concat(
+            {
+                doc.text("function " .. owner .. separator .. node.name.tk),
+                render_function_typeargs(node),
+            }
         )
     end
 

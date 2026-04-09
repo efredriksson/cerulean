@@ -23,7 +23,11 @@ local record parser
     type Attribute = parser_types.Attribute
     type TypeDeclType = parser_types.TypeDeclType
     type TupleType = parser_types.TupleType
+    type UnionType = parser_types.UnionType
+    type MapType = parser_types.MapType
+    type TypeVarType = parser_types.TypeVarType
     type Comment = parser_types.Comment
+    simple_types: {parser_types.TypeName: boolean}
     type Error = tl.Error
     type Token = tl.Token
 
@@ -1061,6 +1065,7 @@ parse_type = function(ps: ParseState, i: integer): integer, FirstClassType, inte
       i = verify_tk(ps, i, ")")
       if t then
          t.source_text = capture_type_source_text(ps, start_i, i)
+         t.paren = true
       end
       return i, t
    end
@@ -1129,6 +1134,7 @@ parse_type_list = function(
 
    if optional_paren then
       i = verify_tk(ps, i, ")")
+      t.paren = true
    end
 
    if i > start_i then
@@ -3121,5 +3127,7 @@ parser.parse = function(
 end
 
 end
+
+parser.simple_types = simple_types
 
 return parser
