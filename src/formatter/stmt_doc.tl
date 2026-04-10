@@ -73,11 +73,8 @@ local function build_exp_doc(node: parser.Node): doc.Doc
     return expr_doc.render_expr(node)
 end
 
-local function append_return_type(signature: doc.Doc, rets_source_text: string): doc.Doc
-    if rets_source_text ~= "" then
-        return doc.group(doc.concat({signature, doc.text(rets_source_text)}))
-    end
-    return signature
+local function append_return_type(signature: doc.Doc, return_type_doc: doc.Doc): doc.Doc
+    return doc.group(doc.concat({signature, return_type_doc}))
 end
 
 local function build_control_flow_head_doc(
@@ -374,13 +371,16 @@ local function render_function_definition_doc(
         body_layout = non_nil_layout.body_layout
     end
 
-    local rets_source_text = ""
-    if node.rets ~= nil and node.rets.source_text ~= nil then
-        rets_source_text = node.rets.source_text
+    local function return_type_doc(): doc.Doc
+        if node.rets == nil or #node.rets.tuple == 0 then
+            return doc.text("")
+        else
+            return doc.concat({doc.text(": "), type_doc.render(node.rets)})
+        end
     end
 
     local sig_doc = append_return_type(
-        signature_doc.render_signature_doc(node.args), rets_source_text
+        signature_doc.render_signature_doc(node.args), return_type_doc()
     )
 
     if #node.body == 0 then

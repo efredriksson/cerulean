@@ -173,12 +173,9 @@ wrap_for_parent_precedence = function(
 end
 
 local function append_return_type(
-    signature: doc.Doc, rets_source_text: string
+    signature: doc.Doc, return_type_doc: doc.Doc
 ): doc.Doc
-    if rets_source_text ~= "" then
-        return doc.concat({signature, doc.text(rets_source_text)})
-    end
-    return signature
+    return doc.concat({signature, return_type_doc})
 end
 
 local function render_string_literal(node: parser.Node): doc.Doc
@@ -206,26 +203,29 @@ local function render_statement(stmt: parser.Node): doc.Doc
 end
 
 local function render_function_expr(node: parser.Node): doc.Doc
-    local rets_source_text = ""
-    if node.rets ~= nil and node.rets.source_text ~= nil then
-        rets_source_text = node.rets.source_text
+    local function return_type_doc(): doc.Doc
+        if node.rets == nil or #node.rets.tuple == 0 then
+            return doc.text("")
+        else
+            return doc.concat({doc.text(": "), type_doc.render(node.rets)})
+        end
     end
 
-    local signature = append_return_type(
-        signature_doc.render_signature_doc(node.args), rets_source_text
+    local sig_doc = append_return_type(
+        signature_doc.render_signature_doc(node.args), return_type_doc()
     )
 
     if node.body == nil or #node.body == 0 then
         return doc.group(doc.concat({
             doc.text("function"),
-            signature,
+            sig_doc,
             doc.line(),
             doc.text("end"),
         }))
     elseif #node.body == 1 then
         return doc.group(doc.concat({
             doc.text("function"),
-            signature,
+            sig_doc,
             doc.indent(4, doc.concat({
                 doc.line(),
                 render_statement(node.body[1]),
