@@ -5,15 +5,15 @@ local inline_stmt_doc = require("formatter.inline_stmt_doc")
 local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
+local render_context = require("formatter.render_context")
 local signature_doc = require("formatter.signature_doc")
 local type_doc = require("formatter.type_doc")
 
 local type BlockLayout = layout_types.BlockLayout
 local type StatementLayout = layout_types.StatementLayout
+local type RenderContext = render_context.RenderContext
 
 local stmt_doc = {}
-
-local type RenderBlock = function(parser.Node, BlockLayout | nil): doc.Doc | nil
 
 local function node_end_line(node: parser.Node): integer
     return node.yend or node.y
@@ -69,38 +69,36 @@ local function block_with_close(
     return with_indented_body(header, body, doc.close(close_text))
 end
 
-local function build_exp_doc(node: parser.Node): doc.Doc
-    return expr_doc.render_expr(node)
-end
-
 local function append_return_type(signature: doc.Doc, return_type_doc: doc.Doc): doc.Doc
     return doc.group(doc.concat({signature, return_type_doc}))
 end
 
 local function build_control_flow_head_doc(
-    head_keyword: string, exp: parser.Node, tail_text: string
+    ctx: RenderContext, head_keyword: string, exp: parser.Node, tail_text: string
 ): doc.Doc
     return doc.group(
         doc.concat(
             {
                 doc.text(head_keyword .. " "),
-                expr_doc.render_top_level_expr(exp),
+                expr_doc.render_top_level_expr(ctx, exp),
                 doc.text(tail_text),
             }
         )
     )
 end
 
-local function render_return_doc(stmt: parser.Node): doc.Doc
-    return inline_stmt_doc.render_return_doc(stmt, build_exp_doc)
+local function render_return_doc(ctx: RenderContext, stmt: parser.Node): doc.Doc
+    return inline_stmt_doc.render_return_doc(ctx, stmt)
 end
 
-local function render_assignment_doc(stmt: parser.Node): doc.Doc
-    return inline_stmt_doc.render_assignment_doc(stmt, build_exp_doc)
+local function render_assignment_doc(ctx: RenderContext, stmt: parser.Node): doc.Doc
+    return inline_stmt_doc.render_assignment_doc(ctx, stmt)
 end
 
-local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
-    return inline_stmt_doc.render_local_declaration_doc(stmt, build_exp_doc)
+local function render_local_declaration_doc(
+    ctx: RenderContext, stmt: parser.Node
+): doc.Doc | nil
+    return inline_stmt_doc.render_local_declaration_doc(ctx, stmt)
 end
 
 local function render_enum_doc(stmt: parser.Node, def: parser.EnumType): doc.Doc
@@ -139,7 +137,9 @@ local function render_enum_doc(stmt: parser.Node, def: parser.EnumType): doc.Doc
     )
 end
 
-local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
+local function render_local_record_doc(
+    ctx: RenderContext, stmt: parser.Node
+): doc.Doc | nil
     if stmt.var == nil or stmt.value == nil then
         return nil
     end
@@ -216,7 +216,7 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
             return nil
         end
         table.insert(header_parts, doc.text(" where "))
-        table.insert(header_parts, build_exp_doc(where_macroexp.exp))
+        table.insert(header_parts, ctx.render_expr(where_macroexp.exp))
     end
 
     local record_items = render_builders.CommentLineItems.new()
@@ -261,13 +261,18 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
     )
 end
 
-local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil
+local function render_local_type_doc(
+    ctx: RenderContext, stmt: parser.Node
+): doc.Doc | nil
     if stmt.var == nil or stmt.value == nil then
         return nil
     end
     if stmt.value.kind ~= "newtype" then
         return doc.concat(
-            {doc.text("local type " .. stmt.var.tk .. " = "), build_exp_doc(stmt.value)}
+            {
+                doc.text("local type " .. stmt.var.tk .. " = "),
+                ctx.render_expr(stmt.value),
+            }
         )
     end
 
@@ -281,7 +286,7 @@ local function render_local_type_doc(stmt: parser.Node): doc.Doc | nil
         or def.typename == "generic"
         or def.typename == "enum"
         or def.typename == "typedecl" then
-        return render_local_record_doc(stmt)
+        return render_local_record_doc(ctx, stmt)
     end
 
     return doc.concat(
@@ -350,7 +355,7 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
 end
 
 local function render_function_definition_doc(
-    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
+    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.args == nil or node.body == nil then
         return nil
@@ -396,7 +401,7 @@ local function render_function_definition_doc(
         return function_with_indent(name_prefix, sig_doc, doc.concat(comment_body))
     end
 
-    local body_doc = render_block(node.body, body_layout)
+    local body_doc = ctx.render_block(node.body, body_layout)
     if body_doc == nil then
         return nil
     end
@@ -405,7 +410,7 @@ local function render_function_definition_doc(
 end
 
 local function render_if_doc(
-    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
+    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.if_blocks == nil then
         return nil
@@ -423,7 +428,7 @@ local function render_if_doc(
                 if_block_layout = if_block_layouts[index]
             end
         end
-        local body_doc = render_block(if_block.body, if_block_layout)
+        local body_doc = ctx.render_block(if_block.body, if_block_layout)
         if body_doc == nil then
             return nil
         end
@@ -431,9 +436,11 @@ local function render_if_doc(
         local function get_head_text(): doc.Doc
             if if_block.exp ~= nil then
                 if index == 1 then
-                    return build_control_flow_head_doc("if", if_block.exp, " then")
+                    return build_control_flow_head_doc(ctx, "if", if_block.exp, " then")
                 else
-                    return build_control_flow_head_doc("elseif", if_block.exp, " then")
+                    return build_control_flow_head_doc(
+                        ctx, "elseif", if_block.exp, " then"
+                    )
                 end
             else
                 return doc.text("else")
@@ -463,23 +470,23 @@ local function render_if_doc(
 end
 
 local function render_while_doc(
-    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
+    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.exp == nil or node.body == nil or #node.body == 0 then
         return nil
     end
 
-    local body_doc = render_block(node.body, get_body_layout(layout))
+    local body_doc = ctx.render_block(node.body, get_body_layout(layout))
     if body_doc == nil then
         return nil
     end
 
-    local header = build_control_flow_head_doc("while", node.exp, " do")
+    local header = build_control_flow_head_doc(ctx, "while", node.exp, " do")
     return block_with_close(header, body_doc, "end")
 end
 
 local function render_fornum_doc(
-    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
+    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.var == nil
         or node.from == nil
@@ -489,7 +496,7 @@ local function render_fornum_doc(
         return nil
     end
 
-    local body_doc = render_block(node.body, get_body_layout(layout))
+    local body_doc = ctx.render_block(node.body, get_body_layout(layout))
     if body_doc == nil then
         return nil
     end
@@ -498,20 +505,20 @@ local function render_fornum_doc(
     local header = doc.concat(
         {
             pre_header,
-            build_exp_doc(node.from),
+            ctx.render_expr(node.from),
             doc.text(", "),
-            build_exp_doc(node.to),
+            ctx.render_expr(node.to),
         }
     )
     if node.step ~= nil then
-        header = doc.concat({header, doc.text(", "), build_exp_doc(node.step)})
+        header = doc.concat({header, doc.text(", "), ctx.render_expr(node.step)})
     end
 
     return block_with_close(doc.concat({header, doc.text(" do")}), body_doc, "end")
 end
 
 local function render_forin_doc(
-    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
+    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.vars == nil or node.exps == nil or node.body == nil or #node.body == 0 then
         return nil
@@ -522,7 +529,7 @@ local function render_forin_doc(
         table.insert(var_docs, doc.text(var_node.tk))
     end
 
-    local body_doc = render_block(node.body, get_body_layout(layout))
+    local body_doc = ctx.render_block(node.body, get_body_layout(layout))
     if body_doc == nil then
         return nil
     end
@@ -533,7 +540,7 @@ local function render_forin_doc(
             render_builders.build_comma_separated_docs(var_docs),
             doc.text(" in "),
             render_builders.build_mapped_comma_separated_docs(
-                node.exps, build_exp_doc
+                node.exps, ctx.render_expr
             ),
             doc.text(" do"),
         }
@@ -542,13 +549,13 @@ local function render_forin_doc(
 end
 
 local function render_repeat_doc(
-    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
+    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.body == nil or node.exp == nil or #node.body == 0 then
         return nil
     end
 
-    local body_doc = render_block(node.body, get_body_layout(layout))
+    local body_doc = ctx.render_block(node.body, get_body_layout(layout))
     if body_doc is nil then
         return nil
     end
@@ -556,18 +563,18 @@ local function render_repeat_doc(
     return block_with_indent(
         doc.text("repeat"),
         body_doc,
-        doc.concat({doc.text("until "), expr_doc.render_top_level_expr(node.exp)})
+        doc.concat({doc.text("until "), expr_doc.render_top_level_expr(ctx, node.exp)})
     )
 end
 
 local function render_do_doc(
-    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
+    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
 ): doc.Doc | nil
     if node.body == nil or #node.body == 0 then
         return nil
     end
 
-    local body_doc = render_block(node.body, get_body_layout(layout))
+    local body_doc = ctx.render_block(node.body, get_body_layout(layout))
     if body_doc == nil then
         return nil
     end
@@ -576,39 +583,39 @@ local function render_do_doc(
 end
 
 function stmt_doc.render_statement_doc(
-    node: parser.Node, render_block: RenderBlock, layout: StatementLayout | nil
+    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
 ): doc.Doc | nil
     local end_line = node_end_line(node)
 
     if node.kind == "return" and end_line == node.y then
-        return render_return_doc(node)
+        return render_return_doc(ctx, node)
     elseif node.kind == "assignment" and end_line == node.y then
-        return render_assignment_doc(node)
+        return render_assignment_doc(ctx, node)
     elseif node.kind == "local_declaration" then
-        return render_local_declaration_doc(node)
+        return render_local_declaration_doc(ctx, node)
     elseif node.kind == "local_type" then
-        return render_local_type_doc(node)
+        return render_local_type_doc(ctx, node)
     elseif (node.kind == "local_function"
         or node.kind == "global_function"
         or node.kind == "record_function") then
-        return render_function_definition_doc(node, render_block, layout)
+        return render_function_definition_doc(ctx, node, layout)
     elseif node.kind == "if" then
-        return render_if_doc(node, render_block, layout)
+        return render_if_doc(ctx, node, layout)
     elseif node.kind == "while" then
-        return render_while_doc(node, render_block, layout)
+        return render_while_doc(ctx, node, layout)
     elseif node.kind == "fornum" then
-        return render_fornum_doc(node, render_block, layout)
+        return render_fornum_doc(ctx, node, layout)
     elseif node.kind == "forin" then
-        return render_forin_doc(node, render_block, layout)
+        return render_forin_doc(ctx, node, layout)
     elseif node.kind == "repeat" then
-        return render_repeat_doc(node, render_block, layout)
+        return render_repeat_doc(ctx, node, layout)
     elseif node.kind == "do" then
-        return render_do_doc(node, render_block, layout)
+        return render_do_doc(ctx, node, layout)
     elseif node.kind == "break" then
         return doc.text("break")
     elseif node.kind == "op" then
         if end_line == node.y then
-            return build_exp_doc(node)
+            return ctx.render_expr(node)
         end
     end
 

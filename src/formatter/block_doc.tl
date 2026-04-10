@@ -1,12 +1,15 @@
 local doc = require("formatter.doc")
+local expr_doc = require("formatter.expr_doc")
 local fmt_logger = require("formatter.fmt_logger")
 local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
+local render_context = require("formatter.render_context")
 local stmt_doc = require("formatter.stmt_doc")
 
 local type BlockLayout = layout_types.BlockLayout
 local type StatementLayout = layout_types.StatementLayout
+local type RenderContext = render_context.RenderContext
 
 local block_doc = {}
 
@@ -24,7 +27,7 @@ local function render_verbatim(statement_layout: StatementLayout): doc.Doc
 end
 
 local function render_block_doc_with(
-    block: parser.Node, layout: BlockLayout
+    ctx: RenderContext, block: parser.Node, layout: BlockLayout
 ): doc.Doc | nil
     local line_items = render_builders.CommentLineItems.new()
     local typed_layout: BlockLayout | nil = nil
@@ -43,9 +46,7 @@ local function render_block_doc_with(
         if stmt_is_verbatim and not (statement_layout is nil) then
             stmt_doc_node = render_verbatim(statement_layout)
         else
-            stmt_doc_node = stmt_doc.render_statement_doc(
-                stmt, render_block_doc_with, statement_layout
-            )
+            stmt_doc_node = stmt_doc.render_statement_doc(ctx, stmt, statement_layout)
             if stmt_doc_node is nil then
                 fmt_logger.info(
                     "[structural] blocked at line %s: could not render doc for %s",
@@ -77,9 +78,11 @@ local function render_block_doc_with(
     line_items:add_end_comments(block.end_comments or {})
     line_items:add_prefixed_comments(block.unattached_comments or {})
 
-    local function entry_separator(ctx: render_builders.EntrySeparatorContext): doc.Doc
-        if ctx.previous_preserve_blank_line_after then
-            if ctx.next_starts_with_blank_line then
+    local function entry_separator(
+        sep_ctx: render_builders.EntrySeparatorContext
+    ): doc.Doc
+        if sep_ctx.previous_preserve_blank_line_after then
+            if sep_ctx.next_starts_with_blank_line then
                 return doc.line()
             end
             return doc.concat({doc.line(), doc.line()})
@@ -90,8 +93,16 @@ local function render_block_doc_with(
     return render_builders.render_line_entries(line_items, nil, entry_separator)
 end
 
-function block_doc.render_block(block: parser.Node, layout: BlockLayout): {string} | nil
-    local block_doc_node = render_block_doc_with(block, layout)
+function block_doc.make_context(): RenderContext
+    return render_context.RenderContext.new(
+        render_block_doc_with, expr_doc.render_expr, stmt_doc.render_statement_doc
+    )
+end
+
+function block_doc.render_block(
+    ctx: RenderContext, block: parser.Node, layout: BlockLayout
+): {string} | nil
+    local block_doc_node = render_block_doc_with(ctx, block, layout)
     if block_doc_node is nil then
         return nil
     end

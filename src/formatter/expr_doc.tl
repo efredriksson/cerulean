@@ -4,9 +4,12 @@ local call_doc = require("formatter.call_doc")
 local doc = require("formatter.doc")
 local inline_stmt_doc = require("formatter.inline_stmt_doc")
 local parser = require("formatter.parser")
+local render_context = require("formatter.render_context")
 local signature_doc = require("formatter.signature_doc")
 local table_doc = require("formatter.table_doc")
 local type_doc = require("formatter.type_doc")
+
+local type RenderContext = render_context.RenderContext
 
 local expr_doc = {}
 
@@ -49,13 +52,13 @@ local RIGHT_ASSOC: {string: boolean} = {
     [".."] = true,
 }
 
-local render_expr: function(parser.Node, integer): doc.Doc
+local render_expr: function(RenderContext, parser.Node, integer): doc.Doc
 local wrap_for_parent_precedence: function(
     doc.Doc, string, integer, integer
 ): doc.Doc
 
-local function render_root_expr(node: parser.Node): doc.Doc
-    return render_expr(node, 0)
+local function render_root_expr(ctx: RenderContext, node: parser.Node): doc.Doc
+    return render_expr(ctx, node, 0)
 end
 
 local function precedence_for_op(op: string, arity: integer): integer
@@ -100,8 +103,8 @@ local function maybe_parenthesize(
     return rendered
 end
 
-local function build_call_expr_doc(node: parser.Node): doc.Doc
-    return call_doc.build_call_expr_doc(node, render_root_expr)
+local function build_call_expr_doc(ctx: RenderContext, node: parser.Node): doc.Doc
+    return call_doc.build_call_expr_doc(ctx, node)
 end
 
 local function collect_top_level_logical_terms(
@@ -121,7 +124,7 @@ local function collect_top_level_logical_terms(
 end
 
 local function render_top_level_logical_chain(
-    node: parser.Node, parent_prec: integer
+    ctx: RenderContext, node: parser.Node, parent_prec: integer
 ): doc.Doc
     local operator = node.op.op
     local operator_prec = precedence_for_op(operator, 2)
@@ -132,7 +135,7 @@ local function render_top_level_logical_chain(
     for index, term in ipairs(terms) do
         local term_group_ref = doc.group_ref()
         table.insert(
-            parts, term_group_ref:group(render_expr(term, operator_prec))
+            parts, term_group_ref:group(render_expr(ctx, term, operator_prec))
         )
         if index < #terms then
             local default_separator = doc.indent(4, doc.concat({
@@ -190,19 +193,19 @@ local function render_string_literal(node: parser.Node): doc.Doc
     return doc.text('"' .. content .. '"')
 end
 
-local function render_statement(stmt: parser.Node): doc.Doc
+local function render_statement(ctx: RenderContext, stmt: parser.Node): doc.Doc
     if stmt.kind == "return" then
-        return inline_stmt_doc.render_return_doc(stmt, render_root_expr)
+        return inline_stmt_doc.render_return_doc(ctx, stmt)
     elseif stmt.kind == "assignment" then
-        return inline_stmt_doc.render_assignment_doc(stmt, render_root_expr)
+        return inline_stmt_doc.render_assignment_doc(ctx, stmt)
     elseif stmt.kind == "local_declaration" then
-        return inline_stmt_doc.render_local_declaration_doc(stmt, render_root_expr)
+        return inline_stmt_doc.render_local_declaration_doc(ctx, stmt)
     end
 
     error("unsupported anonymous function statement: " .. stmt.kind)
 end
 
-local function render_function_expr(node: parser.Node): doc.Doc
+local function render_function_expr(ctx: RenderContext, node: parser.Node): doc.Doc
     local function return_type_doc(): doc.Doc
         if node.rets == nil or #node.rets.tuple == 0 then
             return doc.text("")
@@ -228,7 +231,7 @@ local function render_function_expr(node: parser.Node): doc.Doc
             sig_doc,
             doc.indent(4, doc.concat({
                 doc.line(),
-                render_statement(node.body[1]),
+                render_statement(ctx, node.body[1]),
             })),
             doc.line(),
             doc.text("end"),
@@ -238,42 +241,42 @@ local function render_function_expr(node: parser.Node): doc.Doc
     error("unsupported anonymous function body shape")
 end
 
-local function render_op(node: parser.Node, parent_prec: integer): doc.Doc
+local function render_op(ctx: RenderContext, node: parser.Node, parent_prec: integer): doc.Doc
     local op = node.op.op
     if op == "." or op == ":" then
         return doc.concat({
-            render_expr(node.e1, PRECEDENCE[op]), doc.text(op), doc.text(node.e2.tk)
+            render_expr(ctx, node.e1, PRECEDENCE[op]), doc.text(op), doc.text(node.e2.tk)
         })
     elseif op == "@index" then
         return doc.concat({
-            render_expr(node.e1, PRECEDENCE[op]),
+            render_expr(ctx, node.e1, PRECEDENCE[op]),
             doc.text("["),
-            render_root_expr(node.e2),
+            render_root_expr(ctx, node.e2),
             doc.text("]"),
         })
     elseif op == "@funcall" then
-        return build_call_expr_doc(node)
+        return build_call_expr_doc(ctx, node)
     elseif op == "as" or op == "is" then
         return doc.concat({
-            render_expr(node.e1, PRECEDENCE[op]),
+            render_expr(ctx, node.e1, PRECEDENCE[op]),
             doc.text(" " .. op .. " "),
             type_doc.render(node.e2.casttype),
         })
     elseif node.op.arity == 1 then
         local op_prec = precedence_for_op(op, 1)
         local child = maybe_parenthesize(
-            render_expr(node.e1, op_prec), node.e1, op, 1, true
+            render_expr(ctx, node.e1, op_prec), node.e1, op, 1, true
         )
         local rendered = doc.concat({doc.text(op == "not" and "not " or op), child})
         return wrap_for_parent_precedence(rendered, op, 1, parent_prec)
     else
         if parent_prec == 0 and should_render_top_level_logical_chain(node) then
-            return render_top_level_logical_chain(node, parent_prec)
+            return render_top_level_logical_chain(ctx, node, parent_prec)
         end
 
         local op_prec = precedence_for_op(op, 2)
-        local left_doc = render_expr(node.e1, op_prec)
-        local right_doc = render_expr(node.e2, op_prec)
+        local left_doc = render_expr(ctx, node.e1, op_prec)
+        local right_doc = render_expr(ctx, node.e2, op_prec)
 
         local left = maybe_parenthesize(left_doc, node.e1, op, 2, false)
         local right = maybe_parenthesize(right_doc, node.e2, op, 2, true)
@@ -286,7 +289,7 @@ local function render_op(node: parser.Node, parent_prec: integer): doc.Doc
     end
 end
 
-render_expr = function(node: parser.Node, parent_prec: integer): doc.Doc
+render_expr = function(ctx: RenderContext, node: parser.Node, parent_prec: integer): doc.Doc
     if node.kind == "variable" or node.kind == "identifier" or node.kind == "..." then
         return doc.text(node.tk)
     elseif node.kind == "string" then
@@ -296,27 +299,27 @@ render_expr = function(node: parser.Node, parent_prec: integer): doc.Doc
     elseif node.kind == "boolean" or node.kind == "nil" then
         return doc.text(node.tk)
     elseif node.kind == "paren" then
-        return doc.concat({doc.text("("), render_root_expr(node.e1), doc.text(")")})
+        return doc.concat({doc.text("("), render_root_expr(ctx, node.e1), doc.text(")")})
     elseif node.kind == "literal_table" then
-        return table_doc.build_table_doc(node, render_root_expr)
+        return table_doc.build_table_doc(ctx, node)
     elseif node.kind == "function" then
-        return render_function_expr(node)
+        return render_function_expr(ctx, node)
     elseif node.kind == "op" and node.op ~= nil then
-        return render_op(node, parent_prec)
+        return render_op(ctx, node, parent_prec)
     end
 
     error("unsupported expression kind: " .. node.kind)
 end
 
-function expr_doc.render_expr(node: parser.Node): doc.Doc
-    return render_root_expr(node)
+function expr_doc.render_expr(ctx: RenderContext, node: parser.Node): doc.Doc
+    return render_root_expr(ctx, node)
 end
 
-function expr_doc.render_top_level_expr(node: parser.Node): doc.Doc
+function expr_doc.render_top_level_expr(ctx: RenderContext, node: parser.Node): doc.Doc
     if should_render_top_level_logical_chain(node) then
-        return render_top_level_logical_chain(node, 0)
+        return render_top_level_logical_chain(ctx, node, 0)
     end
-    return render_root_expr(node)
+    return render_root_expr(ctx, node)
 end
 
 return expr_doc

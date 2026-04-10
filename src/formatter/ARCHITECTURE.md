@@ -8,12 +8,13 @@
 2. Build source context:
    - `source.Text` for line view
    - `ast_traversal.collect_block_ranges` + `source.collect_fmt_off_regions`.
-3. Layout analysis (`layout_analysis.analyze_block`):
+3. Create a `RenderContext` via `block_doc.make_context()`.
+4. Layout analysis (`layout_analysis.analyze_block`):
    - returns `{ can_render_structurally, block_layout }`.
-4. If structural render is allowed, render full AST block via doc tree:
-   - `block_doc` -> `stmt_doc` -> `expr_doc`/`call_doc`/`table_doc`/`signature_doc`
+5. If structural render is allowed, render full AST block via doc tree:
+   - `block_doc.render_block(ctx, block, layout)` -> `stmt_doc` -> `expr_doc`/`call_doc`/`table_doc`/`signature_doc`
    - render with `doc.Doc:render(...)`.
-5. Run `require_sort.rewrite` on resulting source.
+6. Run `require_sort.rewrite(ctx, source, filename)` on resulting source.
 
 If structural render is blocked or rendering fails, keep original source and still run require sorting.
 
@@ -25,8 +26,9 @@ If structural render is blocked or rendering fails, keep original source and sti
 - `source.tl`: source domain (`Text`, `Range`, `Region/Regions`, fmt-region collection).
 - `layout_analysis.tl`: layout/eligibility analysis.
 - `layout_types.tl`: `BlockLayout`/`StatementLayout` types.
+- `render_context.tl`: `RenderContext` type and constructor — holds callbacks for rendering expressions, statements, and blocks, breaking circular module dependencies.
 - `doc.tl`: document algebra and renderer.
-- `block_doc.tl`: block-level rendering and statement glue.
+- `block_doc.tl`: block-level rendering, statement glue, and `make_context()` factory.
 - `stmt_doc.tl`: statement rendering.
 - `expr_doc.tl`: expression rendering + precedence.
 - `call_doc.tl`: call argument list rendering (owned here).
@@ -44,7 +46,17 @@ Preferred direction is:
 -> `doc builders`
 -> `doc core`
 
-Rendering modules should depend on `layout_types`, not on analysis internals.
+Rendering modules should depend on `layout_types` and `render_context`, not on analysis internals.
+
+## RenderContext
+
+Breaks circular deps (`block_doc` ↔ `stmt_doc` ↔ `expr_doc` ↔ `call_doc`/`table_doc`) via three callbacks:
+
+- `render_expr(node)` → `doc.Doc`
+- `render_stmt(node, layout)` → `doc.Doc | nil`
+- `render_block(node, layout)` → `doc.Doc | nil`
+
+`block_doc.make_context()` wires the concrete implementations into `RenderContext.new()`, which builds closures that partially apply `self`. Created once in `rewriter.rewrite`, threaded through render and require-sort phases.
 
 ## Important AST Detail
 

@@ -4,9 +4,12 @@ local ast_traversal = require("formatter.ast_traversal")
 local block_doc = require("formatter.block_doc")
 local layout_analysis = require("formatter.layout_analysis")
 local parser = require("formatter.parser")
+local render_context = require("formatter.render_context")
 local require_sort = require("formatter.require_sort")
 local source = require("formatter.source")
 local tl = require("tl")
+
+local type RenderContext = render_context.RenderContext
 
 local rewriter = {}
 
@@ -59,7 +62,7 @@ local function build_formatter_context(
 end
 
 local function run_structural_phase(
-    source_: string, filename: string, ast: parser.Node
+    source_: string, filename: string, ast: parser.Node, ctx: RenderContext
 ): string
     local context = build_formatter_context(source_, filename, ast)
     local structural_analysis = layout_analysis.analyze_block(
@@ -67,7 +70,9 @@ local function run_structural_phase(
     )
     if structural_analysis.can_render_structurally then
         local block_layout = structural_analysis.block_layout
-        local structurally_rendered = block_doc.render_block(context.ast, block_layout)
+        local structurally_rendered = block_doc.render_block(
+            ctx, context.ast, block_layout
+        )
         if structurally_rendered ~= nil then
             local rendered_source = table.concat(structurally_rendered, "\n") .. "\n"
             return rendered_source
@@ -77,8 +82,10 @@ local function run_structural_phase(
     return source_
 end
 
-local function run_require_sort_phase(source_: string, filename: string): Rewrite
-    local output, parse_errors = require_sort.rewrite(source_, filename)
+local function run_require_sort_phase(
+    ctx: RenderContext, source_: string, filename: string
+): Rewrite
+    local output, parse_errors = require_sort.rewrite(ctx, source_, filename)
     return Rewrite.new(output, output ~= source_, parse_errors)
 end
 
@@ -88,8 +95,9 @@ function rewriter.rewrite(source_: string, filename: string): Rewrite
         return Rewrite.new(source_, false, parse_errors)
     end
 
-    local intermediate = run_structural_phase(source_, filename, ast)
-    local reorder_rewrite = run_require_sort_phase(intermediate, filename)
+    local ctx = block_doc.make_context()
+    local intermediate = run_structural_phase(source_, filename, ast, ctx)
+    local reorder_rewrite = run_require_sort_phase(ctx, intermediate, filename)
     if #reorder_rewrite.parse_errors > 0 then
         return Rewrite.new(
             intermediate, intermediate ~= source_, reorder_rewrite.parse_errors

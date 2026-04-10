@@ -2,29 +2,18 @@
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
+local render_context = require("formatter.render_context")
+
+local type RenderContext = render_context.RenderContext
 
 local call_doc = {}
 
-local type Renderer = function(parser.Node): doc.Doc
-
-local function build_call_arg_item_docs(
-    args: parser.Node, render_arg: Renderer
-): {doc.Doc}
-    local result: {doc.Doc} = {}
-    for _, arg_node in ipairs(args) do
-        table.insert(result, render_arg(arg_node))
-    end
-    return result
-end
-
-function call_doc.build_call_expr_doc(node: parser.Node, render_arg: Renderer): doc.Doc
-    local callee_doc = render_arg(node.e1)
-    local item_docs = build_call_arg_item_docs(node.e2, render_arg)
-    local opts = render_builders.DelimitedSequenceOptions.new("(", ")", 4)
+function call_doc.build_call_expr_doc(ctx: RenderContext, node: parser.Node): doc.Doc
+    local callee_doc = ctx.render_expr(node.e1)
     local line_items = render_builders.CommentLineItems.new()
     for _, arg_node in ipairs(node.e2) do
         line_items:add(
-            render_arg(arg_node),
+            ctx.render_expr(arg_node),
             render_builders.node_effective_end_line(arg_node),
             arg_node.comments or {},
             false
@@ -32,6 +21,12 @@ function call_doc.build_call_expr_doc(node: parser.Node, render_arg: Renderer): 
     end
     local has_inline_comments = line_items.has_comments
     local has_trailing_comment = node.e2.trailing_comment ~= nil
+
+    local item_docs: {doc.Doc} = {}
+    for _, arg_node in ipairs(node.e2) do
+        table.insert(item_docs, ctx.render_expr(arg_node))
+    end
+    local opts = render_builders.DelimitedSequenceOptions.new("(", ")", 4)
 
     local call_args_doc: doc.Doc
     if has_inline_comments then

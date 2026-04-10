@@ -2,15 +2,16 @@
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
+local render_context = require("formatter.render_context")
 local type_doc = require("formatter.type_doc")
+
+local type RenderContext = render_context.RenderContext
 
 local table_doc = {}
 
-local function build_table_item_text(
-    item: parser.Node, render_expr: function(parser.Node): doc.Doc
-): doc.Doc
+local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc.Doc
     if item.key_parsed == "implicit" then
-        return render_expr(item.value)
+        return ctx.render_expr(item.value)
     elseif item.key_parsed == "short" then
         local key_text = item.key.conststr or item.key.tk
         if item.itemtype ~= nil then
@@ -19,19 +20,19 @@ local function build_table_item_text(
                     doc.text(key_text .. ": "),
                     type_doc.render(item.itemtype),
                     doc.text(" = "),
-                    render_expr(item.value),
+                    ctx.render_expr(item.value),
                 }
             )
         end
-        return doc.concat({doc.text(key_text .. " = "), render_expr(item.value)})
+        return doc.concat({doc.text(key_text .. " = "), ctx.render_expr(item.value)})
     end
 
     return doc.concat(
         {
             doc.text("["),
-            render_expr(item.key),
+            ctx.render_expr(item.key),
             doc.text("] = "),
-            render_expr(item.value),
+            ctx.render_expr(item.value),
         }
     )
 end
@@ -78,14 +79,12 @@ local function build_delimited_sequence_doc(
     end
 end
 
-function table_doc.build_table_doc(
-    node: parser.Node, render_expr: function(parser.Node): doc.Doc
-): doc.Doc
+function table_doc.build_table_doc(ctx: RenderContext, node: parser.Node): doc.Doc
     local line_items = render_builders.CommentLineItems.new()
     line_items:add_end_comments(node.end_comments or {})
     for _, item in ipairs(node) do
         line_items:add(
-            build_table_item_text(item, render_expr),
+            build_table_item_text(ctx, item),
             render_builders.node_effective_end_line(item),
             item.comments or {},
             false

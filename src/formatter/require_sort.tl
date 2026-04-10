@@ -2,9 +2,11 @@
 -- Only sorts contiguous groups; stops at the first non-require statement.
 local ast_traversal = require("formatter.ast_traversal")
 local doc = require("formatter.doc")
-local expr_doc = require("formatter.expr_doc")
 local parser = require("formatter.parser")
+local render_context = require("formatter.render_context")
 local source = require("formatter.source")
+
+local type RenderContext = render_context.RenderContext
 
 local require_sort = {}
 
@@ -42,7 +44,9 @@ function RequireBlock.new(
     return self
 end
 
-local function render_require_decl(decl: RequireDecl, indent: string): doc.Doc
+local function render_require_decl(
+    ctx: RenderContext, decl: RequireDecl, indent: string
+): doc.Doc
     local node = decl.node
     if node.kind == "local_declaration"
         and node.vars ~= nil
@@ -57,11 +61,11 @@ local function render_require_decl(decl: RequireDecl, indent: string): doc.Doc
             text = text .. node.decltuple.source_text
         end
         return doc.concat(
-            {doc.text(indent .. text .. " = "), expr_doc.render_expr(node.exps[1])}
+            {doc.text(indent .. text .. " = "), ctx.render_expr(node.exps[1])}
         )
     elseif node.kind == "local_type" and node.var ~= nil and node.value ~= nil then
         local lhs = doc.text(indent .. "local type " .. node.var.tk .. " = ")
-        return doc.concat({lhs, expr_doc.render_expr(node.value)})
+        return doc.concat({lhs, ctx.render_expr(node.value)})
     end
 
     error("unsupported require declaration kind: " .. node.kind)
@@ -163,7 +167,7 @@ local function collect_require_blocks(
 end
 
 local function sort_require_blocks(
-    lines: {string}, require_blocks: {RequireBlock}
+    ctx: RenderContext, lines: {string}, require_blocks: {RequireBlock}
 ): {string}
     local result: {string} = {}
     local next_line = 1
@@ -188,7 +192,7 @@ local function sort_require_blocks(
             table.insert(
                 result,
                 table.concat(
-                    render_require_decl(decl, indent):render(88, 0, 0, true), "\n"
+                    render_require_decl(ctx, decl, indent):render(88, 0, 0, true), "\n"
                 )
             )
         end
@@ -203,7 +207,9 @@ local function sort_require_blocks(
     return result
 end
 
-function require_sort.rewrite(source_: string, filename: string): string, {parser.Error}
+function require_sort.rewrite(
+    ctx: RenderContext, source_: string, filename: string
+): string, {parser.Error}
     local ast, parse_errors = parser.parse(source_, filename)
     if #parse_errors > 0 then
         return source_, parse_errors
@@ -214,7 +220,7 @@ function require_sort.rewrite(source_: string, filename: string): string, {parse
     local source_blocks = ast_traversal.collect_block_ranges(ast)
     local fmt_off_regions = source.collect_fmt_off_regions(source_text, source_blocks)
     local require_blocks = collect_require_blocks(ast, lines, fmt_off_regions)
-    local output_lines = sort_require_blocks(lines, require_blocks)
+    local output_lines = sort_require_blocks(ctx, lines, require_blocks)
 
     return table.concat(output_lines, "\n"), {}
 end

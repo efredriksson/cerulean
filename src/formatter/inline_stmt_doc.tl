@@ -1,14 +1,15 @@
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
+local render_context = require("formatter.render_context")
 local type_doc = require("formatter.type_doc")
+
+local type RenderContext = render_context.RenderContext
 
 local inline_stmt_doc = {}
 
-local type RenderExpr = function(parser.Node): doc.Doc
-
 function inline_stmt_doc.render_return_doc(
-    stmt: parser.Node, render_expr: RenderExpr
+    ctx: RenderContext, stmt: parser.Node
 ): doc.Doc
     if stmt.exps == nil or #stmt.exps == 0 then
         return doc.text("return")
@@ -17,19 +18,25 @@ function inline_stmt_doc.render_return_doc(
     return doc.concat(
         {
             doc.text("return "),
-            render_builders.build_mapped_comma_separated_docs(stmt.exps, render_expr),
+            render_builders.build_mapped_comma_separated_docs(
+                stmt.exps, ctx.render_expr
+            ),
         }
     )
 end
 
 function inline_stmt_doc.render_assignment_doc(
-    stmt: parser.Node, render_expr: RenderExpr
+    ctx: RenderContext, stmt: parser.Node
 ): doc.Doc
     return doc.concat(
         {
-            render_builders.build_mapped_comma_separated_docs(stmt.vars, render_expr),
+            render_builders.build_mapped_comma_separated_docs(
+                stmt.vars, ctx.render_expr
+            ),
             doc.text(" = "),
-            render_builders.build_mapped_comma_separated_docs(stmt.exps, render_expr),
+            render_builders.build_mapped_comma_separated_docs(
+                stmt.exps, ctx.render_expr
+            ),
         }
     )
 end
@@ -43,7 +50,7 @@ local function build_prefix_doc(vars_text: string, stmt: parser.Node): doc.Doc
 end
 
 function inline_stmt_doc.render_local_declaration_doc(
-    stmt: parser.Node, render_expr: RenderExpr
+    ctx: RenderContext, stmt: parser.Node
 ): doc.Doc
     local vars: {string} = {}
 
@@ -62,14 +69,16 @@ function inline_stmt_doc.render_local_declaration_doc(
     end
 
     if #stmt.exps == 1 then
-        return doc.concat({prefix_doc, doc.text(" = "), render_expr(stmt.exps[1])})
+        return doc.concat({prefix_doc, doc.text(" = "), ctx.render_expr(stmt.exps[1])})
     end
 
     return doc.concat(
         {
             prefix_doc,
             doc.text(" = "),
-            render_builders.build_mapped_comma_separated_docs(stmt.exps, render_expr),
+            render_builders.build_mapped_comma_separated_docs(
+                stmt.exps, ctx.render_expr
+            ),
         }
     )
 end
