@@ -1,49 +1,439 @@
 -- Adapted from tl.tl (the teal-lang project), version 0.24.8.
 -- This is a typed copy of the tl parser. It will be simplified over time.
 
-local parser_types = require("formatter.parser_types")
 local tl = require("tl")
 
 local type Error = tl.Error
 local type Token = tl.Token
 
 local record parser
-    type NodeKind = parser_types.NodeKind
-    type Where = parser_types.Where
-    type Type = parser_types.Type
-    type TypeArgType = parser_types.TypeArgType
-    type NominalType = parser_types.NominalType
-    type GenericType = parser_types.GenericType
-    type FunctionType = parser_types.FunctionType
-    type ArrayType = parser_types.ArrayType
-    type RecordType = parser_types.RecordType
-    type InterfaceType = parser_types.InterfaceType
-    type RecordLikeType = parser_types.RecordLikeType
-    type EnumType = parser_types.EnumType
-    type Attribute = parser_types.Attribute
-    type TypeDeclType = parser_types.TypeDeclType
-    type TupleType = parser_types.TupleType
-    type UnionType = parser_types.UnionType
-    type MapType = parser_types.MapType
-    type TypeVarType = parser_types.TypeVarType
-    type Comment = parser_types.Comment
-    type Operator = parser_types.Operator
-    simple_types: {parser_types.TypeName: boolean}
+   enum TypeName
+      "generic"
+      "typedecl"
+      "typevar"
+      "typearg"
+      "function"
+      "array"
+      "map"
+      "tupletable"
+      "record"
+      "interface"
+      "self"
+      "enum"
+      "boolean"
+      "string"
+      "nil"
+      "thread"
+      "number"
+      "integer"
+      "union"
+      "nominal"
+      "emptytable"
+      "literal_table_item"
+      "unresolved_emptytable_value"
+      "unresolved_typearg"
+      "unresolvable_typearg"
+      "circular_require"
+      "tuple"
+      "poly"
+      "any"
+      "unknown"
+      "invalid"
+      "none"
+      "*"
+   end
+
+   record Operator
+      y: integer
+      x: integer
+      arity: integer
+      op: string
+      prec: integer
+   end
+
+   interface Where
+      f: string
+      y: integer
+      x: integer
+   end
+
+   interface Type is Where where self.typename
+      typename: TypeName    -- discriminator
+      typeid: integer       -- unique identifier
+      inferred_at: Where    -- for error messages
+      needs_compat: boolean -- for Lua compatibilty
+      source_text: string
+      paren: boolean
+   end
+
+   record GenericType is Type where self.typename == "generic"
+
+      typeargs: {TypeArgType}
+      t: FirstOrderType
+      fresh: boolean
+   end
+
+   interface FirstOrderType is Type
+   end
+
+   type FirstClassType = GenericType | FirstOrderType
+
+   interface StructuralType
+      is FirstOrderType
+   end
+
+   record StringType is StructuralType where self.typename == "string"
+      literal: string
+   end
+
+   -- interface NumericType is StructuralType where is_numeric_type(self)
+   -- end
+
+   -- record IntegerType is NumericType where self.typename == "integer"
+   -- end
+
+   record BooleanType
+      is StructuralType
+      where self.typename == "boolean"
+   end
+
+   record TypeDeclType
+      is Type
+      where self.typename == "typedecl"
+
+      def: FirstClassType
+      closed: boolean
+      is_alias: boolean
+      is_nested_alias: boolean
+   end
+
+   record LiteralTableItemType
+      is Type
+      where self.typename == "literal_table_item"
+
+      -- table items
+      kname: string
+      ktype: FirstClassType
+      vtype: FirstClassType
+   end
+
+   interface HasDeclName
+      declname: string
+   end
+
+   record NominalType
+      is FirstOrderType
+      where self.typename == "nominal"
+
+      names: {string}
+      typevals: {FirstClassType}
+      found: TypeDeclType      -- type is found but typeargs are not resolved
+      resolved: Type       -- type is found and typeargs are resolved
+   end
+
+   record SelfType
+      is FirstOrderType
+      where self.typename == "self"
+
+      -- to be used only in error reports, not for type resolution
+      display_type: RecordLikeType
+   end
+
+   interface ArrayLikeType
+      is StructuralType
+      where self.elements
+
+      elements: Type
+      consttypes: {Type}
+      inferred_len: integer
+   end
+
+   record ArrayType
+      is ArrayLikeType
+      where self.typename == "array"
+   end
+
+   record Comment
+        is tl.LexerComment
+        blank_line_before: boolean
+    end
+
+   interface RecordLikeType
+      is StructuralType, HasDeclName, ArrayLikeType
+      where self.fields
+
+      interface_list: {ArrayType | NominalType}
+      interfaces_expanded: boolean
+      fields: {string: Type}
+      nodes: {string: Node}
+      field_order: {string}
+      field_comments: {string: {{Comment}}}
+      meta_fields: {string: Type}
+      meta_field_order: {string}
+      meta_field_comments: {string: {{Comment}}}
+      is_userdata: boolean
+   end
+
+   record RecordType
+      is RecordLikeType
+      where self.typename == "record"
+   end
+
+   record InterfaceType
+      is RecordLikeType
+      where self.typename == "interface"
+   end
+
+   -- producing a new value of this type (not propagating)
+   -- must always produce a type error
+   record InvalidType
+      is Type
+      where self.typename == "invalid"
+   end
+
+   -- To be used in lax mode only:
+   -- this represents non-annotated types in .lua files.
+   record UnknownType
+      is Type
+      where self.typename == "unknown"
+   end
+
+   record TupleType
+      is FirstOrderType
+      where self.typename == "tuple"
+
+      is_va: boolean
+      argnames: {string}
+      tuple: {Type}
+   end
+
+   interface TypeArgType
+      is Type
+      where self.typename == "typearg"
+
+      typearg: string
+      constraint: Type
+   end
+
+   record UnresolvedTypeArgType
+      is TypeArgType
+      where self.typename == "unresolved_typearg"
+   end
+
+   record UnresolvableTypeArgType
+      is Type
+      where self.typename == "unresolvable_typearg"
+
+      typearg: string
+   end
+
+   record TypeVarType
+      is FirstOrderType
+      where self.typename == "typevar"
+
+      typevar: string
+      constraint: Type
+   end
+
+   record MapType
+      is StructuralType
+      where self.typename == "map"
+
+      keys: Type
+      values: Type
+   end
+
+   record NilType
+      is StructuralType
+      where self.typename == "nil"
+   end
+
+   record EmptyTableType
+      is Type
+      where self.typename == "emptytable"
+
+      declared_at: Node
+      assigned_to: string
+      keys: Type
+   end
+
+   record UnresolvedEmptyTableValueType
+      is Type
+      where self.typename == "unresolved_emptytable_value"
+
+      emptytable_type: EmptyTableType
+   end
+
+   record FunctionType
+      is StructuralType
+      where self.typename == "function"
+
+      is_method: boolean
+      maybe_method: boolean
+      is_record_function: boolean
+      min_arity: integer
+      args: TupleType
+      rets: TupleType
+      macroexp: Node
+   end
+
+   interface AggregateType
+      is StructuralType
+      where self.types
+
+      types: {Type}
+   end
+
+   record UnionType
+      is AggregateType
+      where self.typename == "union"
+   end
+
+   record TupleTableType
+      is AggregateType
+      where self.typename == "tupletable"
+   end
+
+   -- Intersection types, currently restricted to polymorphic functions
+   -- defined inside records, representing polymorphic Lua APIs.
+   record PolyType
+      is AggregateType
+      where self.typename == "poly"
+
+      types: {FunctionType | GenericType}
+   end
+
+   record EnumType
+      is StructuralType, HasDeclName
+      where self.typename == "enum"
+
+      enumset: {string}
+      value_comments: {string: {Comment}}
+      end_comments: {Comment}
+   end
+
+   enum Attribute
+      "const"
+      "close"
+      "total"
+   end
+
+   enum Narrow
+      "narrow"
+      "narrowed_declaration"
+      "localizing"
+   end
+
+   record Variable
+      t: Type
+      attribute: Attribute
+      needs_compat: boolean
+      narrowed_from: Type
+      is_narrowed: Narrow
+      declared_at: Node
+      is_func_arg: boolean
+      used_as_type: boolean
+      aliasing: Variable
+      implemented: {string:boolean}
+      has_been_read_from: boolean
+      has_been_written_to: boolean
+   end
+
+   record Errors
+      filename: string
+      errors: {tl.Error}
+      warnings: {tl.Error}
+      unknown_dots: {string:boolean}
+   end
+
+   type errors = Errors
+
+   typecodes: {string:integer}
+
+   record TypeInfo
+      t: integer
+
+      str: string
+      file: string
+      x: integer
+      y: integer
+      ref: integer -- NOMINAL
+      fields: {string: integer} -- RECORD
+      enums: {string} -- ENUM
+      args: {{integer, string}} -- FUNCTION
+      rets: {{integer, string}} -- FUNCTION
+      vararg: boolean -- FUNCTION
+      varret: boolean -- FUNCTION
+      types: {integer} -- UNION, POLY, TUPLE
+      keys: integer -- MAP
+      values: integer -- MAP
+      elements: integer -- ARRAY
+   end
+
+   enum NodeKind
+      "op"
+      "nil"
+      "string"
+      "number"
+      "integer"
+      "boolean"
+      "literal_table"
+      "literal_table_item"
+      "function"
+      "expression_list"
+      "if"
+      "if_block"
+      "while"
+      "fornum"
+      "forin"
+      "goto"
+      "label"
+      "repeat"
+      "do"
+      "break"
+      "return"
+      "newtype"
+      "argument"
+      "type_identifier"
+      "variable"
+      "variable_list"
+      "statements"
+      "assignment"
+      "argument_list"
+      "local_function"
+      "global_function"
+      "local_type"
+      "global_type"
+      "record_function"
+      "local_declaration"
+      "global_declaration"
+      "identifier"
+      "cast"
+      "..."
+      "paren"
+      "macroexp"
+      "local_macroexp"
+      "interface"
+      "pragma"
+      "error_node"
+   end
+
+    simple_types: {TypeName: boolean}
     type Error = tl.Error
     type Token = tl.Token
 
     record Node
-        is {Node}, parser_types.Where
+        is {Node}, Where
         where self.kind ~= nil
 
         record ExpectedContext
-            kind: parser_types.NodeKind
+            kind: NodeKind
             name: string
         end
 
         -- fmt: off
         tk:                             string
-        kind:                           parser_types.NodeKind
+        kind:                           NodeKind
         comments:                       {Comment}
         symbol_list_slot:               integer
         semicolon:                      boolean
@@ -53,21 +443,21 @@ local record parser
         yend:                           integer
         xend:                           integer
         known:                          Fact
-        expected:                       parser_types.Type
+        expected:                       Type
         expected_context:               Node.ExpectedContext
         key:                            Node
         value:                          Node
         key_parsed:                     KeyParsed
-        typeargs:                       {parser_types.TypeArgType}
+        typeargs:                       {TypeArgType}
         min_arity:                      integer
         args:                           Node
-        rets:                           parser_types.TupleType
+        rets:                           TupleType
         body:                           Node
         implicit_global_function:       boolean
         is_predeclared_local_function:  boolean
         name:                           Node
         is_repeat:                      boolean
-        attribute:                      parser_types.Attribute
+        attribute:                      Attribute
         fn_owner:                       Node
         is_method:                      boolean
         exp:                            Node
@@ -82,7 +472,7 @@ local record parser
         step:                           Node
         vars:                           Node
         exps:                           Node
-        newtype:                        parser_types.TypeDeclType
+        newtype:                        TypeDeclType
         elide_type:                     boolean
         op:                             Operator
         e1:                             Node
@@ -91,26 +481,26 @@ local record parser
         conststr:                       string
         failstore:                      boolean
         discarded_tuple:                boolean
-        receiver:                       parser_types.Type
+        receiver:                       Type
         array_len:                      integer
         is_total:                       boolean
         missing:                        {string}
         label:                          string
         used_label:                     boolean
-        casttype:                       parser_types.Type
+        casttype:                       Type
         is_lvalue:                      boolean
         macrodef:                       Node
         expanded:                       Node
-        argtype:                        parser_types.Type
-        itemtype:                       parser_types.Type
-        decltuple:                      parser_types.TupleType
+        argtype:                        Type
+        itemtype:                       Type
+        decltuple:                      TupleType
         pkey:                           string
         pvalue:                         string
         opt:                            boolean
         trailing_comma:                 boolean
         end_comments:                   {Comment}
         trailing_comment:               Comment
-        debug_type:                     parser_types.Type
+        debug_type:                     Type
         is_self:                        boolean
         is_type_declaration:            boolean
         f:                              string
@@ -137,35 +527,32 @@ end
 -- 'parser.' prefix.
 local type Node = parser.Node
 
-local type NodeKind = parser_types.NodeKind
-local type Where = parser_types.Where
-local type TypeName = parser_types.TypeName
-local type Type = parser_types.Type
-local type GenericType = parser_types.GenericType
-local type TypeDeclType = parser_types.TypeDeclType
-local type TupleType = parser_types.TupleType
-local type TypeArgType = parser_types.TypeArgType
-local type NominalType = parser_types.NominalType
-local type FunctionType = parser_types.FunctionType
-local type Attribute = parser_types.Attribute
+local type NodeKind = parser.NodeKind
+local type Where = parser.Where
+local type TypeName = parser.TypeName
+local type Type = parser.Type
+local type GenericType = parser.GenericType
+local type TypeDeclType = parser.TypeDeclType
+local type TupleType = parser.TupleType
+local type TypeArgType = parser.TypeArgType
+local type NominalType = parser.NominalType
+local type FunctionType = parser.FunctionType
+local type Attribute = parser.Attribute
 
 -- parser_types-internal structural types exposed through the public declaration file
-local type FirstOrderType = parser_types.FirstOrderType
-local type FirstClassType = parser_types.FirstClassType
-local type StructuralType = parser_types.StructuralType
-local type ArrayType = parser_types.ArrayType
-local type RecordLikeType = parser_types.RecordLikeType
-local type NilType = parser_types.NilType
-local type UnionType = parser_types.UnionType
-local type TupleTableType = parser_types.TupleTableType
-local type MapType = parser_types.MapType
-local type PolyType = parser_types.PolyType
-local type EnumType = parser_types.EnumType
-local type SelfType = parser_types.SelfType
+local type FirstOrderType = parser.FirstOrderType
+local type FirstClassType = parser.FirstClassType
+local type StructuralType = parser.StructuralType
+local type ArrayType = parser.ArrayType
+local type RecordLikeType = parser.RecordLikeType
+local type NilType = parser.NilType
+local type UnionType = parser.UnionType
+local type TupleTableType = parser.TupleTableType
+local type MapType = parser.MapType
+local type PolyType = parser.PolyType
+local type EnumType = parser.EnumType
+local type SelfType = parser.SelfType
 local type TokenKind = tl.TokenKind
-
--- ── Internal types from parser_types.tl ─────────────────────────────────────
-
 local type Comment = parser.Comment
 local type Operator = parser.Operator
 
@@ -2033,16 +2420,18 @@ local function store_field_in_record(
     field_name: string,
     newt: Type,
     def: RecordLikeType,
+    node: parser.Node,
     comments?: {Comment},
     meta?: string
 ): boolean
    local field_order: {string}
    local fields: {string:Type}
+   local nodes: {string: parser.Node}
    local field_comments: {string:{{Comment}}}
    if meta then
-      field_order, fields, field_comments = def.meta_field_order, def.meta_fields, def.meta_field_comments
+      field_order, fields, nodes, field_comments = def.meta_field_order, def.meta_fields, def.nodes, def.meta_field_comments
    else
-      field_order, fields, field_comments = def.field_order, def.fields, def.field_comments
+      field_order, fields, nodes, field_comments = def.field_order, def.fields, def.nodes, def.field_comments
    end
 
    if comments and not field_comments then
@@ -2053,6 +2442,8 @@ local function store_field_in_record(
          def.field_comments = field_comments
       end
    end
+
+   nodes[field_name] = node
 
    if not fields[field_name] then
       fields[field_name] = newt
@@ -2109,9 +2500,9 @@ local function set_declname(def: Type, declname: string)
       def = def.t
    end
 
-   if def is parser_types.RecordType or def is parser_types.InterfaceType or def is EnumType then
-      if not (def as parser_types.HasDeclName).declname then
-         (def as parser_types.HasDeclName).declname = declname
+   if def is parser.RecordType or def is parser.InterfaceType or def is EnumType then
+      if not (def as parser.HasDeclName).declname then
+         (def as parser.HasDeclName).declname = declname
       end
    end
 end
@@ -2221,6 +2612,7 @@ local function parse_nested_type(
        v.tk,
        nt.newtype,
        def,
+       nt,
        get_attached_comments(ps.tokens[istart])
    )
    return i
@@ -2387,6 +2779,7 @@ parse_record_body = function(
     def: RecordLikeType
 ): integer, boolean
    def.fields = {}
+   def.nodes = {}
    def.field_order = {}
 
    if ps.tokens[i].tk == "{" then
@@ -2434,11 +2827,11 @@ parse_record_body = function(
          a_type(where_macroexp as Where, "self", { display_type = def } as SelfType),
       })
       typ.rets = new_tuple(ps, wstart, { new_type(ps, wstart, "boolean") })
-      typ.macroexp = where_macroexp as parser_types.Node
+      typ.macroexp = where_macroexp as parser.Node
 
       def.meta_fields = {}
       def.meta_field_order = {}
-      store_field_in_record(ps, i, "__is", typ, def, nil, "meta")
+      store_field_in_record(ps, i, "__is", typ, def, nil, nil, "meta")
    end
 
    while not (ps.tokens[i].kind == "$EOF$" or ps.tokens[i].tk == "end") do
@@ -2482,7 +2875,7 @@ parse_record_body = function(
             ntt.is_nested_alias = true
          end
 
-         store_field_in_record(ps, iv, v.tk, nt.newtype, def, comments)
+         store_field_in_record(ps, iv, v.tk, nt.newtype, def, nt, comments)
       elseif parse_type_body_fns[tn] and ps.tokens[i + 1].tk ~= ":" then
          if def.typename == "interface" and tn == "record" then
             i = failskip(
@@ -2545,7 +2938,7 @@ parse_record_body = function(
                if tt is FunctionType then
                   local macroexp_node: Node
                   i, macroexp_node = parse_macroexp(ps, i + 1, i + 2)
-                  tt.macroexp = macroexp_node as parser_types.Node
+                  tt.macroexp = macroexp_node as parser.Node
                else
                   fail(ps, i + 1, "macroexp must have a function type")
                end
@@ -2557,6 +2950,7 @@ parse_record_body = function(
                 field_name,
                 t,
                 def,
+                nil,
                 comments,
                 is_metamethod and "meta" or nil
             )

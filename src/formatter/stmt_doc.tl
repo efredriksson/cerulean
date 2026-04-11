@@ -90,9 +90,13 @@ local function render_local_declaration_doc(
     return inline_stmt_doc.render_local_declaration_doc(ctx, stmt)
 end
 
-local function render_enum_doc(stmt: parser.Node, def: parser.EnumType): doc.Doc
+local function render_enum_doc(
+    stmt: parser.Node, def: parser.EnumType, nested?: boolean
+): doc.Doc
     local header: doc.Doc
-    if stmt.is_type_declaration then
+    if nested then
+        header = doc.text("enum " .. def.declname)
+    elseif stmt.is_type_declaration then
         header = doc.text("local type " .. def.declname .. " = enum")
     else
         header = doc.text("local enum " .. def.declname)
@@ -126,113 +130,96 @@ local function render_enum_doc(stmt: parser.Node, def: parser.EnumType): doc.Doc
     )
 end
 
-local function render_local_record_doc(
-    ctx: RenderContext, stmt: parser.Node
-): doc.Doc | nil
-    if stmt.var == nil or stmt.value == nil then
-        return nil
-    end
-    local newtype = stmt.value.newtype
-    if newtype == nil then
-        return nil
-    end
-    local def = newtype.def
-    local declaration_keyword: string
-    local record_def: parser.RecordLikeType
-    local is_type_declaration = stmt.is_type_declaration
-    local typeargs_str = doc.text("")
+local render_nested_typedecl_doc: function (RenderContext, parser.Node): doc.Doc | nil
 
+local record ResolvedRecordLikeDef
+    keyword: string
+    record_def: parser.RecordLikeType
+    typeargs_str: doc.Doc
+    new: function(string, parser.RecordLikeType, doc.Doc): ResolvedRecordLikeDef
+end
+
+function ResolvedRecordLikeDef.new(
+    keyword: string, record_def: parser.RecordLikeType, typeargs_str: doc.Doc
+): ResolvedRecordLikeDef
+    local self = setmetatable(
+        {}, {__index = ResolvedRecordLikeDef}
+    ) as ResolvedRecordLikeDef
+    self.keyword = keyword
+    self.record_def = record_def
+    self.typeargs_str = typeargs_str
+    return self
+end
+
+local function resolve_record_like_def(
+    def: parser.FirstClassType
+): ResolvedRecordLikeDef | nil
+    local typeargs_str = doc.text("")
     if def is parser.GenericType then
-        local generic_def = def
-        typeargs_str = render_typearg_list(generic_def.typeargs or {})
-        def = generic_def.t
+        typeargs_str = render_typearg_list(def.typeargs or {})
+        def = def.t
         if def == nil then
             return nil
         end
     end
     if def is parser.InterfaceType then
-        declaration_keyword = "interface"
-        record_def = def
+        return ResolvedRecordLikeDef.new("interface", def, typeargs_str)
     elseif def is parser.RecordType then
-        declaration_keyword = "record"
-        record_def = def
-    elseif def is parser.EnumType then
-        return render_enum_doc(stmt, def)
-    else
-        return nil
+        return ResolvedRecordLikeDef.new("record", def, typeargs_str)
     end
+    return nil
+end
 
-    local header_parts: {doc.Doc} = {}
-    if is_type_declaration then
-        local t = doc.concat(
-            {
-                doc.text("local type " .. stmt.var.tk),
-                typeargs_str,
-                doc.text(" = " .. declaration_keyword),
-            }
-        )
-        table.insert(header_parts, t)
-    else
-        local t = doc.concat(
-            {
-                doc.text("local " .. declaration_keyword .. " " .. stmt.var.tk),
-                typeargs_str,
-            }
-        )
-        table.insert(header_parts, t)
+local function render_interface_list_parts(record_def: parser.RecordLikeType): {doc.Doc}
+    local parts: {doc.Doc} = {}
+    if record_def.interface_list == nil or #record_def.interface_list == 0 then
+        return parts
     end
-
-    if record_def.interface_list ~= nil and #record_def.interface_list > 0 then
-        table.insert(header_parts, doc.text(" is "))
-        for index, iface in ipairs(record_def.interface_list) do
-            local iface_doc = type_doc.render(iface)
-            table.insert(header_parts, iface_doc)
-            if index < #record_def.interface_list then
-                table.insert(header_parts, doc.text(", "))
-            end
+    table.insert(parts, doc.text(" is "))
+    for index, iface in ipairs(record_def.interface_list) do
+        table.insert(parts, type_doc.render(iface))
+        if index < #record_def.interface_list then
+            table.insert(parts, doc.text(", "))
         end
     end
-    if declaration_keyword == "interface"
-        and record_def.meta_fields ~= nil
-        and record_def.meta_fields["__is"] ~= nil then
-        local where_function = record_def.meta_fields["__is"]
-        if not (where_function is parser.FunctionType)
-            or where_function.macroexp == nil then
-            return nil
-        end
-        local where_macroexp = where_function.macroexp as parser.Node
-        if where_macroexp.exp == nil then
-            return nil
-        end
-        table.insert(header_parts, doc.text(" where "))
-        table.insert(header_parts, ctx.render_expr(where_macroexp.exp))
-    end
+    return parts
+end
 
+local function render_record_like_body_doc(
+    ctx: RenderContext,
+    node: parser.Node,
+    header_parts: {doc.Doc},
+    record_def: parser.RecordLikeType
+): doc.Doc | nil
     local record_items = render_builders.CommentLineItems.new()
     for _, field_name in ipairs(record_def.field_order) do
         local field_type = record_def.fields[field_name]
         if field_type == nil or field_type.source_text == nil then
-            return nil
-        end
-
-        local field_comments = ((record_def.field_comments or {})[field_name]
-            or {}) as {{parser.Comment}}
-        local parser_comments: {parser.Comment} = {}
-        for _, overload_comments in ipairs(field_comments) do
-            for _, comment in ipairs(overload_comments) do
-                table.insert(parser_comments, comment)
+            local nested_node = record_def.nodes[field_name]
+            if nested_node == nil or nested_node.newtype == nil then
+                return nil
             end
+            record_items:add(
+                render_nested_typedecl_doc(ctx, nested_node), nested_node.y, {}, false
+            )
+        else
+            local field_comments = ((record_def.field_comments or {})[field_name]
+                or {}) as {{parser.Comment}}
+            local parser_comments: {parser.Comment} = {}
+            for _, overload_comments in ipairs(field_comments) do
+                for _, comment in ipairs(overload_comments) do
+                    table.insert(parser_comments, comment)
+                end
+            end
+            record_items:add(
+                doc.text(field_name .. ": " .. field_type.source_text),
+                render_builders.node_end_line(field_type as parser.Node),
+                parser_comments,
+                false
+            )
         end
-
-        local field_text = field_name .. ": " .. field_type.source_text
-        record_items:add(
-            doc.text(field_text),
-            render_builders.node_end_line(field_type as parser.Node),
-            parser_comments,
-            false
-        )
     end
-    record_items:add_end_comments(stmt.end_comments or {})
+    record_items:add_end_comments(node.end_comments or {})
     return doc.concat(
         {
             doc.concat(header_parts),
@@ -250,6 +237,94 @@ local function render_local_record_doc(
     )
 end
 
+local function render_resolved_record_doc(
+    ctx: RenderContext,
+    node: parser.Node,
+    header_parts: {doc.Doc},
+    resolved: ResolvedRecordLikeDef
+): doc.Doc | nil
+    for _, part in ipairs(render_interface_list_parts(resolved.record_def)) do
+        table.insert(header_parts, part)
+    end
+    if resolved.keyword == "interface"
+        and resolved.record_def.meta_fields ~= nil
+        and resolved.record_def.meta_fields["__is"] ~= nil then
+        local where_function = resolved.record_def.meta_fields["__is"]
+        if not (where_function is parser.FunctionType) then
+            return nil
+        end
+        if where_function.macroexp == nil then
+            return nil
+        end
+        local where_macroexp = where_function.macroexp as parser.Node
+        if where_macroexp.exp == nil then
+            return nil
+        end
+        table.insert(header_parts, doc.text(" where "))
+        table.insert(header_parts, ctx.render_expr(where_macroexp.exp))
+    end
+    return render_record_like_body_doc(ctx, node, header_parts, resolved.record_def)
+end
+
+local function render_local_record_doc(
+    ctx: RenderContext, stmt: parser.Node
+): doc.Doc | nil
+    if stmt.value == nil or stmt.value.newtype == nil then
+        return nil
+    end
+    local def = stmt.value.newtype.def
+    if def is parser.EnumType then
+        return render_enum_doc(stmt, def)
+    end
+    local resolved = resolve_record_like_def(def)
+    if not (resolved is ResolvedRecordLikeDef) then
+        return nil
+    end
+    local header_parts: {doc.Doc}
+    if stmt.is_type_declaration then
+        header_parts = {
+            doc.concat(
+                {
+                    doc.text("local type " .. stmt.var.tk),
+                    resolved.typeargs_str,
+                    doc.text(" = " .. resolved.keyword),
+                }
+            ),
+        }
+    else
+        header_parts = {
+            doc.concat(
+                {
+                    doc.text("local " .. resolved.keyword .. " " .. stmt.var.tk),
+                    resolved.typeargs_str,
+                }
+            ),
+        }
+    end
+    return render_resolved_record_doc(ctx, stmt, header_parts, resolved)
+end
+
+render_nested_typedecl_doc = function(
+    ctx: RenderContext, nested_node: parser.Node
+): doc.Doc | nil
+    if nested_node.newtype == nil then
+        return nil
+    end
+    local def = nested_node.newtype.def
+    if def is parser.EnumType then
+        return render_enum_doc(nested_node, def, true)
+    end
+    local resolved = resolve_record_like_def(def)
+    if not (resolved is ResolvedRecordLikeDef) then
+        return nil
+    end
+    local header_parts: {doc.Doc} = {
+        doc.text(resolved.keyword .. " " .. resolved.record_def.declname),
+        resolved.typeargs_str,
+    }
+    return render_resolved_record_doc(ctx, nested_node, header_parts, resolved)
+end
+
 local function render_local_type_doc(
     ctx: RenderContext, stmt: parser.Node
 ): doc.Doc | nil
@@ -264,11 +339,9 @@ local function render_local_type_doc(
             }
         )
     end
-
     if stmt.value.newtype == nil or stmt.value.newtype.def == nil then
         return nil
     end
-
     local def = stmt.value.newtype.def
     if def.typename == "record"
         or def.typename == "interface"
@@ -277,7 +350,6 @@ local function render_local_type_doc(
         or def.typename == "typedecl" then
         return render_local_record_doc(ctx, stmt)
     end
-
     return doc.concat(
         {doc.text("local type " .. stmt.var.tk .. " = "), type_doc.render(def)}
     )

@@ -1094,6 +1094,80 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("formats enum in local records", helpers.format([[
+         local record A
+            enum B
+               "1"
+               "2"
+            end
+         end
+      ]], [[
+         local record A
+             enum B
+                 "1"
+                 "2"
+             end
+         end
+      ]]))
+
+      it("formats interface in local records", helpers.format([[
+         local record A
+            interface B
+               data: C
+            end
+         end
+      ]], [[
+         local record A
+             interface B
+                 data: C
+             end
+         end
+      ]]))
+
+      it("formats record nested in local record", helpers.format([[
+         local record A
+            record B
+               x: integer
+            end
+         end
+      ]], [[
+         local record A
+             record B
+                 x: integer
+             end
+         end
+      ]]))
+
+      it("formats enum nested in local interface", helpers.format([[
+         local interface A
+            enum B
+               "x"
+               "y"
+            end
+         end
+      ]], [[
+         local interface A
+             enum B
+                 "x"
+                 "y"
+             end
+         end
+      ]]))
+
+      it("formats generic record nested in local record", helpers.format([[
+         local record A
+            record B<T>
+               value: T
+            end
+         end
+      ]], [[
+         local record A
+             record B<T>
+                 value: T
+             end
+         end
+      ]]))
+
       it("preserves constrained type parameters on local interfaces", helpers.format([[
          local interface Mapper<T is Base, U>
             map: function(self, value: T): U
@@ -1111,6 +1185,19 @@ describe("formatter structural block rendering", function()
       ]], [[
          local type Alias<T is Base> = interface
              value: T
+         end
+      ]]))
+      it("formats interface with where clause nested in local record", helpers.format([[
+         local record A
+            interface B where self.x == 1
+               x: integer
+            end
+         end
+      ]], [[
+         local record A
+             interface B where self.x == 1
+                 x: integer
+             end
          end
       ]]))
    end)
