@@ -176,7 +176,7 @@ describe("formatter integration", function()
          local x = {1,  2,  3}
       ]]))
 
-      it("does not crash on anonymous function expressions with unsupported statement kinds", helpers.check([[
+      it("formats anonymous function expressions with multi-statement bodies", helpers.check([[
          local value = function()
              if enabled then
                  return 1

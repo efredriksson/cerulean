@@ -60,6 +60,7 @@ local record RenderState
     max_width: integer
     broken_groups: {integer:boolean}
     line_suffixes: {RenderCommand}
+    marked_column: integer
 end
 
 local function new_doc(kind: string): Doc
@@ -98,7 +99,7 @@ function doc.softline(): Doc
     return result
 end
 
-function doc.break_text(broken_text: string, flat_text?: string): Doc
+function doc._break_text(broken_text: string, flat_text?: string): Doc
     local result = new_doc("break_text")
     result.broken_text = broken_text
     result.flat_text = flat_text or ""
@@ -111,7 +112,7 @@ function doc.hardline(): Doc
 end
 
 function doc.if_wrapped(text: string): Doc
-    return doc.break_text(text, "")
+    return doc._break_text(text, "")
 end
 
 local function build_if_break_doc(
@@ -151,6 +152,18 @@ function doc.concat(parts: {Doc}): Doc
     local result = new_doc("concat")
     result.parts = parts
     return result
+end
+
+function doc._trim_start(): Doc
+    return new_doc("trim_start")
+end
+
+function doc._trim_end(): Doc
+    return new_doc("trim_end")
+end
+
+function doc.trim_lines(child: Doc): Doc
+    return doc.concat({doc._trim_start(), child, doc._trim_end()})
 end
 
 function doc.indent(amount: integer, child: Doc): Doc
@@ -254,6 +267,10 @@ local function has_line_break_opportunity(node: Doc): boolean
         return false
     end
 
+    if node.kind == "trim_end" then
+        return true
+    end
+
     if node.kind == "indent" or node.kind == "group" or node.kind == "line_suffix" then
         if node.child == nil then
             return false
@@ -333,6 +350,8 @@ local function fits(
             else
                 return true
             end
+        elseif node.kind == "trim_end" and not flat then
+            return true
         elseif node.kind == "if_break" then
             local take_break_branch = should_take_break_branch(
                 node.target_group_id, current_group_id, flat, broken_groups
@@ -354,7 +373,11 @@ local function fits(
                 return true
             end
         elseif node.kind == "close" then
-            return true
+            if flat then
+                remaining_width = remaining_width - #(node.close_text or "")
+            else
+                return true
+            end
         elseif node.kind == "concat" then
             push_concat_parts(
                 commands, node.parts or {}, command.indent, flat, current_group_id
@@ -410,19 +433,23 @@ local function render_doc(
         elseif node.kind == "raw" then
             write_raw_lines(state, node.raw_lines or {})
         elseif node.kind == "close" then
-            local indent_text = string.rep(" ", indent)
-            if state.current_line:match("^%s*$") ~= nil then
-                state.current_line = indent_text
-                state.column = indent
-            elseif state.current_line ~= indent_text then
-                local suffix_count = push_pending_line_suffixes(commands, state)
-                if suffix_count > 0 then
-                    table.insert(commands, #commands - suffix_count + 1, command)
-                else
-                    break_line(state, indent)
+            if node_flat then
+                append_text(state, node.close_text or "")
+            else
+                local indent_text = string.rep(" ", indent)
+                if state.current_line:match("^%s*$") ~= nil then
+                    state.current_line = indent_text
+                    state.column = indent
+                elseif state.current_line ~= indent_text then
+                    local suffix_count = push_pending_line_suffixes(commands, state)
+                    if suffix_count > 0 then
+                        table.insert(commands, #commands - suffix_count + 1, command)
+                    else
+                        break_line(state, indent)
+                    end
                 end
+                append_text(state, node.close_text or "")
             end
-            append_text(state, node.close_text or "")
         elseif node.kind == "break_text" then
             if node_flat then
                 append_text(state, node.flat_text or "")
@@ -457,6 +484,21 @@ local function render_doc(
                     table.insert(commands, #commands - suffix_count + 1, command)
                 else
                     break_line(state, indent)
+                end
+            end
+        elseif node.kind == "trim_start" then
+            state.marked_column = state.column
+        elseif node.kind == "trim_end" then
+            if state.column > state.marked_column then
+                if node_flat then
+                    append_text(state, " ")
+                else
+                    local suffix_count = push_pending_line_suffixes(commands, state)
+                    if suffix_count > 0 then
+                        table.insert(commands, #commands - suffix_count + 1, command)
+                    else
+                        break_line(state, indent)
+                    end
                 end
             end
         elseif node.kind == "hardline" then

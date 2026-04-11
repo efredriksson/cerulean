@@ -25,8 +25,8 @@ local FUNCTION_DEF_KINDS: {parser.NodeKind: boolean} = {
     ["record_function"] = true,
     ["function"]        = true,
 }
--- fmt: on
 
+-- fmt: on
 function ast_traversal.is_block_node(node: parser.Node): boolean
     return BLOCK_NODE_KINDS[node.kind] ~= nil
 end
@@ -36,23 +36,55 @@ function ast_traversal.is_function_def(node: parser.Node): boolean
 end
 
 function ast_traversal.walk_children(node: parser.Node, visit: function(parser.Node))
-    for _, child in ipairs(node) do visit(child) end
-    if node.body then visit(node.body) end
-    if node.e1 then visit(node.e1) end
-    if node.e2 then visit(node.e2) end
-    if node.key then visit(node.key) end
-    if node.value then visit(node.value) end
-    if node.args then visit(node.args) end
-    if node.name then visit(node.name) end
-    if node.exp then visit(node.exp) end
-    if node.var then visit(node.var) end
-    if node.from then visit(node.from) end
-    if node.to then visit(node.to) end
-    if node.step then visit(node.step) end
-    if node.vars then visit(node.vars) end
-    if node.exps then visit(node.exps) end
+    for _, child in ipairs(node) do
+        visit(child)
+    end
+    if node.body then
+        visit(node.body)
+    end
+    if node.e1 then
+        visit(node.e1)
+    end
+    if node.e2 then
+        visit(node.e2)
+    end
+    if node.key then
+        visit(node.key)
+    end
+    if node.value then
+        visit(node.value)
+    end
+    if node.args then
+        visit(node.args)
+    end
+    if node.name then
+        visit(node.name)
+    end
+    if node.exp then
+        visit(node.exp)
+    end
+    if node.var then
+        visit(node.var)
+    end
+    if node.from then
+        visit(node.from)
+    end
+    if node.to then
+        visit(node.to)
+    end
+    if node.step then
+        visit(node.step)
+    end
+    if node.vars then
+        visit(node.vars)
+    end
+    if node.exps then
+        visit(node.exps)
+    end
     if node.if_blocks then
-        for _, block in ipairs(node.if_blocks) do visit(block) end
+        for _, block in ipairs(node.if_blocks) do
+            visit(block)
+        end
     end
 end
 
@@ -86,11 +118,14 @@ end
 function ast_traversal.has_multiline_descendant(node: parser.Node): boolean
     local found = false
 
-    ast_traversal.walk_descendants(node, function(child: parser.Node)
-        if not found and child.yend and child.yend > child.y then
-            found = true
+    ast_traversal.walk_descendants(
+        node,
+        function(child: parser.Node)
+            if not found and child.yend and child.yend > child.y then
+                found = true
+            end
         end
-    end)
+    )
 
     return found
 end

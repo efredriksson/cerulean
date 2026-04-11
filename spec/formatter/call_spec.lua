@@ -88,7 +88,7 @@ describe("formatter function call wrapping", function()
       )
    ]]))
 
-   it("preserves anonymous function arguments with a local declaration body", helpers.format([[
+   it("formats anonymous function arguments with a local declaration body", helpers.format([[
       local result = process.deep_call(function() local current_value: ResultType = compute_result() end, trailing_argument_with_a_very_long_name)
    ]], [[
       local result = process.deep_call(
@@ -97,7 +97,7 @@ describe("formatter function call wrapping", function()
       )
    ]]))
 
-   it("preserves anonymous function arguments with an assignment body", helpers.format([[
+   it("formats anonymous function arguments with an assignment body", helpers.format([[
       local result = process.deep_call(function() current_value = compute_result() end, trailing_argument_with_a_very_long_name)
    ]], [[
       local result = process.deep_call(
@@ -106,7 +106,9 @@ describe("formatter function call wrapping", function()
       )
    ]]))
 
-   it("keeps an empty anonymous fallback function on one line when it fits", helpers.check([[
+   it("formats an empty anonymous function to multi-line", helpers.format([[
+      local on_load = maybe_handler or function()   end
+   ]], [[
       local on_load = maybe_handler or function() end
    ]]))
 

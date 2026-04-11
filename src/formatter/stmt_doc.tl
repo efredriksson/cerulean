@@ -1,12 +1,12 @@
 -- Single AST statement → doc.Doc. Returns nil for unsupported statement shapes.
 local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
+local function_doc = require("formatter.function_doc")
 local inline_stmt_doc = require("formatter.inline_stmt_doc")
 local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
 local render_context = require("formatter.render_context")
-local signature_doc = require("formatter.signature_doc")
 local type_doc = require("formatter.type_doc")
 
 local type BlockLayout = layout_types.BlockLayout
@@ -50,13 +50,6 @@ local function with_indented_body(
     return doc.concat({header, doc.indent(4, doc.concat({doc.line(), body})), tail})
 end
 
-local function function_with_indent(
-    name_prefix: doc.Doc, signature: doc.Doc, body: doc.Doc
-): doc.Doc
-    local header = doc.group(doc.concat({name_prefix, signature}))
-    return with_indented_body(header, body, doc.close("end"))
-end
-
 local function block_with_indent(
     header: doc.Doc, body: doc.Doc, footer: doc.Doc
 ): doc.Doc
@@ -67,10 +60,6 @@ local function block_with_close(
     header: doc.Doc, body: doc.Doc, close_text: string
 ): doc.Doc
     return with_indented_body(header, body, doc.close(close_text))
-end
-
-local function append_return_type(signature: doc.Doc, return_type_doc: doc.Doc): doc.Doc
-    return doc.group(doc.concat({signature, return_type_doc}))
 end
 
 local function build_control_flow_head_doc(
@@ -357,56 +346,17 @@ end
 local function render_function_definition_doc(
     ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
 ): doc.Doc | nil
-    if node.args == nil or node.body == nil then
-        return nil
-    end
-
     local name_prefix = render_function_name(node)
     if name_prefix is nil then
         return nil
     end
 
-    local typed_layout: StatementLayout | nil = nil
-    if not (layout is nil) then
-        typed_layout = layout
-    end
     local body_layout: BlockLayout | nil = nil
-    if not (typed_layout is nil) then
-        local non_nil_layout = typed_layout
-        body_layout = non_nil_layout.body_layout
+    if not (layout is nil) then
+        body_layout = layout.body_layout
     end
 
-    local function return_type_doc(): doc.Doc
-        if node.rets == nil or #node.rets.tuple == 0 then
-            return doc.text("")
-        else
-            return doc.concat({doc.text(": "), type_doc.render(node.rets)})
-        end
-    end
-
-    local sig_doc = append_return_type(
-        signature_doc.render_signature_doc(node.args), return_type_doc()
-    )
-
-    if #node.body == 0 then
-        local body_comments: {parser.Comment} = {}
-        for _, comment in ipairs(node.body.comments or {}) do
-            table.insert(body_comments, comment)
-        end
-        for _, comment in ipairs(node.body.end_comments or {}) do
-            table.insert(body_comments, comment)
-        end
-
-        local comment_body = render_builders.build_comment_lines_doc(body_comments)
-        return function_with_indent(name_prefix, sig_doc, doc.concat(comment_body))
-    end
-
-    local body_doc = ctx.render_block(node.body, body_layout)
-    if body_doc == nil then
-        return nil
-    end
-
-    return function_with_indent(name_prefix, sig_doc, body_doc)
+    return function_doc.render(ctx, node, name_prefix, body_layout)
 end
 
 local function render_if_doc(
@@ -416,7 +366,7 @@ local function render_if_doc(
         return nil
     end
 
-    local parts: {doc.Doc} = {}
+    local parts: {doc.Doc} = {doc.break_parent()}
     for index, if_block in ipairs(node.if_blocks) do
         if if_block.body == nil then
             return nil

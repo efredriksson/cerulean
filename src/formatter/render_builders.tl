@@ -318,27 +318,7 @@ function render_builders.build_comment_line_entries(
     local previous_entry: LineEntry | nil = nil
     local previous_end_line: integer | nil = nil
 
-    local function maybe_with_inferred_blank_line_before(
-        comment: parser.Comment, reference_line: integer
-    ): parser.Comment
-        if comment.blank_line_before == true or comment.y <= reference_line + 1 then
-            return comment
-        end
-
-        return {
-            y = comment.y,
-            x = comment.x,
-            text = comment.text,
-            blank_line_before = true,
-        }
-    end
-
-    local function attach_comment(
-        comment: parser.Comment,
-        next_entry: LineEntry | nil,
-        infer_blank_line_before_from_gap: boolean,
-        blank_line_reference_line: integer | nil
-    )
+    local function attach_comment(comment: parser.Comment, next_entry: LineEntry | nil)
         if not (previous_entry is nil) and not (previous_end_line is nil) then
             local non_nil_previous_end_line = previous_end_line
             if comment.y <= non_nil_previous_end_line then
@@ -348,18 +328,6 @@ function render_builders.build_comment_line_entries(
         end
 
         local attached_comment = comment
-        if infer_blank_line_before_from_gap then
-            local reference_line = 0
-            if not (blank_line_reference_line is nil) then
-                reference_line = blank_line_reference_line
-            elseif not (previous_end_line is nil) then
-                reference_line = previous_end_line
-            end
-            attached_comment = maybe_with_inferred_blank_line_before(
-                comment, reference_line
-            )
-        end
-
         if not (next_entry is nil) then
             table.insert(next_entry.leading_comments, attached_comment)
         else
@@ -380,7 +348,7 @@ function render_builders.build_comment_line_entries(
         )
 
         for _, comment in ipairs(item.comments) do
-            attach_comment(comment, entry, false, nil)
+            attach_comment(comment, entry)
         end
 
         table.insert(entries, entry)
@@ -388,13 +356,8 @@ function render_builders.build_comment_line_entries(
         previous_end_line = item.item_end_line
     end
 
-    local end_comment_reference_line = 0
-    if not (previous_end_line is nil) then
-        end_comment_reference_line = previous_end_line
-    end
     for _, comment in ipairs(line_items.end_comments) do
-        attach_comment(comment, nil, true, end_comment_reference_line)
-        end_comment_reference_line = comment.y
+        attach_comment(comment, nil)
     end
 
     for _, entry in ipairs(entries) do
@@ -487,19 +450,15 @@ function render_builders.render_line_entries(
 
     local parts: {doc.Doc} = {}
     local item_index = 0
-    local entry_initial_blank_line_consumed: {boolean} = {}
 
-    local function append_comment_block(
-        comments: {parser.Comment}, consume_initial_blank_line: boolean
-    )
+    local function append_comment_block(comments: {parser.Comment})
         for comment_index, comment in ipairs(comments) do
             if comment_index > 1 then
                 table.insert(parts, doc.hardline())
                 if comment_has_blank_line_before(comment) then
                     table.insert(parts, doc.hardline())
                 end
-            elseif comment_has_blank_line_before(comment)
-                and not consume_initial_blank_line then
+            elseif comment_has_blank_line_before(comment) then
                 table.insert(parts, doc.hardline())
             end
             table.insert(parts, doc.text(comment.text))
@@ -509,9 +468,7 @@ function render_builders.render_line_entries(
     for index, entry in ipairs(entries) do
         local entry_item_doc = entry.item_doc
         if #entry.leading_comments > 0 then
-            append_comment_block(
-                entry.leading_comments, entry_initial_blank_line_consumed[index] == true
-            )
+            append_comment_block(entry.leading_comments)
             if not (entry_item_doc is nil) then
                 table.insert(parts, doc.hardline())
             end
@@ -519,8 +476,7 @@ function render_builders.render_line_entries(
 
         local standalone_comment = entry.standalone_comment
         if not (standalone_comment is nil) then
-            if comment_has_blank_line_before(standalone_comment)
-                and not (entry_initial_blank_line_consumed[index] == true) then
+            if comment_has_blank_line_before(standalone_comment) then
                 table.insert(parts, doc.hardline())
             end
             table.insert(parts, doc.text(standalone_comment.text))
@@ -548,12 +504,6 @@ function render_builders.render_line_entries(
                 EntrySeparatorContext.new(entry, next_entry)
             )
             table.insert(parts, separator)
-            local next_first_comment = next_entry.first_emitted_comment
-            if not (next_first_comment is nil)
-                and comment_has_blank_line_before(next_first_comment) then
-                table.insert(parts, doc.hardline())
-                entry_initial_blank_line_consumed[index + 1] = true
-            end
         end
     end
 

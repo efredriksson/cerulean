@@ -689,7 +689,7 @@ local function parse_table_value(ps: ParseState, i: integer): integer, Node, int
    return i, e
 end
 
-local get_attached_comments: function(token: Token): {Comment}
+local get_attached_comments: function(token: Token, previous_line?: integer): {Comment}
 local get_same_line_comment: function(token: Token, line: integer): Comment
 
 local function parse_table_item(
@@ -2126,7 +2126,7 @@ local function make_comment(lc: tl.LexerComment): Comment
    return { x = lc.x, y = lc.y, text = lc.text, blank_line_before = false }
 end
 
-get_attached_comments = function(token: Token): {Comment}
+get_attached_comments = function(token: Token, previous_line?: integer): {Comment}
    local token_comments = token.comments
    if token_comments == nil or #token_comments == 0 then
       return nil
@@ -2170,6 +2170,10 @@ get_attached_comments = function(token: Token): {Comment}
       if attached_comments[i].y - attached_comments[i - 1].y > 1 then
          attached_comments[i].blank_line_before = true
       end
+   end
+
+   if not (previous_line is nil) and attached_comments[1].y > previous_line + 1 then
+      attached_comments[1].blank_line_before = true
    end
 
    return attached_comments
@@ -3077,7 +3081,8 @@ parse_statements = function(
       end
    end
 
-   node.end_comments = get_attached_comments(ps.tokens[i])
+   local previous_line = i > 1 and ps.tokens[i - 1].y or nil
+   node.end_comments = get_attached_comments(ps.tokens[i], previous_line)
    end_at(node, ps.tokens[i])
    return i, node
 end

@@ -739,12 +739,34 @@ describe("formatter structural block rendering", function()
          return done
       ]]))
 
-      it("keeps wrong indentation when op call has a multi-statement anonymous function arg", helpers.check([[
+      it("formats a multi-statement anonymous function call argument", helpers.format([[
          local function f()
            walk_descendants(node, function(child)
              local x = 1
              process(x)
            end)
+         end
+      ]], [[
+         local function f()
+             walk_descendants(node, function(child) local x = 1 process(x) end)
+         end
+      ]]))
+
+      it("formats and wraps functional call if argument table must wrap", helpers.format([[
+         local function f()
+           walk_descendants(node, {SomethingVeryLong1 = 1, SomethingVeryLong2 = 2, SomethingVeryLong3 = 3, SomethingVeryLong4 = 4})
+         end
+      ]], [[
+         local function f()
+             walk_descendants(
+                 node,
+                 {
+                     SomethingVeryLong1 = 1,
+                     SomethingVeryLong2 = 2,
+                     SomethingVeryLong3 = 3,
+                     SomethingVeryLong4 = 4,
+                 }
+             )
          end
       ]]))
    end)
@@ -772,7 +794,6 @@ describe("formatter structural block rendering", function()
    end)
 
    describe("record function body blocked by remaining cases", function()
-      
       it("reindents a record function body whose return table has inline section comments",
          helpers.format([[
             function Obj.items(): {string}

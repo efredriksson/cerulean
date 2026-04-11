@@ -746,6 +746,36 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]]))
 
+      it("preserves a single comment in an otherwise empty function bodies", helpers.format([[
+         function f1()
+                -- First
+         end
+
+         function f2()
+                -- Second
+         end
+      ]], [[
+         function f1()
+             -- First
+         end
+
+         function f2()
+             -- Second
+         end
+      ]]))
+
+      it("preserves blank line before comment at start of body", helpers.format([[
+         function f()
+            
+         -- does something
+         end
+      ]], [[
+         function f()
+             
+             -- does something
+         end
+      ]]))
+
       it("preserves blank lines between comment-only lines in an empty function body", helpers.format([[
          function f()
             -- does something 1
@@ -834,7 +864,7 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]]))
 
-      it("preserves inline interface field comments in local type interface declarations (anonymized)", helpers.format([[
+      it("preserves inline interface field comments in local type interface declarations", helpers.format([[
          local type EntityType = interface
            method_a: function(self)
            method_b: function(self, value: number)
@@ -849,6 +879,62 @@ describe("formatter comment matrix (single-line)", function()
              method_c: function(self)
              -- Internal-only field marker:
              extra_flag: boolean
+         end
+      ]]))
+   end)
+
+   describe("empty function body with comments", function()
+      it("preserves a comment inside an empty local function body", helpers.check([[
+         local function no_op()
+             -- not yet implemented
+         end
+      ]]))
+
+      it("preserves multiple comments inside an empty local function body", helpers.check([[
+         local function no_op()
+             -- first note
+             -- second note
+         end
+      ]]))
+
+      it("preserves a blank line before a comment inside an empty local function body", helpers.check([[
+         local function no_op()
+
+             -- not yet implemented
+         end
+      ]]))
+
+      it("reindents a comment inside a poorly-indented empty local function body", helpers.format([[
+         local function no_op()
+           -- not yet implemented
+         end
+      ]], [[
+         local function no_op()
+             -- not yet implemented
+         end
+      ]]))
+
+      it("preserves a comment inside an empty record function body", helpers.check([[
+         function Obj:on_event()
+             -- not yet implemented
+         end
+      ]]))
+
+      it("reindents a comment inside a poorly-indented empty record function body", helpers.format([[
+         function Obj:on_event()
+           -- not yet implemented
+         end
+      ]], [[
+         function Obj:on_event()
+             -- not yet implemented
+         end
+      ]]))
+
+      it("preserves multiple comments with a blank line between them in an empty body", helpers.check([[
+         local function no_op()
+             -- first note
+
+             -- second note
          end
       ]]))
    end)

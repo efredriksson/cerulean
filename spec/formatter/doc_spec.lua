@@ -114,3 +114,80 @@ describe("formatter doc primitives", function()
         assert.same("value -- keep", render(tree, 88))
     end)
 end)
+
+describe("formatter doc close node", function()
+    it("appends close text inline when the group renders flat", function()
+        local tree = doc.group(doc.concat({
+            doc.text("function()"),
+            doc.close("end"),
+        }))
+
+        assert.same("function()end", render(tree, 88))
+    end)
+
+    it("accounts for close text width when deciding if the group fits flat", function()
+        -- "function()end" is 13 chars
+        local tree = doc.group(doc.concat({
+            doc.text("function()"),
+            doc.close("end"),
+        }))
+
+        assert.same("function()end", render(tree, 13))
+        assert.same("function()\nend", render(tree, 12))
+    end)
+
+    it("places close text on a new line at the enclosing indent when broken", function()
+        local tree = doc.group(doc.concat({
+            doc.text("function()"),
+            doc.indent(4, doc.concat({
+                doc.line(),
+                doc.text("body"),
+            })),
+            doc.close("end"),
+        }))
+
+        assert.same("function()\n    body\nend", render(tree, 10))
+    end)
+end)
+
+describe("formatter doc trim_lines", function()
+    it("adds no space and no line break when the wrapped content is empty in flat mode", function()
+        local tree = doc.group(doc.concat({
+            doc.text("f()"),
+            doc.indent(4, doc.concat({doc.line(), doc.trim_lines(doc.text(""))})),
+            doc.close("end"),
+        }))
+
+        assert.same("f() end", render(tree, 88))
+    end)
+
+    it("appends a space after content when the group renders flat", function()
+        local tree = doc.group(doc.concat({
+            doc.text("f()"),
+            doc.indent(4, doc.concat({doc.line(), doc.trim_lines(doc.text("body"))})),
+            doc.close("end"),
+        }))
+
+        assert.same("f() body end", render(tree, 88))
+    end)
+
+    it("breaks the line after content when the group is broken", function()
+        local tree = doc.group(doc.concat({
+            doc.text("f()"),
+            doc.indent(4, doc.concat({doc.line(), doc.trim_lines(doc.text("body"))})),
+            doc.close("end"),
+        }))
+
+        assert.same("f()\n    body\nend", render(tree, 10))
+    end)
+
+    it("adds no space and no line break when the wrapped content is empty in broken mode", function()
+        local tree = doc.group(doc.concat({
+            doc.text("f()"),
+            doc.indent(4, doc.concat({doc.line(), doc.trim_lines(doc.text(""))})),
+            doc.close("end"),
+        }))
+
+        assert.same("f()\nend", render(tree, 5))
+    end)
+end)
