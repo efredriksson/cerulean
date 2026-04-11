@@ -16,9 +16,13 @@ local render_context = {
 }
 
 function RenderContext.new(
-    raw_render_block: function(RenderContext, parser.Node, BlockLayout | nil): doc.Doc | nil,
+    raw_render_block: function(
+        RenderContext, parser.Node, BlockLayout | nil
+    ): doc.Doc | nil,
     raw_render_expr: function(RenderContext, parser.Node): doc.Doc,
-    raw_render_stmt: function(RenderContext, parser.Node, StatementLayout | nil): doc.Doc | nil
+    raw_render_stmt: function(
+        RenderContext, parser.Node, StatementLayout | nil
+    ): doc.Doc | nil
 ): RenderContext
     local self: RenderContext = setmetatable({}, {__index = RenderContext})
     self.render_block = function(

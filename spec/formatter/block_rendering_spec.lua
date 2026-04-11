@@ -601,6 +601,18 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("wraps long funtion types", helpers.format([[
+         local record A
+            f: function(SomethingVeryLong1, SomethingVeryLong2, SomethingVeryLong3, SomethingVeryLong4): string
+         end
+      ]], [[
+         local record A
+             f: function(
+                 SomethingVeryLong1, SomethingVeryLong2, SomethingVeryLong3, SomethingVeryLong4
+             ): string
+         end
+      ]]))
+
       it("reindents an interface while preserving its interfaces and where clause", helpers.format([[
          local interface Base
            kind: string

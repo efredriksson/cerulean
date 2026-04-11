@@ -81,13 +81,14 @@ local function type_doc_render(type_def: parser.Type): doc.Doc
             )
             table.insert(arg_docs, doc.concat({arg_name, type_doc_render(arg_type)}))
         end
-        local parts: {doc.Doc} = {
+        local args_rendered = render_builders.build_separated_docs(arg_docs, ", ")
+        local parts = {
             doc.text("function("),
-            render_builders.build_separated_docs(arg_docs, ", "),
-            doc.text(")"),
+            doc.indent(4, doc.concat({doc.softline(), args_rendered})),
+            doc.close(")"),
             render_return(type_def.rets),
         }
-        return doc.concat(parts)
+        return doc.group(doc.concat(parts))
     elseif type_def is parser.TypeDeclType then
         assert(false, "implementation error, does not support enum/interface/...")
     elseif type_def is parser.TupleTableType then

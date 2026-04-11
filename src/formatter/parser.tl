@@ -713,26 +713,40 @@ local record ArgumentInfo
     opt: boolean
 end
 
-local parse_type_list: function(ParseState, integer, ParseTypeListMode): integer, TupleType
+local parse_type_list: function(
+    ParseState, integer, ParseTypeListMode
+): integer, TupleType
 
-local parse_typeargs_if_any: function(ps: ParseState, i: integer): integer, {TypeArgType}
+local parse_typeargs_if_any: function(
+    ps: ParseState, i: integer
+): integer, {TypeArgType}
 
 local parse_expression: function(ParseState, integer): integer, Node, integer
-local parse_expression_and_tk: function(ps: ParseState, i: integer, tk: string): integer, Node
+local parse_expression_and_tk: function(
+    ps: ParseState, i: integer, tk: string
+): integer, Node
 
 local parse_statements: function(ParseState, integer, ? boolean): integer, Node
 local parse_argument_list: function(ParseState, integer): integer, Node, integer
-local parse_argument_type_list: function(ParseState, integer): integer, TupleType, boolean, integer
+local parse_argument_type_list: function(
+    ParseState, integer
+): integer, TupleType, boolean, integer
 
 local parse_type: function(ParseState, integer): integer, FirstClassType, integer
-local parse_type_declaration: function(ps: ParseState, i: integer, node_name: NodeKind): integer, Node
+local parse_type_declaration: function(
+    ps: ParseState, i: integer, node_name: NodeKind
+): integer, Node
 
 local parse_interface_name: function(ps: ParseState, i: integer): integer, Type, integer
 
 local type ParseBody = function(ps: ParseState, i: integer, def: Type): integer, boolean
-local parse_enum_body: function(ps: ParseState, i: integer, def: EnumType): integer, boolean
+local parse_enum_body: function(
+    ps: ParseState, i: integer, def: EnumType
+): integer, boolean
 
-local parse_record_body: function(ps: ParseState, i: integer, def: RecordLikeType): integer, boolean
+local parse_record_body: function(
+    ps: ParseState, i: integer, def: RecordLikeType
+): integer, boolean
 
 local parse_type_body_fns: {BodyTypeName: ParseBody}
 
