@@ -102,10 +102,6 @@ local function maybe_parenthesize(
     return rendered
 end
 
-local function build_call_expr_doc(ctx: RenderContext, node: parser.Node): doc.Doc
-    return call_doc.build_call_expr_doc(ctx, node)
-end
-
 local function collect_top_level_logical_terms(
     node: parser.Node, operator: string, terms: {parser.Node}
 )
@@ -134,20 +130,11 @@ local function render_top_level_logical_chain(
         local term_group_ref = doc.group_ref()
         table.insert(parts, term_group_ref:group(render_expr(ctx, term, operator_prec)))
         if index < #terms then
-            local default_separator = doc.indent(
-                4,
-                doc.concat(
-                    {
-                        doc.line(),
-                        doc.text(operator .. " "),
-                    }
-                )
-            )
-
             table.insert(
                 parts,
                 term_group_ref:if_break(
-                    doc.text(" " .. operator .. " "), default_separator
+                    doc.text(" " .. operator .. " "),
+                    doc.indent(4, doc.concat({doc.line(), doc.text(operator .. " ")}))
                 )
             )
         end
@@ -158,15 +145,11 @@ local function render_top_level_logical_chain(
     )
 end
 
-local function should_render_top_level_logical_chain(node: parser.Node): boolean
-    if node.kind ~= "op"
-        or node.op == nil
-        or node.op.arity ~= 2
-        or (node.op.op ~= "and" and node.op.op ~= "or") then
-        return false
-    end
-
-    return true
+local function is_logical_binary_op(node: parser.Node): boolean
+    return node.kind == "op"
+        and node.op ~= nil
+        and node.op.arity == 2
+        and (node.op.op == "and" or node.op.op == "or")
 end
 
 wrap_for_parent_precedence = function(
@@ -188,14 +171,6 @@ local function render_string_literal(node: parser.Node): doc.Doc
         return doc.text(node.tk)
     end
     return doc.text('"' .. content .. '"')
-end
-
-local function render_function_expr(ctx: RenderContext, node: parser.Node): doc.Doc
-    local result = function_doc.render_anonymous(ctx, node, doc.text("function"))
-    if result == nil then
-        error("failed to render anonymous function body")
-    end
-    return result
 end
 
 local function render_op(
@@ -220,7 +195,7 @@ local function render_op(
             }
         )
     elseif op == "@funcall" then
-        return build_call_expr_doc(ctx, node)
+        return call_doc.build_call_expr_doc(ctx, node)
     elseif op == "as" or op == "is" then
         return doc.concat(
             {
@@ -237,7 +212,7 @@ local function render_op(
         local rendered = doc.concat({doc.text(op == "not" and "not " or op), child})
         return wrap_for_parent_precedence(rendered, op, 1, parent_prec)
     else
-        if parent_prec == 0 and should_render_top_level_logical_chain(node) then
+        if parent_prec == 0 and is_logical_binary_op(node) then
             return render_top_level_logical_chain(ctx, node, parent_prec)
         end
 
@@ -249,46 +224,42 @@ local function render_op(
         local right = maybe_parenthesize(right_doc, node.e2, op, 2, true)
         local separator = doc.text(" " .. op .. " ")
         local rendered = doc.concat({left, separator, right})
-        if parent_prec == 0 then
-            rendered = doc.group(rendered)
-        end
         return wrap_for_parent_precedence(rendered, op, 2, parent_prec)
     end
 end
 
+local EXPRESSION_LEAF: {parser.NodeKind: boolean} = {
+    ["variable"] = true,
+    ["identifier"] = true,
+    ["..."] = true,
+    ["number"] = true,
+    ["integer"] = true,
+    ["boolean"] = true,
+    ["nil"] = true,
+}
+
 render_expr = function(
     ctx: RenderContext, node: parser.Node, parent_prec: integer
 ): doc.Doc
-    if node.kind == "variable" or node.kind == "identifier" or node.kind == "..." then
+    if EXPRESSION_LEAF[node.kind] then
         return doc.text(node.tk)
     elseif node.kind == "string" then
         return render_string_literal(node)
-    elseif node.kind == "number" or node.kind == "integer" then
-        return doc.text(node.tk)
-    elseif node.kind == "boolean" or node.kind == "nil" then
-        return doc.text(node.tk)
     elseif node.kind == "paren" then
-        return doc.concat(
-            {doc.text("("), render_root_expr(ctx, node.e1), doc.text(")")}
+        return doc.group(
+            doc.concat({doc.text("("), render_root_expr(ctx, node.e1), doc.text(")")})
         )
     elseif node.kind == "literal_table" then
         return table_doc.build_table_doc(ctx, node)
     elseif node.kind == "function" then
-        return render_function_expr(ctx, node)
+        return function_doc.render_anonymous(ctx, node, doc.text("function"))
     elseif node.kind == "op" and node.op ~= nil then
         return render_op(ctx, node, parent_prec)
     end
     error("unsupported expression kind: " .. node.kind)
 end
 
-function expr_doc.render_expr(ctx: RenderContext, node: parser.Node): doc.Doc
-    return render_root_expr(ctx, node)
-end
-
-function expr_doc.render_top_level_expr(ctx: RenderContext, node: parser.Node): doc.Doc
-    if should_render_top_level_logical_chain(node) then
-        return render_top_level_logical_chain(ctx, node, 0)
-    end
+function expr_doc.render(ctx: RenderContext, node: parser.Node): doc.Doc
     return render_root_expr(ctx, node)
 end
 

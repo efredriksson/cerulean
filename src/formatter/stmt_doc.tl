@@ -69,7 +69,7 @@ local function build_control_flow_head_doc(
         doc.concat(
             {
                 doc.text(head_keyword .. " "),
-                expr_doc.render_top_level_expr(ctx, exp),
+                expr_doc.render(ctx, exp),
                 doc.text(tail_text),
             }
         )
@@ -513,7 +513,7 @@ local function render_repeat_doc(
     return block_with_indent(
         doc.text("repeat"),
         body_doc,
-        doc.concat({doc.text("until "), expr_doc.render_top_level_expr(ctx, node.exp)})
+        doc.concat({doc.text("until "), expr_doc.render(ctx, node.exp)})
     )
 end
 

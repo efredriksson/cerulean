@@ -95,7 +95,7 @@ end
 
 function block_doc.make_context(): RenderContext
     return render_context.RenderContext.new(
-        render_block_doc_with, expr_doc.render_expr, stmt_doc.render_statement_doc
+        render_block_doc_with, expr_doc.render, stmt_doc.render_statement_doc
     )
 end
 
