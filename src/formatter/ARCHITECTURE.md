@@ -12,7 +12,7 @@
 4. Layout analysis (`layout_analysis.analyze_block`):
    - returns `{ can_render_structurally, block_layout }`.
 5. If structural render is allowed, render full AST block via doc tree:
-   - `block_doc.render_block(ctx, block, layout)` -> `stmt_doc` -> `expr_doc`/`call_doc`/`table_doc`/`signature_doc`
+   - `block_doc.render_block(ctx, block, layout)` -> `stmt_doc` -> `expr_doc`/`table_doc`/`signature_doc`
    - render with `doc.Doc:render(...)`.
 6. Run `require_sort.rewrite(ctx, source, filename)` on resulting source.
 
@@ -31,7 +31,6 @@ If structural render is blocked or rendering fails, keep original source and sti
 - `block_doc.tl`: block-level rendering, statement glue, and `make_context()` factory.
 - `stmt_doc.tl`: statement rendering.
 - `expr_doc.tl`: expression rendering + precedence.
-- `call_doc.tl`: call argument list rendering (owned here).
 - `table_doc.tl`: table constructor rendering.
 - `signature_doc.tl`: function signature rendering.
 - `render_builders.tl`: shared delimiter/comment builders.
@@ -50,7 +49,7 @@ Rendering modules should depend on `layout_types` and `render_context`, not on a
 
 ## RenderContext
 
-Breaks circular deps (`block_doc` ↔ `stmt_doc` ↔ `expr_doc` ↔ `call_doc`/`table_doc`) via three callbacks:
+Breaks circular deps (`block_doc` ↔ `stmt_doc` ↔ `expr_doc` ↔ `table_doc`) via three callbacks:
 
 - `render_expr(node)` → `doc.Doc`
 - `render_stmt(node, layout)` → `doc.Doc | nil`

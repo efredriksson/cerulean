@@ -37,6 +37,14 @@ local record ParserTypes
       "*"
    end
 
+   record Operator
+      y: integer
+      x: integer
+      arity: integer
+      op: string
+      prec: integer
+   end
+
    interface Where
       f: string
       y: integer

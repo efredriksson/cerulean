@@ -27,6 +27,7 @@ local record parser
     type MapType = parser_types.MapType
     type TypeVarType = parser_types.TypeVarType
     type Comment = parser_types.Comment
+    type Operator = parser_types.Operator
     simple_types: {parser_types.TypeName: boolean}
     type Error = tl.Error
     type Token = tl.Token
@@ -166,14 +167,7 @@ local type TokenKind = tl.TokenKind
 -- ── Internal types from parser_types.tl ─────────────────────────────────────
 
 local type Comment = parser.Comment
-
-local record Operator
-   y: integer
-   x: integer
-   arity: integer
-   op: string
-   prec: integer
-end
+local type Operator = parser.Operator
 
 local enum FactType
    "is"
