@@ -92,7 +92,17 @@ local function type_doc_render(type_def: parser.Type): doc.Doc
     elseif type_def is parser.TypeDeclType then
         assert(false, "implementation error, does not support enum/interface/...")
     elseif type_def is parser.TupleTableType then
-        return doc.text(type_def.source_text)
+        local type_docs: {doc.Doc} = {}
+        for _, t in ipairs(type_def.types) do
+            table.insert(type_docs, type_doc_render(t))
+        end
+        return doc.concat(
+            {
+                doc.text("{"),
+                render_builders.build_separated_docs(type_docs, ", "),
+                doc.text("}"),
+            }
+        )
     elseif parser.simple_types[type_def.typename] then
         return doc.text(type_def.typename)
     end

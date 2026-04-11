@@ -412,4 +412,11 @@ describe("formatter function call wrapping", function()
    ]], [[
       local x: string | number = 5
    ]]))
+
+   it("table tuple types for variables", helpers.format([[
+      local type Color = {number , number,  number}
+   ]], [[
+      local type Color = {number, number, number}
+   ]]))
+   
 end)
