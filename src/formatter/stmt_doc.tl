@@ -130,7 +130,7 @@ local function render_enum_doc(
     )
 end
 
-local render_nested_typedecl_doc: function (RenderContext, parser.Node): doc.Doc | nil
+local render_nested_typedecl_doc: function(RenderContext, parser.Node): doc.Doc | nil
 
 local record ResolvedRecordLikeDef
     keyword: string
@@ -214,6 +214,30 @@ local function render_record_like_body_doc(
             record_items:add(
                 doc.text(field_name .. ": " .. field_type.source_text),
                 render_builders.node_end_line(field_type as parser.Node),
+                parser_comments,
+                false
+            )
+        end
+    end
+    for _, meta_name in ipairs(record_def.meta_field_order or {}) do
+        if meta_name ~= "__is" then
+            local meta_type = record_def.meta_fields[meta_name]
+            local meta_comments = ((record_def.meta_field_comments or {})[meta_name]
+                or {}) as {{parser.Comment}}
+            local parser_comments: {parser.Comment} = {}
+            for _, overload_comments in ipairs(meta_comments) do
+                for _, comment in ipairs(overload_comments) do
+                    table.insert(parser_comments, comment)
+                end
+            end
+            record_items:add(
+                doc.concat(
+                    {
+                        doc.text("metamethod " .. meta_name .. ": "),
+                        type_doc.render(meta_type),
+                    }
+                ),
+                render_builders.node_end_line(meta_type as parser.Node),
                 parser_comments,
                 false
             )

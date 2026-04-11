@@ -567,7 +567,13 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
-      it("preserves a local record with metamethod declarations", helpers.check([[
+      it("preserves a local record with metamethod declarations", helpers.format([[
+         local record Point
+             x: number
+             y: number
+             metamethod __tostring:  function(Point ):  string
+         end
+      ]], [[
          local record Point
              x: number
              y: number

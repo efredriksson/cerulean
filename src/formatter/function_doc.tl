@@ -12,13 +12,6 @@ local type RenderContext = render_context.RenderContext
 
 local function_doc = {}
 
-local function build_return_type_doc(node: parser.Node): doc.Doc
-    if node.rets == nil or #node.rets.tuple == 0 then
-        return doc.text("")
-    end
-    return doc.concat({doc.text(": "), type_doc.render(node.rets)})
-end
-
 function function_doc.render(
     ctx: RenderContext,
     node: parser.Node,
@@ -31,7 +24,7 @@ function function_doc.render(
         doc.concat(
             {
                 signature_doc.render_signature_doc(node.args),
-                build_return_type_doc(node),
+                type_doc.render_return(node.rets),
             }
         )
     )

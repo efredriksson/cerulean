@@ -68,10 +68,6 @@ local function min_source_line(node: parser.Node): integer
     return min_line
 end
 
-local function node_is_single_line(node: parser.Node): boolean
-    return max_source_line(node) == node.y
-end
-
 local function count_leading_comments_for_stmt(
     stmt: parser.Node, previous_end_line: integer
 ): integer
@@ -84,54 +80,6 @@ local function count_leading_comments_for_stmt(
         end
     end
     return count
-end
-
-local function anonymous_function_is_renderable(node: parser.Node): boolean
-    if node.kind ~= "function" then
-        return true
-    end
-    return node.body ~= nil
-end
-
-local function node_contains_unrenderable_anonymous_function(node: parser.Node): boolean
-    if not anonymous_function_is_renderable(node) then
-        return true
-    end
-
-    local found = false
-    ast_traversal.walk_descendants(
-        node,
-        function(child: parser.Node)
-            if not found
-                and child.kind == "function"
-                and not anonymous_function_is_renderable(child) then
-                found = true
-            end
-        end
-    )
-    return found
-end
-
-local function exps_contain_unrenderable_anonymous_function(
-    exps: {parser.Node}
-): boolean
-    for _, exp in ipairs(exps) do
-        if node_contains_unrenderable_anonymous_function(exp) then
-            return true
-        end
-    end
-    return false
-end
-
-local function exps_contain_multiline_table(exps: {parser.Node}): boolean
-    for _, exp in ipairs(exps) do
-        if exp.kind == "literal_table"
-            and not exp.trailing_comma
-            and ast_traversal.has_multiline_descendant(exp) then
-            return true
-        end
-    end
-    return false
 end
 
 local function top_level_block_has_leading_prelude(
@@ -149,100 +97,6 @@ local function top_level_block_has_leading_prelude(
             and line_str:match("^%s*%-%-") == nil then
             return true
         end
-    end
-
-    return false
-end
-
-local function local_type_is_ast_renderable(stmt: parser.Node): boolean
-    if stmt.value == nil then
-        return false
-    end
-    if stmt.value.kind ~= "newtype" then
-        return node_is_single_line(stmt)
-    end
-    if stmt.value.newtype == nil then
-        return false
-    end
-    local def = stmt.value.newtype.def
-    if def == nil then
-        return false
-    end
-    if def is parser.GenericType then
-        def = def.t
-        if def == nil then
-            return false
-        end
-    end
-    if def.typename ~= "record" and def.typename ~= "interface" then
-        return true
-    end
-
-    local record_like = def as parser.RecordLikeType
-    if record_like.meta_field_order ~= nil and #record_like.meta_field_order > 0 then
-        if def.typename ~= "interface" then
-            return false
-        end
-        if #record_like.meta_field_order ~= 1
-            or record_like.meta_field_order[1] ~= "__is" then
-            return false
-        end
-        local where_function = record_like.meta_fields["__is"]
-        if where_function == nil then
-            return false
-        end
-    end
-
-    return true
-end
-
-local function stmt_is_ast_renderable(stmt: parser.Node): boolean
-    if stmt.kind == "return" then
-        return stmt.exps == nil
-            or not exps_contain_unrenderable_anonymous_function(stmt.exps)
-    elseif stmt.kind == "assignment" then
-        return not exps_contain_unrenderable_anonymous_function(stmt.exps)
-    elseif stmt.kind == "local_declaration" then
-        if stmt.exps == nil then
-            return true
-        end
-        return not exps_contain_unrenderable_anonymous_function(stmt.exps)
-            and not exps_contain_multiline_table(stmt.exps)
-    elseif stmt.kind == "local_type" then
-        return local_type_is_ast_renderable(stmt)
-    elseif stmt.kind == "op" then
-        if stmt.op ~= nil and stmt.op.op == "@funcall" then
-            return not node_contains_unrenderable_anonymous_function(stmt)
-        end
-        return node_is_single_line(stmt)
-            and not node_contains_unrenderable_anonymous_function(stmt)
-    elseif stmt.kind == "break" then
-        return true
-    elseif stmt.kind == "local_function"
-        or stmt.kind == "global_function"
-        or stmt.kind == "record_function" then
-        return stmt.args ~= nil
-    elseif stmt.kind == "if" and stmt.if_blocks ~= nil then
-        return true
-    elseif stmt.kind == "while" and stmt.exp ~= nil then
-        return node_is_single_line(stmt.exp)
-    elseif stmt.kind == "fornum" and stmt.from ~= nil and stmt.to ~= nil then
-        if not node_is_single_line(stmt.from) then
-            return false
-        end
-        if not node_is_single_line(stmt.to) then
-            return false
-        end
-        if stmt.step ~= nil and not node_is_single_line(stmt.step) then
-            return false
-        end
-        return true
-    elseif stmt.kind == "forin" then
-        return true
-    elseif stmt.kind == "repeat" and stmt.exp ~= nil then
-        return node_is_single_line(stmt.exp)
-    elseif stmt.kind == "do" then
-        return true
     end
 
     return false
@@ -340,15 +194,6 @@ local function build_block_layout(
             statement_layout.verbatim_lines = collect_verbatim_lines(
                 source_lines, stmt, stmt_end, previous_end or 0
             )
-        else
-            if not stmt_is_ast_renderable(stmt) then
-                fmt_logger.info(
-                    "[structural] blocked at line %s: %s has unsafe source shape",
-                    tostring(stmt.y),
-                    stmt.kind
-                )
-                return nil
-            end
         end
 
         if stmt.body ~= nil then

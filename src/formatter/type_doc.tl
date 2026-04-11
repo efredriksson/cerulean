@@ -2,7 +2,15 @@ local doc = require("formatter.doc")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
 
-local type_doc = {}
+local render_return: function(parser.TupleType): doc.Doc
+
+local function arg_name_doc(arg_name: string): doc.Doc
+    if arg_name ~= nil then
+        return doc.text(arg_name .. ": ")
+    else
+        return doc.text("")
+    end
+end
 
 local function type_doc_render(type_def: parser.Type): doc.Doc
     if type_def is parser.NominalType then
@@ -57,6 +65,22 @@ local function type_doc_render(type_def: parser.Type): doc.Doc
         )
     elseif type_def is parser.TypeVarType then
         return doc.text(type_def.typevar)
+    elseif type_def is parser.FunctionType then
+        local arg_docs: {doc.Doc} = {}
+        local argnames = type_def.args.argnames or {}
+        for index, arg_type in ipairs(type_def.args.tuple) do
+            table.insert(
+                arg_docs,
+                doc.concat({arg_name_doc(argnames[index]), type_doc_render(arg_type)})
+            )
+        end
+        local parts: {doc.Doc} = {
+            doc.text("function("),
+            render_builders.build_separated_docs(arg_docs, ", "),
+            doc.text(")"),
+            render_return(type_def.rets),
+        }
+        return doc.concat(parts)
     elseif parser.simple_types[type_def.typename] then
         return doc.text(type_def.typename)
     end
@@ -68,6 +92,8 @@ local function type_doc_render(type_def: parser.Type): doc.Doc
     assert(false, "unhandled type: " .. tostring(type_def.typename))
 end
 
+local type_doc = {}
+
 function type_doc.render(type_def: parser.Type): doc.Doc
     local type_doc_res = type_doc_render(type_def)
     if type_def.paren then
@@ -75,6 +101,17 @@ function type_doc.render(type_def: parser.Type): doc.Doc
     end
 
     return type_doc_res
+end
+
+render_return = function(type_def: parser.TupleType): doc.Doc
+    if type_def == nil or #type_def.tuple == 0 then
+        return doc.text("")
+    end
+    return doc.concat({doc.text(": "), type_doc.render(type_def)})
+end
+
+function type_doc.render_return(type_def: parser.TupleType): doc.Doc
+    return render_return(type_def)
 end
 
 return type_doc
