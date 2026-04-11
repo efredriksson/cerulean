@@ -85,7 +85,7 @@ end
 local function top_level_block_has_leading_prelude(
     block: parser.Node, lines: {string}
 ): boolean
-    if block.x ~= 1 or #block == 0 then
+    if #block == 0 then
         return false
     end
 
@@ -236,10 +236,6 @@ local function block_is_structurally_eligible(
     if #block == 0 then
         return true
     end
-    if top_level_block_has_leading_prelude(block, lines) then
-        fmt_logger.info("[structural] blocked: top-level block has leading prelude")
-        return false
-    end
 
     for _, stmt in ipairs(block) do
         local stmt_end = max_source_line(stmt)
@@ -286,6 +282,11 @@ function layout_analysis.analyze_block(
 ): AnalysisResult
     local block_layout = build_block_layout(block, fmt_off_regions, source_lines)
     if block_layout == nil then
+        return AnalysisResult.new(false, nil)
+    end
+
+    if top_level_block_has_leading_prelude(block, source_lines) then
+        fmt_logger.info("[structural] blocked: top-level block has leading prelude")
         return AnalysisResult.new(false, nil)
     end
 

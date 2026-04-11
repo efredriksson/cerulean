@@ -58,7 +58,7 @@ local record RenderState
     current_line: string
     column: integer
     max_width: integer
-    broken_groups: {integer:boolean}
+    broken_groups: {integer: boolean}
     line_suffixes: {RenderCommand}
     marked_column: integer
 end

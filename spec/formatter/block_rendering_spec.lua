@@ -63,6 +63,16 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("reindents a top-level do block (body starts at column 1)", helpers.format([[
+         do
+           local x = 1 +  2
+         end
+      ]], [[
+         do
+             local x = 1 + 2
+         end
+      ]]))
+
       it("reindents a clean repeat block with wrong space indentation", helpers.format([[
          local function f()
            repeat
@@ -578,6 +588,16 @@ describe("formatter structural block rendering", function()
              x: number
              y: number
              metamethod __tostring: function(Point): string
+         end
+      ]]))
+
+      it("preserves and formats optional arguments in function declarations", helpers.format([[
+         local record A
+            f:  function(B,   ? C):  string
+         end
+      ]], [[
+         local record A
+             f: function(B, ? C): string
          end
       ]]))
 

@@ -4,26 +4,33 @@ local render_builders = require("formatter.render_builders")
 
 local render_return: function(parser.TupleType): doc.Doc
 
-local function arg_name_doc(arg_name: string): doc.Doc
+local function arg_name_doc(arg_name: string, is_optional: boolean): doc.Doc
     if arg_name ~= nil then
-        return doc.text(arg_name .. ": ")
+        local optional_str = is_optional and "?: " or ": "
+        return doc.text(arg_name .. optional_str)
     else
-        return doc.text("")
+        local optional_str = is_optional and "? " or ""
+        return doc.text(optional_str)
     end
+end
+
+local function is_optional_arg(type_def: parser.FunctionType, index: integer): boolean
+    local min_arity = type_def.min_arity or #type_def.args.tuple
+    local is_variadic_tail = type_def.args.is_va
+
+    return index > min_arity
+        and not (is_variadic_tail and index == #type_def.args.tuple)
 end
 
 local function type_doc_render(type_def: parser.Type): doc.Doc
     if type_def is parser.NominalType then
         local parts: {doc.Doc} = {doc.text(table.concat(type_def.names, "."))}
         if type_def.typevals ~= nil and #type_def.typevals > 0 then
-            local typevals: {string} = {}
+            table.insert(parts, doc.text("<"))
             for _, typeval in ipairs(type_def.typevals) do
-                if typeval.source_text == nil or typeval.source_text == "" then
-                    return nil
-                end
-                table.insert(typevals, typeval.source_text)
+                table.insert(parts, type_doc_render(typeval))
             end
-            table.insert(parts, doc.text("<" .. table.concat(typevals, ", ") .. ">"))
+            table.insert(parts, doc.text(">"))
         end
         return doc.concat(parts)
     elseif type_def is parser.ArrayType then
@@ -69,10 +76,10 @@ local function type_doc_render(type_def: parser.Type): doc.Doc
         local arg_docs: {doc.Doc} = {}
         local argnames = type_def.args.argnames or {}
         for index, arg_type in ipairs(type_def.args.tuple) do
-            table.insert(
-                arg_docs,
-                doc.concat({arg_name_doc(argnames[index]), type_doc_render(arg_type)})
+            local arg_name = arg_name_doc(
+                argnames[index], is_optional_arg(type_def, index)
             )
+            table.insert(arg_docs, doc.concat({arg_name, type_doc_render(arg_type)}))
         end
         local parts: {doc.Doc} = {
             doc.text("function("),
@@ -81,12 +88,12 @@ local function type_doc_render(type_def: parser.Type): doc.Doc
             render_return(type_def.rets),
         }
         return doc.concat(parts)
+    elseif type_def is parser.TypeDeclType then
+        assert(false, "implementation error, does not support enum/interface/...")
+    elseif type_def is parser.TupleTableType then
+        return doc.text(type_def.source_text)
     elseif parser.simple_types[type_def.typename] then
         return doc.text(type_def.typename)
-    end
-
-    if type_def.source_text ~= nil and type_def.source_text ~= "" then
-        return doc.text(type_def.source_text)
     end
 
     assert(false, "unhandled type: " .. tostring(type_def.typename))

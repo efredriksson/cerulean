@@ -1,6 +1,5 @@
 -- Adapted from tl.tl (the teal-lang project), version 0.24.8.
 -- This is a typed copy of the tl parser. It will be simplified over time.
-
 local tl = require("tl")
 
 local type Error = tl.Error
@@ -557,85 +556,85 @@ local type Comment = parser.Comment
 local type Operator = parser.Operator
 
 local enum FactType
-   "is"
-   "=="
-   "not"
-   "and"
-   "or"
-   "truthy"
+    "is"
+    "=="
+    "not"
+    "and"
+    "or"
+    "truthy"
 end
 
-local interface Fact
-   where self.fact
-
-   fact: FactType
-   w: Where
-   no_infer: boolean
+local interface Fact where self.fact
+    fact: FactType
+    w: Where
+    no_infer: boolean
 end
 
 local enum KeyParsed
-   "short"
-   "long"
-   "implicit"
+    "short"
+    "long"
+    "implicit"
 end
 
 -- ── pre-parser functions ─────────────────────────────────────────────────────
-
 local last_typeid = 0
 
 local function new_typeid(): integer
-   last_typeid = last_typeid + 1
-   return last_typeid
+    last_typeid = last_typeid + 1
+    return last_typeid
 end
 
 -- fmt: off
 local type_mt: metatable<Type> = {
     __tostring = function(_t: Type): string return "?" end,
 }
--- fmt: on
 
+-- fmt: on
 local function a_type<T is Type>(w: Where, typename: TypeName, t: T): T
-   t.typeid = new_typeid()
-   t.f = w.f
-   t.x = w.x
-   t.y = w.y
-   t.typename = typename
-   do
-      local ty: Type = t
-      setmetatable(ty, type_mt)
-   end
-   return t
+    t.typeid = new_typeid()
+    t.f = w.f
+    t.x = w.x
+    t.y = w.y
+    t.typename = typename
+    do
+        local ty: Type = t
+        setmetatable(ty, type_mt)
+    end
+    return t
 end
 
 local an_operator: function(Node, integer, string): Operator
 
 local function clear_redundant_errors(errors: {Error})
-   local redundant: {integer} = {}
-   local lastx, lasty = 0, 0
-   for i, err in ipairs(errors) do
-      err.i = i
-   end
-   table.sort(errors, function(a: Error, b: Error): boolean
-      local af = assert(a.filename)
-      local bf = assert(b.filename)
-      return af < bf
-             or (af == bf and (a.y < b.y
-             or (a.y == b.y and (a.x < b.x
-             or (a.x == b.x and (a.i < b.i))))))
-   end)
-   for i, err in ipairs(errors) do
-      err.i = nil
-      if err.x == lastx and err.y == lasty then
-         table.insert(redundant, i)
-      end
-      lastx, lasty = err.x, err.y
-   end
-   for i = #redundant, 1, -1 do
-      table.remove(errors, redundant[i])
-   end
+    local redundant: {integer} = {}
+    local lastx, lasty = 0, 0
+    for i, err in ipairs(errors) do
+        err.i = i
+    end
+    table.sort(
+        errors,
+        function(a: Error, b: Error): boolean
+            local af = assert(a.filename)
+            local bf = assert(b.filename)
+            return af < bf
+                or (af == bf
+                and (a.y < b.y
+                or (a.y == b.y and (a.x < b.x or (a.x == b.x and (a.i < b.i))))))
+        end
+    )
+    for i, err in ipairs(errors) do
+        err.i = nil
+        if err.x == lastx and err.y == lasty then
+            table.insert(redundant, i)
+        end
+        lastx, lasty = err.x, err.y
+    end
+    for i = #redundant, 1, -1 do
+        table.remove(errors, redundant[i])
+    end
 end
 
-local simple_types: {TypeName:boolean} = {
+local simple_types: {TypeName: boolean} = {
     ["nil"] = true,
     ["any"] = true,
     ["number"] = true,
@@ -647,22 +646,23 @@ local simple_types: {TypeName:boolean} = {
 }
 
 local function node_is_require_call(n: Node): string
-   if not (n.e1 and n.e2) then
-      return nil
-   end
-   if n.op and n.op.op == "." then
-      return node_is_require_call(n.e1)
-   elseif n.e1.kind == "variable" and n.e1.tk == "require"
-      and n.e2.kind == "expression_list" and #n.e2 == 1
-      and n.e2[1].kind == "string"
-   then
-      return n.e2[1].conststr
-   end
-   return nil
+    if not (n.e1 and n.e2) then
+        return nil
+    end
+    if n.op and n.op.op == "." then
+        return node_is_require_call(n.e1)
+    elseif n.e1.kind == "variable"
+        and n.e1.tk == "require"
+        and n.e2.kind == "expression_list"
+        and #n.e2 == 1
+        and n.e2[1].kind == "string" then
+        return n.e2[1].conststr
+    end
+    return nil
 end
 
 local function node_is_funcall(node: Node): boolean
-   return node.kind == "op" and node.op.op == "@funcall"
+    return node.kind == "op" and node.op.op == "@funcall"
 end
 
 local attributes <total>: {Attribute: boolean} = {
@@ -670,92 +670,71 @@ local attributes <total>: {Attribute: boolean} = {
     ["close"] = true,
     ["total"] = true,
 }
-local is_attribute <const>: {string:boolean} = attributes as {string:boolean}
+local is_attribute <const>: {string: boolean} = attributes as {string: boolean}
 
 -- ── Parser block ─────────────────────────────────────────────────────────────
-
 local record ParseState
-   tokens: {Token}
-   errs: {Error}
-   filename: string
-   end_alignment_hint: Error
-   source_lines: {string}
-
-   required_modules: {string}
+    tokens: {Token}
+    errs: {Error}
+    filename: string
+    end_alignment_hint: Error
+    source_lines: {string}
+    required_modules: {string}
 end
 
 local enum ParseTypeListMode
-   "rets"
-   "decltuple"
-   "casttype"
+    "rets"
+    "decltuple"
+    "casttype"
 end
 
 local enum BodyTypeName
-   "interface"
-   "record"
-   "enum"
+    "interface"
+    "record"
+    "enum"
 end
 
 local enum FunctionKind
-   "global"
-   "record"
+    "global"
+    "record"
 end
 
 local enum SeparatorMode
-   "sep"
-   "term"
+    "sep"
+    "term"
 end
 
 local record ArgumentInfo
-   i: integer
-   type: Type
-   name: string
-   is_va: boolean
-   is_self: boolean
-   opt: boolean
+    i: integer
+    type: Type
+    name: string
+    is_va: boolean
+    is_self: boolean
+    opt: boolean
 end
 
-local parse_type_list: function(
-    ParseState,
-    integer,
-    ParseTypeListMode
-): integer, TupleType
-local parse_typeargs_if_any: function(
-    ps: ParseState,
-    i: integer
-): integer, {TypeArgType}
+local parse_type_list: function(ParseState, integer, ParseTypeListMode): integer, TupleType
+
+local parse_typeargs_if_any: function(ps: ParseState, i: integer): integer, {TypeArgType}
+
 local parse_expression: function(ParseState, integer): integer, Node, integer
-local parse_expression_and_tk: function(
-    ps: ParseState,
-    i: integer,
-    tk: string
-): integer, Node
+local parse_expression_and_tk: function(ps: ParseState, i: integer, tk: string): integer, Node
+
 local parse_statements: function(ParseState, integer, ? boolean): integer, Node
 local parse_argument_list: function(ParseState, integer): integer, Node, integer
-local parse_argument_type_list: function(
-    ParseState,
-    integer
-): integer, TupleType, boolean, integer
+local parse_argument_type_list: function(ParseState, integer): integer, TupleType, boolean, integer
+
 local parse_type: function(ParseState, integer): integer, FirstClassType, integer
-local parse_type_declaration: function(
-    ps: ParseState,
-    i: integer,
-    node_name: NodeKind
-): integer, Node
+local parse_type_declaration: function(ps: ParseState, i: integer, node_name: NodeKind): integer, Node
+
 local parse_interface_name: function(ps: ParseState, i: integer): integer, Type, integer
 
 local type ParseBody = function(ps: ParseState, i: integer, def: Type): integer, boolean
-local parse_enum_body: function(
-    ps: ParseState,
-    i: integer,
-    def: EnumType
-): integer, boolean
-local parse_record_body: function(
-    ps: ParseState,
-    i: integer,
-    def: RecordLikeType
-): integer, boolean
-local parse_type_body_fns: {BodyTypeName:ParseBody}
+local parse_enum_body: function(ps: ParseState, i: integer, def: EnumType): integer, boolean
+
+local parse_record_body: function(ps: ParseState, i: integer, def: RecordLikeType): integer, boolean
+
+local parse_type_body_fns: {BodyTypeName: ParseBody}
 
 do
 -- fmt: off
@@ -3292,7 +3271,9 @@ local function parse_local(ps: ParseState, i: integer): integer, Node
       i, node = parse_local_macroexp(ps, i)
    elseif parse_type_body_fns[tn as BodyTypeName] and ps.tokens[i + 2].kind == "identifier" then
       i, node = parse_type_constructor(ps, i, "local_type", tn as BodyTypeName)
-      node.end_comments = get_attached_comments(ps.tokens[i - 1])
+      if node then
+         node.end_comments = get_attached_comments(ps.tokens[i - 1])
+      end
    else
       i, node = parse_variable_declarations(ps, i + 1, "local_declaration")
    end
@@ -3518,7 +3499,6 @@ parser.parse = function(
    )
    return node, errs, required_modules
 end
-
 end
 
 parser.simple_types = simple_types

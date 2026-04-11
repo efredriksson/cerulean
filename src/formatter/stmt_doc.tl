@@ -212,7 +212,7 @@ local function render_record_like_body_doc(
                 end
             end
             record_items:add(
-                doc.text(field_name .. ": " .. field_type.source_text),
+                doc.concat({doc.text(field_name .. ": "), type_doc.render(field_type)}),
                 render_builders.node_end_line(field_type as parser.Node),
                 parser_comments,
                 false
