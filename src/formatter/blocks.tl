@@ -44,7 +44,10 @@ local function collect(nodes: {tl.Node}, result: {blocks.Block})
     end
 end
 
-local function combine_errors(lex_errors: {tl.Error}, parse_errors: {tl.Error}): {tl.Error}
+local function combine_errors(
+    lex_errors: {tl.Error},
+    parse_errors: {tl.Error}
+): {tl.Error}
     local combined: {tl.Error} = {}
     for _, err in ipairs(lex_errors) do table.insert(combined, err) end
     for _, err in ipairs(parse_errors) do table.insert(combined, err) end
