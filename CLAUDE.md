@@ -95,13 +95,16 @@ table.sort(cells, distance_to_corner)
 ```
 
 **Every new `record` type must have a `.new()` constructor.**
-Do not construct records ad-hoc by setting fields inline at the call site. Define a `RecordName.new(...)` function that initialises all fields and returns the fully constructed value.
+Do not construct records ad-hoc by setting fields inline at the call site. Define a `RecordName.new(...)` function that initialises all fields and returns the fully constructed value. Always use `setmetatable({}, { __index = RecordName })` as the base, even for records with no methods, to keep construction consistent.
 
 **Avoid the ternary idiom for non-trivial conditions.**
 `x and a or b` is acceptable only for genuinely simple one-liners. For anything with logic or multiple parts, use `if/elseif/end`.
 
-**Comments explain why, not what — and must be concrete.**
-The code already says what is happening. A comment should explain why this logic exists and consider give the concrete scenario it handles. Avoid abstract labels; be explicit over implicit.
+**Prefer structure over comments.**
+Before writing a comment, ask whether the same clarity can be achieved by extracting a well-named function, choosing a more descriptive variable name, or modelling the code after what it actually represents. A name like `split_preserving_trailing_newline` communicates intent without a comment; a type named `Rewrite` tells you more than `FormatResult` ever could. Comments are a last resort, not a first instinct.
+
+**When a comment is necessary, explain why — concretely.**
+The code already says what is happening. A comment should explain why this logic exists and give the concrete scenario it handles. Avoid abstract labels; be explicit over implicit.
 
 **Never use `as` casts or `any` to work around type errors.**
 Do not cast with `as` or widen to `any` to make the type checker accept code. The only exception is repeating a cast pattern that already exists in the codebase for the same reason. Any new use requires explicit permission from the user — and it should be assumed permission will not be granted unless the circumstances are extraordinary.
