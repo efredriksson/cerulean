@@ -80,6 +80,8 @@ local record parser
         pvalue:                         string
         opt:                            boolean
         trailing_comma:                 boolean
+        end_comments:                   {Comment}
+        trailing_comment:               Comment
         debug_type:                     tl.Type
         is_self:                        boolean
         is_type_declaration:            boolean
@@ -88,9 +90,8 @@ local record parser
     end
 
     record Comment
-        x: integer
-        y: integer
-        text: string
+        is tl.LexerComment
+        blank_line_before: boolean
     end
 
     parse_program: function(
@@ -179,21 +180,6 @@ local enum KeyParsed
 end
 
 -- ── pre-parser functions ─────────────────────────────────────────────────────
-
--- table.move is Lua 5.3+; polyfill for Lua 5.1.
-local function resolve_table_move(): function(src: {any}, f: integer, e: integer, t: integer, dest: {any}): {any}
-   if (table as {string:any})["move"] then
-      return (table as {string:any})["move"] as function(src: {any}, f: integer, e: integer, t: integer, dest: {any}): {any}
-   end
-   return function(src: {any}, f: integer, e: integer, t: integer, dest: {any}): {any}
-      dest = dest or src
-      for i = f, e do
-         dest[t + (i - f)] = src[i]
-      end
-      return dest
-   end
-end
-local table_move = resolve_table_move()
 
 local last_typeid = 0
 
@@ -686,12 +672,19 @@ local function parse_table_value(ps: ParseState, i: integer): integer, Node, int
    return i, e
 end
 
+local get_attached_comments: function(token: Token): {Comment}
+local get_same_line_comment: function(token: Token, line: integer): Comment
+
 local function parse_table_item(
     ps: ParseState,
     i: integer,
     n?: integer
 ): integer, Node, integer
    local node = new_node(ps, i, "literal_table_item")
+   local comments = get_attached_comments(ps.tokens[i])
+   if comments then
+      node.comments = comments
+   end
    if ps.tokens[i].kind == "$EOF$" then
       return fail(ps, i, "unexpected eof")
    end
@@ -830,7 +823,9 @@ end
 
 local function parse_table_literal(ps: ParseState, i: integer): integer, Node
    local node = new_node(ps, i, "literal_table")
+   node.comments = get_attached_comments(ps.tokens[i])
    i, node = parse_bracket_list(ps, i, node, "{", "}", "term", parse_table_item)
+   node.end_comments = get_attached_comments(ps.tokens[i - 1])
    node.trailing_comma = #node > 0 and ps.tokens[i - 2].tk == ","
    return i, node
 end
@@ -1384,6 +1379,18 @@ do
             local args = new_node(ps, i, "expression_list")
             i, args = parse_bracket_list(ps, i, args, "(", ")", "sep", parse_expression)
 
+            -- Capture a comment that immediately follows the closing ')' on the
+            -- same line, but only for multi-line calls where ')' is on its own
+            -- line (args.yend > args.y). For single-line calls like `f() -- note`
+            -- the comment belongs to the surrounding statement, not the call.
+            local close_paren_line = ps.tokens[i - 1].y
+            if args.yend ~= nil and args.yend > args.y then
+               local same_line = get_same_line_comment(ps.tokens[i], close_paren_line)
+               if same_line ~= nil then
+                  args.trailing_comment = same_line
+               end
+            end
+
             if not after_valid_prefixexp(ps, e1, prev_i) then
                fail(ps, prev_i, "cannot call this expression")
                return i, failstore(ps, tkop, e1)
@@ -1490,6 +1497,7 @@ do
    end
 
    parse_expression = function(ps: ParseState, i: integer): integer, Node, integer
+      local comments = get_attached_comments(ps.tokens[i])
       local lhs: Node
       local istart = i
       i, lhs = P(ps, i)
@@ -1497,6 +1505,9 @@ do
          i, lhs = E(ps, i, lhs, 0)
       end
       if lhs then
+         if comments then
+            lhs.comments = comments
+         end
          return i, lhs, 0
       end
       if i == istart then
@@ -1784,8 +1795,6 @@ local function parse_function(
    return i, fn
 end
 
-local get_attached_comments: function(token: Token): {Comment}
-
 local function parse_if_block(
     ps: ParseState,
     i: integer,
@@ -2018,26 +2027,26 @@ local function store_field_in_record(
 ): boolean
    local field_order: {string}
    local fields: {string:Type}
-   local field_comments: {string:{{Comment}}}
+   local field_comments: {string:{{tl.LexerComment}}}
    if meta then
-      field_order, fields, field_comments = def.meta_field_order, def.meta_fields, (def as {string:any})["meta_field_comments"] as {string:{{Comment}}}
+      field_order, fields, field_comments = def.meta_field_order, def.meta_fields, def.meta_field_comments
    else
-      field_order, fields, field_comments = def.field_order, def.fields, (def as {string:any})["field_comments"] as {string:{{Comment}}}
+      field_order, fields, field_comments = def.field_order, def.fields, def.field_comments
    end
 
    if comments and not field_comments then
       field_comments = {}
       if meta then
-         (def as {string:any})["meta_field_comments"] = field_comments
+         def.meta_field_comments = field_comments
       else
-         (def as {string:any})["field_comments"] = field_comments
+         def.field_comments = field_comments
       end
    end
 
    if not fields[field_name] then
       fields[field_name] = newt
       if comments then
-         field_comments[field_name] = {comments}
+         field_comments[field_name] = {comments as {tl.LexerComment}}
       end
       table.insert(field_order, field_name)
       return true
@@ -2055,7 +2064,7 @@ local function store_field_in_record(
                field_comments[field_name][idx] = {}
             end
          end
-         table.insert(field_comments[field_name], comments)
+         table.insert(field_comments[field_name], comments as {tl.LexerComment})
       elseif field_comments and field_comments[field_name] then
          table.insert(field_comments[field_name], {})
       end
@@ -2094,48 +2103,71 @@ local function set_declname(def: Type, declname: string)
    end
 end
 
+local function make_comment(lc: tl.LexerComment): Comment
+   return { x = lc.x, y = lc.y, text = lc.text, blank_line_before = false }
+end
+
 get_attached_comments = function(token: Token): {Comment}
-   if not (token as {string:any})["comments"] then
+   local token_comments = token.comments
+   if token_comments == nil or #token_comments == 0 then
       return nil
    end
-   local token_comments = (token as {string:any})["comments"] as {Comment}
 
-   local function is_long_comment(c: Comment): boolean
-      return c.text:match("^%-%-%[(=*)%[") ~= nil
+   local function is_long_comment(lc: tl.LexerComment): boolean
+      return lc.text:match("^%-%-%[(=*)%[") ~= nil
    end
-   local last_comment = token_comments[#token_comments]
 
-   if is_long_comment(last_comment) then
-      local _, newlines = string.gsub(last_comment.text, "\n", "")
-      local diff_y = token.y - last_comment.y - newlines
+   local last_lc = token_comments[#token_comments]
+
+   if is_long_comment(last_lc) then
+      local _, newlines = string.gsub(last_lc.text, "\n", "")
+      local diff_y = token.y - last_lc.y - newlines
       if diff_y >= 0 and diff_y <= 1 then
-         return {last_comment}
+         return { make_comment(last_lc) }
       else
          return nil
       end
    end
 
-   local diff_y = token.y - last_comment.y
-   if diff_y < 0 or diff_y > 1 then
+   local diff_y = token.y - last_lc.y
+   if diff_y < 0 then
       return nil
    end
+
    local first_n = 1
    for i = #token_comments, 2, -1 do
-      local prev = token_comments[i - 1]
-      if is_long_comment(prev) then
-         first_n = i
-         break
-      end
-      if token_comments[i].y - prev.y > 1 then
+      if is_long_comment(token_comments[i - 1]) then
          first_n = i
          break
       end
    end
 
-   local attached_comments =
-      table_move(token_comments, first_n, #token_comments, 1, {}) as {Comment}
+   local attached_comments: {Comment} = {}
+   for j = first_n, #token_comments do
+      table.insert(attached_comments, make_comment(token_comments[j]))
+   end
+
+   for i = 2, #attached_comments do
+      if attached_comments[i].y - attached_comments[i - 1].y > 1 then
+         attached_comments[i].blank_line_before = true
+      end
+   end
 
    return attached_comments
+end
+
+get_same_line_comment = function(token: Token, line: integer): Comment
+   local token_comments = token.comments
+   if token_comments == nil then
+      return nil
+   end
+   for i, lc in ipairs(token_comments) do
+      if lc.y == line then
+         table.remove(token_comments, i)
+         return make_comment(lc)
+      end
+   end
+   return nil
 end
 
 local function parse_nested_type(
@@ -2172,7 +2204,7 @@ local function parse_nested_type(
        v.tk,
        nt.newtype,
        def,
-       get_attached_comments((ps.tokens[istart] as {string:any}) as Token)
+       get_attached_comments(ps.tokens[istart])
    )
    return i
 end
@@ -2187,11 +2219,10 @@ parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, 
          def.enumset[name] = true
          local comments = get_attached_comments(ps.tokens[i - 1])
          if comments then
-            if not (def as {string:any})["value_comments"] then
-               (def as {string:any})["value_comments"] = {}
+            if not def.value_comments then
+               def.value_comments = {}
             end
-            local vc = (def as {string:any})["value_comments"] as {string:{Comment}}
-            vc[name] = comments
+            def.value_comments[name] = comments
          end
       end
    end
@@ -2848,6 +2879,7 @@ local function parse_local(ps: ParseState, i: integer): integer, Node
       i, node = parse_local_macroexp(ps, i)
    elseif parse_type_body_fns[tn as BodyTypeName] and ps.tokens[i + 2].kind == "identifier" then
       i, node = parse_type_constructor(ps, i, "local_type", tn as BodyTypeName)
+      node.end_comments = get_attached_comments(ps.tokens[i - 1])
    else
       i, node = parse_variable_declarations(ps, i + 1, "local_declaration")
    end
@@ -2952,12 +2984,13 @@ local needs_local_or_global: {string : function(
 }
 
 local function store_unattached_comments(node: Node, token: Token, item: Node)
-   local token_comments = (token as {string:any})["comments"] as {Comment}
+   local token_comments = token.comments
+   if token_comments == nil then return end
    for _, tc in ipairs(token_comments) do
       local is_attached = false
       if item.comments then
          for _, nc in ipairs(item.comments) do
-            if tc == nc then
+            if tc.y == nc.y and tc.x == nc.x and tc.text == nc.text then
                is_attached = true
                break
             end
@@ -2967,7 +3000,7 @@ local function store_unattached_comments(node: Node, token: Token, item: Node)
          if not node.unattached_comments then
             node.unattached_comments = {}
          end
-         table.insert(node.unattached_comments, tc)
+         table.insert(node.unattached_comments, make_comment(tc))
       else
          break
       end
@@ -3011,7 +3044,7 @@ parse_statements = function(
       i, item = fn(ps, i)
 
       if item then
-         if toplevel and (token as {string:any})["comments"] then
+         if toplevel and token.comments ~= nil then
             store_unattached_comments(node, token, item)
          end
          table.insert(node, item)
@@ -3023,6 +3056,7 @@ parse_statements = function(
       end
    end
 
+   node.end_comments = get_attached_comments(ps.tokens[i])
    end_at(node, ps.tokens[i])
    return i, node
 end

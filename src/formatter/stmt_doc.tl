@@ -28,8 +28,7 @@ local function function_with_indent(
             doc.line(""),
             body,
         })),
-        doc.line(""),
-        doc.text("end"),
+        doc.close("end"),
     })
 end
 
@@ -44,6 +43,19 @@ local function block_with_indent(
         })),
         doc.line(""),
         footer,
+    })
+end
+
+local function block_with_close(
+    header: doc.Doc, body: doc.Doc, close_text: string
+): doc.Doc
+    return doc.concat({
+        header,
+        doc.indent(4, doc.concat({
+            doc.line(""),
+            body,
+        })),
+        doc.close(close_text),
     })
 end
 
@@ -127,6 +139,22 @@ local function render_local_declaration_doc(stmt: parser.Node): doc.Doc | nil
         end
     end
     return doc.concat({doc.text(prefix .. " = "), doc.concat(exps)})
+end
+
+local record RecordItemDoc
+    item: parser.Node
+    type_text: string
+    comment: tl.LexerComment
+end
+
+function RecordItemDoc.new(
+    item: parser.Node, type_text: string, comment: tl.LexerComment
+): RecordItemDoc
+    local self: RecordItemDoc = setmetatable({}, {__index = RecordItemDoc})
+    self.item = item
+    self.type_text = type_text
+    self.comment = comment
+    return self
 end
 
 local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
@@ -234,25 +262,85 @@ local function render_local_record_doc(stmt: parser.Node): doc.Doc | nil
         table.insert(header_parts, build_exp_doc(where_macroexp.exp))
     end
 
-    local field_docs: {doc.Doc} = {}
-    for i, field_name in ipairs(record_def.field_order) do
+    local record_lines: {RecordItemDoc} = {}
+    local previous_item: RecordItemDoc | nil = nil
+
+    local function comment_after_prev_item(comment: tl.LexerComment): RecordItemDoc | nil
+        if previous_item is nil then
+            return nil
+        end
+
+        local previous_item_line = previous_item.item.yend or previous_item.item.y
+        if previous_item_line == comment.y then
+            return previous_item
+        end
+
+        return nil
+    end
+
+    for _, field_name in ipairs(record_def.field_order) do
         local field_type = record_def.fields[field_name]
         if field_type == nil or field_type.source_text == nil then
             return nil
         end
-        table.insert(field_docs, doc.text(field_name .. ": " .. field_type.source_text))
-        if i < #record_def.field_order then
+
+        local field_comments = (record_def.field_comments or {})[field_name] or {}
+        for _, c1 in ipairs(field_comments) do
+            for _, c2 in ipairs(c1) do
+                local attacted_to_item = comment_after_prev_item(c2)
+                if not (attacted_to_item is nil) then
+                    if not (attacted_to_item is nil) then
+                        attacted_to_item.comment = c2
+                    else
+                        table.insert(record_lines, RecordItemDoc.new(nil, nil, c2))
+                    end
+                end
+            end
+        end
+
+        local field_text = field_name .. ": " .. field_type.source_text
+        local record_item = RecordItemDoc.new(
+            field_type as parser.Node, field_text, nil
+        )
+        table.insert(record_lines, record_item)
+        previous_item = record_item
+    end
+
+    for _, comment in ipairs(stmt.end_comments or {}) do
+        local attacted_to_item = comment_after_prev_item(comment)
+       -- TODO: code duplication!
+        if not (attacted_to_item is nil) then
+            attacted_to_item.comment = comment
+        else
+            table.insert(record_lines, RecordItemDoc.new(nil, nil, comment))
+        end
+    end
+
+    local field_docs: {doc.Doc} = {}
+
+    for _, record_line in ipairs(record_lines) do
+        if record_line.comment ~= nil and record_line.item == nil then
+            table.insert(field_docs, doc.text(record_line.comment.text))
+            table.insert(field_docs, doc.hardline())
+        elseif record_line.comment == nil and record_line.item ~= nil then
+            table.insert(field_docs, doc.text(record_line.type_text))
+            table.insert(field_docs, doc.line(""))
+        elseif record_line.comment ~= nil and record_line.item ~= nil then
+            table.insert(
+                field_docs,
+                doc.text(record_line.type_text .. " " .. record_line.comment.text)
+            )
             table.insert(field_docs, doc.line(""))
         end
     end
+
     return doc.concat({
         doc.concat(header_parts),
         doc.indent(4, doc.concat({
             doc.line(""),
             doc.concat(field_docs),
         })),
-        doc.line(""),
-        doc.text("end"),
+        doc.close("end"),
     })
 end
 
@@ -426,8 +514,7 @@ local function render_if_doc(
         })))
     end
 
-    table.insert(parts, doc.line(""))
-    table.insert(parts, doc.text("end"))
+    table.insert(parts, doc.close("end"))
     return doc.concat(parts)
 end
 
@@ -456,7 +543,7 @@ local function render_while_doc(
     local header = doc.concat({
         doc.text("while "), build_exp_doc(node.exp), doc.text(" do")
     })
-    return block_with_indent(header, body_doc, doc.text("end"))
+    return block_with_close(header, body_doc, "end")
 end
 
 local function render_fornum_doc(
@@ -492,9 +579,7 @@ local function render_fornum_doc(
         header = doc.concat({header, doc.text(", "), build_exp_doc(node.step)})
     end
 
-    return block_with_indent(
-        doc.concat({header, doc.text(" do")}), body_doc, doc.text("end")
-    )
+    return block_with_close(doc.concat({header, doc.text(" do")}), body_doc, "end")
 end
 
 local function render_forin_doc(
@@ -541,7 +626,7 @@ local function render_forin_doc(
         doc.concat(exps),
         doc.text(" do"),
     })
-    return block_with_indent(header, body_doc, doc.text("end"))
+    return block_with_close(header, body_doc, "end")
 end
 
 local function render_repeat_doc(
@@ -595,7 +680,7 @@ local function render_do_doc(
         return nil
     end
 
-    return block_with_indent(doc.text("do"), body_doc, doc.text("end"))
+    return block_with_close(doc.text("do"), body_doc, "end")
 end
 
 function stmt_doc.render_statement_doc(
