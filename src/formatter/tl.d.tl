@@ -564,18 +564,44 @@ local record tl
 
    check: function(Node, ? string, ? CheckOptions, ? Env): Result, string
    gen: function(string, ? Env, ? GenerateOptions): string, Result
-   generate: function(ast: Node, gen_target: GenTarget, opts?: GenerateOptions): string, string
+   generate: function(
+       ast: Node,
+       gen_target: GenTarget,
+       opts?: GenerateOptions
+   ): string, string
    get_token_at: function(tks: {Token}, y: integer, x: integer): string
    lex: function(input: string, filename: string): {Token}, {Error}
    load: function(string, ? string, ? LoadMode, ...: {any:any}): LoadFunction, string
    loader: function()
    new_env: function(? EnvOptions): Env, string
-   parse: function(input: string, filename: string, parse_lang?: ParseLang): Node, {Error}, {string}
-   parse_program: function(tokens: {Token}, errs: {Error}, filename?: string, parse_lang?: ParseLang): Node, {string}
+   parse: function(
+       input: string,
+       filename: string,
+       parse_lang?: ParseLang
+   ): Node, {Error}, {string}
+   parse_program: function(
+       tokens: {Token},
+       errs: {Error},
+       filename?: string,
+       parse_lang?: ParseLang
+   ): Node, {string}
    check_file: function(filename: string, env?: Env, fd?: FILE): (Result, string)
-   check_string: function(input: string, env?: Env, filename?: string, parse_lang?: ParseLang): Result
-   search_module: function(module_name: string, search_dtl: boolean): string, FILE, {string}
-   symbols_in_scope: function(tr: TypeReport, y: integer, x: integer, filename: string): {string:integer}
+   check_string: function(
+       input: string,
+       env?: Env,
+       filename?: string,
+       parse_lang?: ParseLang
+   ): Result
+   search_module: function(
+       module_name: string,
+       search_dtl: boolean
+   ): string, FILE, {string}
+   symbols_in_scope: function(
+       tr: TypeReport,
+       y: integer,
+       x: integer,
+       filename: string
+   ): {string:integer}
    target_from_lua_version: function(str: string): GenTarget
    version: function(): string
 
