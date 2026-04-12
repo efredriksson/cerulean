@@ -121,4 +121,62 @@ describe("formatter signature wrapping", function()
       end
    ]]))
 
+   it("wraps function type to multiple lines to fit it", helpers.format([[
+      local record graphics
+         draw: function(drawable: Drawable, quad: Quad, x: number, y: number, r?: number, sx?: number, sy?: number, ox?: number, oy?: number, kx?: number, ky?: number)
+      end
+   ]], [[
+      local record graphics
+          draw: function(
+              drawable: Drawable,
+              quad: Quad,
+              x: number,
+              y: number,
+              r?: number,
+              sx?: number,
+              sy?: number,
+              ox?: number,
+              oy?: number,
+              kx?: number,
+              ky?: number
+          )
+      end
+   ]]))
+
+   it("wraps multiple function types without adding empty lines", helpers.format([[
+      local record graphics
+         draw: function(drawable: Drawable, quad: Quad, x: number, y: number, r?: number, sx?: number, sy?: number, ox?: number, oy?: number, kx?: number, ky?: number)
+         draw_fast: function(drawable: Drawable, quad: Quad, x: number, y: number, r?: number, sx?: number, sy?: number, ox?: number, oy?: number, kx?: number, ky?: number)
+      end
+   ]], [[
+      local record graphics
+          draw: function(
+              drawable: Drawable,
+              quad: Quad,
+              x: number,
+              y: number,
+              r?: number,
+              sx?: number,
+              sy?: number,
+              ox?: number,
+              oy?: number,
+              kx?: number,
+              ky?: number
+          )
+          draw_fast: function(
+              drawable: Drawable,
+              quad: Quad,
+              x: number,
+              y: number,
+              r?: number,
+              sx?: number,
+              sy?: number,
+              ox?: number,
+              oy?: number,
+              kx?: number,
+              ky?: number
+          )
+      end
+   ]]))
+
 end)

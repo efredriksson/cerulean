@@ -49,8 +49,8 @@ local function build_prefix_doc(vars_text: string, stmt: parser.Node): doc.Doc
     return doc.concat({doc.text(vars_text .. ": "), type_doc.render(stmt.decltuple)})
 end
 
-function inline_stmt_doc.render_local_declaration_doc(
-    ctx: RenderContext, stmt: parser.Node
+function inline_stmt_doc.render_declaration_doc(
+    ctx: RenderContext, stmt: parser.Node, keyword: string
 ): doc.Doc
     local vars: {string} = {}
 
@@ -62,7 +62,9 @@ function inline_stmt_doc.render_local_declaration_doc(
         table.insert(vars, var_text)
     end
 
-    local prefix_doc = build_prefix_doc("local " .. table.concat(vars, ", "), stmt)
+    local prefix_doc = build_prefix_doc(
+        keyword .. " " .. table.concat(vars, ", "), stmt
+    )
 
     if stmt.exps == nil or #stmt.exps == 0 then
         return prefix_doc

@@ -157,6 +157,16 @@ local record parser
         blank_line_before: boolean
     end
 
+   record FieldEntry
+      name: string
+      the_type: Type
+      node: Node
+      comments: {Comment}
+      is_meta: boolean
+      line: integer
+      new: function(string, Type, Node, {Comment}, boolean, integer): FieldEntry
+   end
+
    interface RecordLikeType
       is StructuralType, HasDeclName, ArrayLikeType
       where self.fields
@@ -171,6 +181,7 @@ local record parser
       meta_field_order: {string}
       meta_field_comments: {string: {{Comment}}}
       is_userdata: boolean
+      field_entries: {FieldEntry}
    end
 
    record RecordType
@@ -274,6 +285,7 @@ local record parser
       args: TupleType
       rets: TupleType
       macroexp: Node
+      yend: integer
    end
 
    interface AggregateType
@@ -554,6 +566,24 @@ local type SelfType = parser.SelfType
 local type TokenKind = tl.TokenKind
 local type Comment = parser.Comment
 local type Operator = parser.Operator
+
+function parser.FieldEntry.new(
+    name: string,
+    the_type: parser.Type,
+    node: parser.Node,
+    comments: {parser.Comment},
+    is_meta: boolean,
+    line: integer
+): parser.FieldEntry
+    local self = setmetatable({}, {__index = parser.FieldEntry}) as parser.FieldEntry
+    self.name = name
+    self.the_type = the_type
+    self.node = node
+    self.comments = comments
+    self.is_meta = is_meta
+    self.line = line
+    return self
+end
 
 local enum FactType
     "is"
@@ -1332,6 +1362,7 @@ local function parse_function_type(
       typ.is_method = false
       typ.min_arity = 0
    end
+   typ.yend = ps.tokens[i - 1].y
 
    if typeargs then
       return i, new_generic(ps, i, typeargs, typ)
@@ -2438,6 +2469,12 @@ local function store_field_in_record(
 
    nodes[field_name] = node
 
+   local entry_line = node ~= nil and node.y or newt.y
+   table.insert(
+         def.field_entries,
+         parser.FieldEntry.new(field_name, newt, node, comments or {}, meta ~= nil, entry_line)
+   )
+
    if not fields[field_name] then
       fields[field_name] = newt
       if comments then
@@ -2774,6 +2811,7 @@ parse_record_body = function(
    def.fields = {}
    def.nodes = {}
    def.field_order = {}
+   def.field_entries = {}
 
    if ps.tokens[i].tk == "{" then
       local atype: Type

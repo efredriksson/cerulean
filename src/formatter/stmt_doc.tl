@@ -84,23 +84,20 @@ local function render_assignment_doc(ctx: RenderContext, stmt: parser.Node): doc
     return inline_stmt_doc.render_assignment_doc(ctx, stmt)
 end
 
-local function render_local_declaration_doc(
-    ctx: RenderContext, stmt: parser.Node
-): doc.Doc | nil
-    return inline_stmt_doc.render_local_declaration_doc(ctx, stmt)
-end
-
 local function render_enum_doc(
-    stmt: parser.Node, def: parser.EnumType, nested?: boolean
+    stmt: parser.Node, def: parser.EnumType, nested?: boolean, keyword?: string
 ): doc.Doc
-    local header: doc.Doc
-    if nested then
-        header = doc.text("enum " .. def.declname)
-    elseif stmt.is_type_declaration then
-        header = doc.text("local type " .. def.declname .. " = enum")
-    else
-        header = doc.text("local enum " .. def.declname)
+    local function build_header(): doc.Doc
+        local kw = keyword or "local"
+        if nested then
+            return doc.text("enum " .. def.declname)
+        elseif stmt.is_type_declaration then
+            return doc.text(kw .. " type " .. def.declname .. " = enum")
+        else
+            return doc.text(kw .. " enum " .. def.declname)
+        end
     end
+    local header = build_header()
 
     local enum_items = render_builders.CommentLineItems.new()
     local previous_item_line = stmt.y
@@ -185,65 +182,83 @@ local function render_interface_list_parts(record_def: parser.RecordLikeType): {
     return parts
 end
 
+local function field_entry_end_line(entry: parser.FieldEntry): integer
+    if entry.node ~= nil then
+        return entry.node.yend or entry.node.y
+    end
+    return render_builders.node_end_line(entry.the_type as parser.Node)
+end
+
 local function render_record_like_body_doc(
     ctx: RenderContext,
     node: parser.Node,
     header_parts: {doc.Doc},
     record_def: parser.RecordLikeType
 ): doc.Doc | nil
+    local entries = record_def.field_entries
     local record_items = render_builders.CommentLineItems.new()
-    for _, field_name in ipairs(record_def.field_order) do
-        local field_type = record_def.fields[field_name]
-        if field_type == nil or field_type.source_text == nil then
-            local nested_node = record_def.nodes[field_name]
-            if nested_node == nil or nested_node.newtype == nil then
+    for index, entry in ipairs(entries) do
+        local next_entry = entries[index + 1]
+        local preserve_blank_line_after = false
+        if next_entry ~= nil then
+            local end_line = field_entry_end_line(entry)
+            local next_comments = next_entry.comments
+            local next_first_line: integer
+            if #next_comments > 0 then
+                next_first_line = next_comments[1].y
+            else
+                next_first_line = next_entry.line
+            end
+            preserve_blank_line_after = next_first_line > end_line + 1
+        end
+
+        if entry.is_meta and entry.name == "__is" then
+            -- rendered in header as `where` clause
+        elseif entry.node ~= nil and entry.node.newtype ~= nil then
+            local nested_doc = render_nested_typedecl_doc(ctx, entry.node)
+            if nested_doc == nil then
                 return nil
             end
             record_items:add(
-                render_nested_typedecl_doc(ctx, nested_node), nested_node.y, {}, false
+                nested_doc, entry.node.y, entry.comments, preserve_blank_line_after
             )
-        else
-            local field_comments = ((record_def.field_comments or {})[field_name]
-                or {}) as {{parser.Comment}}
-            local parser_comments: {parser.Comment} = {}
-            for _, overload_comments in ipairs(field_comments) do
-                for _, comment in ipairs(overload_comments) do
-                    table.insert(parser_comments, comment)
-                end
-            end
-            record_items:add(
-                doc.concat({doc.text(field_name .. ": "), type_doc.render(field_type)}),
-                render_builders.node_end_line(field_type as parser.Node),
-                parser_comments,
-                false
-            )
-        end
-    end
-    for _, meta_name in ipairs(record_def.meta_field_order or {}) do
-        if meta_name ~= "__is" then
-            local meta_type = record_def.meta_fields[meta_name]
-            local meta_comments = ((record_def.meta_field_comments or {})[meta_name]
-                or {}) as {{parser.Comment}}
-            local parser_comments: {parser.Comment} = {}
-            for _, overload_comments in ipairs(meta_comments) do
-                for _, comment in ipairs(overload_comments) do
-                    table.insert(parser_comments, comment)
-                end
-            end
+        elseif entry.is_meta then
             record_items:add(
                 doc.concat(
                     {
-                        doc.text("metamethod " .. meta_name .. ": "),
-                        type_doc.render(meta_type),
+                        doc.text("metamethod " .. entry.name .. ": "),
+                        type_doc.render(entry.the_type),
                     }
                 ),
-                render_builders.node_end_line(meta_type as parser.Node),
-                parser_comments,
-                false
+                render_builders.node_end_line(entry.the_type as parser.Node),
+                entry.comments,
+                preserve_blank_line_after
+            )
+        else
+            record_items:add(
+                doc.concat(
+                    {doc.text(entry.name .. ": "), type_doc.render(entry.the_type)}
+                ),
+                render_builders.node_end_line(entry.the_type as parser.Node),
+                entry.comments,
+                preserve_blank_line_after
             )
         end
     end
     record_items:add_end_comments(node.end_comments or {})
+
+    local function record_entry_separator(
+        sep_ctx: render_builders.EntrySeparatorContext
+    ): doc.Doc
+        if sep_ctx.previous_preserve_blank_line_after then
+            if sep_ctx.next_starts_with_blank_line then
+                return doc.line()
+            end
+            return doc.concat({doc.line(), doc.line()})
+        end
+        return doc.line()
+    end
+
     return doc.concat(
         {
             doc.concat(header_parts),
@@ -252,7 +267,9 @@ local function render_record_like_body_doc(
                 doc.concat(
                     {
                         doc.line(),
-                        render_builders.render_line_entries(record_items, nil, nil),
+                        render_builders.render_line_entries(
+                            record_items, nil, record_entry_separator
+                        ),
                     }
                 )
             ),
@@ -290,42 +307,35 @@ local function render_resolved_record_doc(
     return render_record_like_body_doc(ctx, node, header_parts, resolved.record_def)
 end
 
-local function render_local_record_doc(
-    ctx: RenderContext, stmt: parser.Node
+local function render_record_like_doc(
+    ctx: RenderContext, stmt: parser.Node, keyword: string
 ): doc.Doc | nil
     if stmt.value == nil or stmt.value.newtype == nil then
         return nil
     end
     local def = stmt.value.newtype.def
     if def is parser.EnumType then
-        return render_enum_doc(stmt, def)
+        return render_enum_doc(stmt, def, false, keyword)
     end
     local resolved = resolve_record_like_def(def)
     if not (resolved is ResolvedRecordLikeDef) then
         return nil
     end
-    local header_parts: {doc.Doc}
-    if stmt.is_type_declaration then
-        header_parts = {
-            doc.concat(
-                {
-                    doc.text("local type " .. stmt.var.tk),
-                    resolved.typeargs_str,
-                    doc.text(" = " .. resolved.keyword),
-                }
-            ),
-        }
-    else
-        header_parts = {
-            doc.concat(
-                {
-                    doc.text("local " .. resolved.keyword .. " " .. stmt.var.tk),
-                    resolved.typeargs_str,
-                }
-            ),
-        }
+    local function build_header_parts(res: ResolvedRecordLikeDef): {doc.Doc}
+        if stmt.is_type_declaration then
+            return {
+                doc.text(keyword .. " type " .. stmt.var.tk),
+                res.typeargs_str,
+                doc.text(" = " .. res.keyword),
+            }
+        else
+            return {
+                doc.text(keyword .. " " .. res.keyword .. " " .. stmt.var.tk),
+                res.typeargs_str,
+            }
+        end
     end
-    return render_resolved_record_doc(ctx, stmt, header_parts, resolved)
+    return render_resolved_record_doc(ctx, stmt, build_header_parts(resolved), resolved)
 end
 
 render_nested_typedecl_doc = function(
@@ -349,8 +359,8 @@ render_nested_typedecl_doc = function(
     return render_resolved_record_doc(ctx, nested_node, header_parts, resolved)
 end
 
-local function render_local_type_doc(
-    ctx: RenderContext, stmt: parser.Node
+local function render_type_doc(
+    ctx: RenderContext, stmt: parser.Node, keyword: string
 ): doc.Doc | nil
     if stmt.var == nil or stmt.value == nil then
         return nil
@@ -358,7 +368,7 @@ local function render_local_type_doc(
     if stmt.value.kind ~= "newtype" then
         return doc.concat(
             {
-                doc.text("local type " .. stmt.var.tk .. " = "),
+                doc.text(keyword .. " type " .. stmt.var.tk .. " = "),
                 ctx.render_expr(stmt.value),
             }
         )
@@ -372,10 +382,10 @@ local function render_local_type_doc(
         or def.typename == "generic"
         or def.typename == "enum"
         or def.typename == "typedecl" then
-        return render_local_record_doc(ctx, stmt)
+        return render_record_like_doc(ctx, stmt, keyword)
     end
     return doc.concat(
-        {doc.text("local type " .. stmt.var.tk .. " = "), type_doc.render(def)}
+        {doc.text(keyword .. " type " .. stmt.var.tk .. " = "), type_doc.render(def)}
     )
 end
 
@@ -638,9 +648,13 @@ function stmt_doc.render_statement_doc(
     elseif node.kind == "assignment" and end_line == node.y then
         return render_assignment_doc(ctx, node)
     elseif node.kind == "local_declaration" then
-        return render_local_declaration_doc(ctx, node)
+        return inline_stmt_doc.render_declaration_doc(ctx, node, "local")
+    elseif node.kind == "global_declaration" then
+        return inline_stmt_doc.render_declaration_doc(ctx, node, "global")
     elseif node.kind == "local_type" then
-        return render_local_type_doc(ctx, node)
+        return render_type_doc(ctx, node, "local")
+    elseif node.kind == "global_type" then
+        return render_type_doc(ctx, node, "global")
     elseif (node.kind == "local_function"
         or node.kind == "global_function"
         or node.kind == "record_function") then
