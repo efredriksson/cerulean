@@ -14,6 +14,7 @@ function Block.new(open_line: integer, close_line: integer): blocks.Block
     return self
 end
 
+-- fmt: off
 local BLOCK_NODE_KINDS: {tl.NodeKind: boolean} = {
     ["function"]        = true,
     ["local_function"]  = true,
@@ -27,6 +28,7 @@ local BLOCK_NODE_KINDS: {tl.NodeKind: boolean} = {
     ["do"]              = true,
     ["newtype"]         = true,
 }
+-- fmt: on
 
 -- node.yend gives the exact closing line from the internal AST, so block
 -- boundaries are precise regardless of blank lines before "end".
