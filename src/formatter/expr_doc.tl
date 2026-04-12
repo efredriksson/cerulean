@@ -97,9 +97,7 @@ local function render_logical_chain(
                 parts,
                 term_group_ref:if_break(
                     doc.text(" " .. operator.op .. " "),
-                    doc.indent(
-                        4, doc.concat({doc.line(), doc.text(operator.op .. " ")})
-                    )
+                    doc.indent_line(doc.text(operator.op .. " "))
                 )
             )
         end
@@ -171,7 +169,7 @@ local function call_doc_build_call_expr_doc(
     for _, arg_node in ipairs(args) do
         table.insert(item_docs, ctx.render_expr(arg_node))
     end
-    local opts = render_builders.DelimitedSequenceOptions.new("(", ")", 4)
+    local opts = render_builders.DelimitedSequenceOptions.new("(", ")")
     local call_args_doc = build_call_args_doc(item_docs, line_items, opts)
 
     local call_node = doc.concat({callee_doc, call_args_doc})

@@ -81,7 +81,7 @@ local function type_doc_render(type_def: parser.Type): doc.Doc
             )
             table.insert(arg_docs, doc.concat({arg_name, type_doc_render(arg_type)}))
         end
-        local opts = render_builders.DelimitedSequenceOptions.new("function(", ")", 4)
+        local opts = render_builders.DelimitedSequenceOptions.new("function(", ")")
         return doc.concat(
             {
                 render_builders.build_delimited_sequence_doc(arg_docs, opts),

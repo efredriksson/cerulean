@@ -4,7 +4,6 @@ local parser = require("formatter.parser")
 local record DelimitedSequenceOptions
     open_delim: string
     close_delim: string
-    compact_indent_amount: integer
 end
 
 local record CommentLineItem
@@ -91,14 +90,13 @@ local function statement_effective_end_line(stmt: parser.Node): integer
 end
 
 function DelimitedSequenceOptions.new(
-    open_delim: string, close_delim: string, compact_indent_amount: integer
+    open_delim: string, close_delim: string
 ): DelimitedSequenceOptions
     local self: DelimitedSequenceOptions = setmetatable(
         {}, {__index = DelimitedSequenceOptions}
     )
     self.open_delim = open_delim
     self.close_delim = close_delim
-    self.compact_indent_amount = compact_indent_amount
     return self
 end
 
@@ -263,15 +261,7 @@ function render_builders.build_delimited_body_doc(
     return doc.concat(
         {
             doc.text(opts.open_delim),
-            doc.indent(
-                opts.compact_indent_amount,
-                doc.concat(
-                    {
-                        line_doc,
-                        items_doc,
-                    }
-                )
-            ),
+            doc.indent(doc.concat({line_doc, items_doc})),
             line_doc,
             doc.text(opts.close_delim),
         }

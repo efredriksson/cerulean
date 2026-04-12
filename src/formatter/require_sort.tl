@@ -189,12 +189,7 @@ local function sort_require_blocks(
 
         for _, decl in ipairs(sorted_decls) do
             local indent = (lines[decl.first_line] or ""):match("^(%s*)") or ""
-            table.insert(
-                result,
-                table.concat(
-                    render_require_decl(ctx, decl, indent):render(88, 0, 0, true), "\n"
-                )
-            )
+            table.insert(result, render_require_decl(ctx, decl, indent):render(88, 4))
         end
 
         next_line = block.last_line + 1

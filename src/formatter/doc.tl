@@ -8,7 +8,6 @@ local record Doc
     flat_text: string
     broken_text: string
     parts: {Doc}
-    amount: integer
     child: Doc
     flat_child: Doc
     break_child: Doc
@@ -58,6 +57,7 @@ local record RenderState
     current_line: string
     column: integer
     max_width: integer
+    indent_width: integer
     broken_groups: {integer: boolean}
     line_suffixes: {RenderCommand}
     marked_column: integer
@@ -166,11 +166,14 @@ function doc.trim_lines(child: Doc): Doc
     return doc.concat({doc._trim_start(), child, doc._trim_end()})
 end
 
-function doc.indent(amount: integer, child: Doc): Doc
+function doc.indent(child: Doc): Doc
     local result = new_doc("indent")
-    result.amount = amount
     result.child = child
     return result
+end
+
+function doc.indent_line(child: Doc): Doc
+    return doc.indent(doc.concat({doc.line(), child}))
 end
 
 local function build_group_doc(child: Doc, group_id?: integer): Doc
@@ -322,7 +325,8 @@ end
 local function fits(
     remaining_width: integer,
     commands: {RenderCommand},
-    broken_groups: {integer: boolean}
+    broken_groups: {integer: boolean},
+    indent_width: integer
 ): boolean
     if remaining_width < 0 then
         return false
@@ -386,10 +390,7 @@ local function fits(
             table.insert(
                 commands,
                 RenderCommand.new(
-                    node.child,
-                    command.indent + (node.amount or 0),
-                    flat,
-                    current_group_id
+                    node.child, command.indent + indent_width, flat, current_group_id
                 )
             )
         elseif node.kind == "group" then
@@ -407,11 +408,9 @@ local function fits(
     return true
 end
 
-local function render_doc(
-    root: Doc, state: RenderState, base_indent: integer, flat: boolean
-)
+local function render_doc(root: Doc, state: RenderState)
     local commands: {RenderCommand} = {
-        RenderCommand.new(root, base_indent, flat, nil),
+        RenderCommand.new(root, 0, false, nil),
     }
 
     while #commands > 0 or #state.line_suffixes > 0 do
@@ -528,7 +527,7 @@ local function render_doc(
             table.insert(
                 commands,
                 RenderCommand.new(
-                    node.child, indent + (node.amount or 0), node_flat, current_group_id
+                    node.child, indent + state.indent_width, node_flat, current_group_id
                 )
             )
         elseif node.kind == "group" then
@@ -543,7 +542,10 @@ local function render_doc(
                     trial, RenderCommand.new(node.child, indent, true, group_id)
                 )
                 local fits_flat = fits(
-                    state.max_width - state.column, trial, state.broken_groups
+                    state.max_width - state.column,
+                    trial,
+                    state.broken_groups,
+                    state.indent_width
                 )
                 if group_id ~= nil
                     and not fits_flat
@@ -558,24 +560,20 @@ local function render_doc(
     end
 end
 
-function Doc:render(
-    max_width: integer,
-    initial_column: integer,
-    base_indent: integer,
-    force_break: boolean
-): {string}
+function Doc:render(max_width: integer, indent_width: integer): string
     local state: RenderState = {
         lines = {},
         current_line = "",
-        column = initial_column,
+        column = 0,
         max_width = max_width,
+        indent_width = indent_width,
         broken_groups = {},
         line_suffixes = {},
     }
 
-    render_doc(self, state, base_indent, not force_break)
+    render_doc(self, state)
     table.insert(state.lines, rstrip_whitespace(state.current_line))
-    return state.lines
+    return table.concat(state.lines, "\n")
 end
 
 return doc

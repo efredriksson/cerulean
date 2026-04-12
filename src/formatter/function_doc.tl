@@ -34,7 +34,7 @@ function function_doc.render(
     return doc.concat(
         {
             header,
-            doc.indent(4, doc.concat({doc.line(), doc.trim_lines(body_doc)})),
+            doc.indent_line(doc.trim_lines(body_doc)),
             doc.close("end"),
         }
     )

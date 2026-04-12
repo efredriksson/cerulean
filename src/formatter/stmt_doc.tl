@@ -47,7 +47,7 @@ end
 local function with_indented_body(
     header: doc.Doc, body: doc.Doc, tail: doc.Doc
 ): doc.Doc
-    return doc.concat({header, doc.indent(4, doc.concat({doc.line(), body})), tail})
+    return doc.concat({header, doc.indent_line(body), tail})
 end
 
 local function block_with_indent(
@@ -252,15 +252,9 @@ local function render_record_like_body_doc(
     return doc.concat(
         {
             doc.concat(header_parts),
-            doc.indent(
-                4,
-                doc.concat(
-                    {
-                        doc.line(),
-                        render_builders.render_line_entries(
-                            record_items, nil, record_entry_separator
-                        ),
-                    }
+            doc.indent_line(
+                render_builders.render_line_entries(
+                    record_items, nil, record_entry_separator
                 )
             ),
             doc.close("end"),
@@ -497,18 +491,7 @@ local function render_if_doc(
             table.insert(parts, doc.line())
         end
         table.insert(parts, get_head_text())
-        table.insert(
-            parts,
-            doc.indent(
-                4,
-                doc.concat(
-                    {
-                        doc.line(),
-                        body_doc,
-                    }
-                )
-            )
-        )
+        table.insert(parts, doc.indent_line(body_doc))
     end
 
     table.insert(parts, doc.close("end"))

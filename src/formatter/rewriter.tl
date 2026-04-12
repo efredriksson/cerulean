@@ -74,8 +74,7 @@ local function run_structural_phase(
             ctx, context.ast, block_layout
         )
         if structurally_rendered ~= nil then
-            local rendered_source = table.concat(structurally_rendered, "\n") .. "\n"
-            return rendered_source
+            return structurally_rendered
         end
     end
 

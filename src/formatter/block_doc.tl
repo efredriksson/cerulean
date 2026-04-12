@@ -96,13 +96,13 @@ end
 
 function block_doc.render_block(
     ctx: RenderContext, block: parser.Node, layout: BlockLayout
-): {string} | nil
+): string | nil
     local block_doc_node = render_block_doc_with(ctx, block, layout)
     if block_doc_node is nil then
         return nil
     end
 
-    return block_doc_node:render(88, 0, 0, true)
+    return doc.concat({block_doc_node, doc.hardline()}):render(88, 4)
 end
 
 return block_doc

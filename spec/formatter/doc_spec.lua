@@ -3,9 +3,8 @@ require("tl").loader()
 local assert = require("luassert")
 local doc = require("formatter.doc")
 
-local function render(root, width, force_break)
-    local lines = root:render(width or 88, 0, 0, force_break ~= false)
-    return table.concat(lines, "\n")
+local function render(root, width)
+    return root:render(width or 88, 4)
 end
 
 describe("formatter doc primitives", function()
@@ -139,7 +138,7 @@ describe("formatter doc close node", function()
     it("places close text on a new line at the enclosing indent when broken", function()
         local tree = doc.group(doc.concat({
             doc.text("function()"),
-            doc.indent(4, doc.concat({
+            doc.indent(doc.concat({
                 doc.line(),
                 doc.text("body"),
             })),
@@ -154,7 +153,7 @@ describe("formatter doc trim_lines", function()
     it("adds no space and no line break when the wrapped content is empty in flat mode", function()
         local tree = doc.group(doc.concat({
             doc.text("f()"),
-            doc.indent(4, doc.concat({doc.line(), doc.trim_lines(doc.text(""))})),
+            doc.indent(doc.concat({doc.line(), doc.trim_lines(doc.text(""))})),
             doc.close("end"),
         }))
 
@@ -164,7 +163,7 @@ describe("formatter doc trim_lines", function()
     it("appends a space after content when the group renders flat", function()
         local tree = doc.group(doc.concat({
             doc.text("f()"),
-            doc.indent(4, doc.concat({doc.line(), doc.trim_lines(doc.text("body"))})),
+            doc.indent(doc.concat({doc.line(), doc.trim_lines(doc.text("body"))})),
             doc.close("end"),
         }))
 
@@ -174,7 +173,7 @@ describe("formatter doc trim_lines", function()
     it("breaks the line after content when the group is broken", function()
         local tree = doc.group(doc.concat({
             doc.text("f()"),
-            doc.indent(4, doc.concat({doc.line(), doc.trim_lines(doc.text("body"))})),
+            doc.indent(doc.concat({doc.line(), doc.trim_lines(doc.text("body"))})),
             doc.close("end"),
         }))
 
@@ -184,7 +183,7 @@ describe("formatter doc trim_lines", function()
     it("adds no space and no line break when the wrapped content is empty in broken mode", function()
         local tree = doc.group(doc.concat({
             doc.text("f()"),
-            doc.indent(4, doc.concat({doc.line(), doc.trim_lines(doc.text(""))})),
+            doc.indent(doc.concat({doc.line(), doc.trim_lines(doc.text(""))})),
             doc.close("end"),
         }))
 

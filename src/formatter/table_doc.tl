@@ -88,7 +88,7 @@ function table_doc.build_table_doc(ctx: RenderContext, node: parser.Node): doc.D
         )
     end
 
-    local opts = render_builders.DelimitedSequenceOptions.new("{", "}", 4)
+    local opts = render_builders.DelimitedSequenceOptions.new("{", "}")
     return build_delimited_sequence_doc(line_items, opts, node.trailing_comma)
 end
 

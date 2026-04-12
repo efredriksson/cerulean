@@ -36,7 +36,7 @@ local function build_signature_item_docs(args: parser.Node): {doc.Doc}
 end
 
 function signature_doc.render_signature_doc(args: parser.Node): doc.Doc
-    local opts = render_builders.DelimitedSequenceOptions.new("(", ")", 4)
+    local opts = render_builders.DelimitedSequenceOptions.new("(", ")")
     local item_docs = build_signature_item_docs(args)
 
     return doc.group(render_builders.build_delimited_sequence_doc(item_docs, opts))
