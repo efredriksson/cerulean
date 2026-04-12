@@ -10,6 +10,7 @@ end
 local record CommentLineItem
     item_doc: doc.Doc
     item_end_line: integer
+    item_start_line: integer
     comments: {parser.Comment}
     preserve_blank_line_after: boolean
 end
@@ -24,6 +25,7 @@ end
 local record LineEntry
     item_doc: doc.Doc | nil
     item_end_line: integer | nil
+    item_start_line: integer | nil
     leading_comments: {parser.Comment}
     trailing_comments: {parser.Comment}
     standalone_comment: parser.Comment | nil
@@ -58,6 +60,36 @@ local render_builders = {
     EntrySeparatorContext = EntrySeparatorContext,
 }
 
+function render_builders.node_end_line(node: parser.Node): integer
+    return node.yend or node.y
+end
+
+function render_builders.node_effective_end_line(node: parser.Node): integer
+    local end_line = render_builders.node_end_line(node)
+    if node.kind == "op"
+        and node.op ~= nil
+        and node.op.op == "@funcall"
+        and node.e2 ~= nil
+        and node.e2.yend ~= nil
+        and node.e2.yend > end_line then
+        end_line = node.e2.yend
+    end
+    return end_line
+end
+
+local function statement_effective_end_line(stmt: parser.Node): integer
+    local end_line = render_builders.node_effective_end_line(stmt)
+
+    for _, exp in ipairs(stmt.exps or {}) do
+        local exp_end_line = render_builders.node_effective_end_line(exp)
+        if exp_end_line > end_line then
+            end_line = exp_end_line
+        end
+    end
+
+    return end_line
+end
+
 function DelimitedSequenceOptions.new(
     open_delim: string, close_delim: string, compact_indent_amount: integer
 ): DelimitedSequenceOptions
@@ -73,12 +105,14 @@ end
 function CommentLineItem.new(
     item_doc: doc.Doc,
     item_end_line: integer,
+    item_start_line: integer,
     comments: {parser.Comment},
     preserve_blank_line_after: boolean
 ): CommentLineItem
     local self: CommentLineItem = setmetatable({}, {__index = CommentLineItem})
     self.item_doc = item_doc
     self.item_end_line = item_end_line
+    self.item_start_line = item_start_line
     self.comments = comments
     self.preserve_blank_line_after = preserve_blank_line_after
     return self
@@ -95,7 +129,7 @@ end
 
 function CommentLineItems:add(
     item_doc: doc.Doc,
-    item_end_line: integer,
+    node: parser.Node,
     comments: {parser.Comment},
     preserve_blank_line_after: boolean
 )
@@ -105,7 +139,11 @@ function CommentLineItems:add(
     table.insert(
         self.items,
         CommentLineItem.new(
-            item_doc, item_end_line, comments, preserve_blank_line_after
+            item_doc,
+            statement_effective_end_line(node),
+            node.y,
+            comments,
+            preserve_blank_line_after
         )
     )
 end
@@ -137,16 +175,16 @@ end
 function LineEntry.new(
     item_doc: doc.Doc | nil,
     item_end_line: integer | nil,
-    leading_comments: {parser.Comment},
-    trailing_comments: {parser.Comment},
+    item_start_line: integer | nil,
     standalone_comment: parser.Comment | nil,
     preserve_blank_line_after: boolean
 ): LineEntry
     local self: LineEntry = setmetatable({}, {__index = LineEntry})
     self.item_doc = item_doc
     self.item_end_line = item_end_line
-    self.leading_comments = leading_comments
-    self.trailing_comments = trailing_comments
+    self.item_start_line = item_start_line
+    self.leading_comments = {}
+    self.trailing_comments = {}
     self.standalone_comment = standalone_comment
     self.preserve_blank_line_after = preserve_blank_line_after
     self.is_item = false
@@ -254,66 +292,34 @@ function render_builders.build_comment_lines_doc(comments: {parser.Comment}): {d
     return parts
 end
 
-function render_builders.node_end_line(node: parser.Node): integer
-    return node.yend or node.y
-end
-
-function render_builders.node_effective_end_line(node: parser.Node): integer
-    local end_line = render_builders.node_end_line(node)
-    if node.kind == "op"
-        and node.op ~= nil
-        and node.op.op == "@funcall"
-        and node.e2 ~= nil
-        and node.e2.yend ~= nil
-        and node.e2.yend > end_line then
-        end_line = node.e2.yend
-    end
-    return end_line
-end
-
-function render_builders.statement_effective_end_line(stmt: parser.Node): integer
-    local end_line = render_builders.node_effective_end_line(stmt)
-
-    if stmt.exps ~= nil then
-        for _, exp in ipairs(stmt.exps) do
-            local exp_end_line = render_builders.node_effective_end_line(exp)
-            if exp_end_line > end_line then
-                end_line = exp_end_line
-            end
-        end
-    end
-
-    return end_line
-end
-
 function render_builders.call_arg_effective_end_line(node: parser.Node): integer
     return render_builders.node_effective_end_line(node)
+end
+
+local function update_line_entry_metadata(entry: LineEntry)
+    local entry_item_doc = entry.item_doc
+    local standalone_comment = entry.standalone_comment
+    entry.is_item = not (entry_item_doc is nil)
+    entry.has_leading_comments = #entry.leading_comments > 0
+    entry.has_trailing_comments = #entry.trailing_comments > 0
+    entry.has_standalone_comment = not (standalone_comment is nil)
+    entry.has_any_comments = entry.has_leading_comments
+        or entry.has_trailing_comments
+        or entry.has_standalone_comment
+    if entry.has_leading_comments then
+        entry.first_emitted_comment = entry.leading_comments[1]
+    else
+        entry.first_emitted_comment = standalone_comment
+    end
+    local first_comment = entry.first_emitted_comment
+    entry.starts_with_blank_line = not (first_comment is nil)
+        and first_comment.blank_line_before == true
+    entry.is_comment_only = not entry.is_item and entry.has_any_comments
 end
 
 function render_builders.build_comment_line_entries(
     line_items: CommentLineItems
 ): {LineEntry}
-    local function update_line_entry_metadata(entry: LineEntry)
-        local entry_item_doc = entry.item_doc
-        local standalone_comment = entry.standalone_comment
-        entry.is_item = not (entry_item_doc is nil)
-        entry.has_leading_comments = #entry.leading_comments > 0
-        entry.has_trailing_comments = #entry.trailing_comments > 0
-        entry.has_standalone_comment = not (standalone_comment is nil)
-        entry.has_any_comments = entry.has_leading_comments
-            or entry.has_trailing_comments
-            or entry.has_standalone_comment
-        if entry.has_leading_comments then
-            entry.first_emitted_comment = entry.leading_comments[1]
-        else
-            entry.first_emitted_comment = standalone_comment
-        end
-        local first_comment = entry.first_emitted_comment
-        entry.starts_with_blank_line = not (first_comment is nil)
-            and first_comment.blank_line_before == true
-        entry.is_comment_only = not entry.is_item and entry.has_any_comments
-    end
-
     local entries: {LineEntry} = {}
     local previous_entry: LineEntry | nil = nil
     local previous_end_line: integer | nil = nil
@@ -331,9 +337,7 @@ function render_builders.build_comment_line_entries(
         if not (next_entry is nil) then
             table.insert(next_entry.leading_comments, attached_comment)
         else
-            table.insert(
-                entries, LineEntry.new(nil, nil, {}, {}, attached_comment, false)
-            )
+            table.insert(entries, LineEntry.new(nil, nil, nil, attached_comment, false))
         end
     end
 
@@ -341,8 +345,7 @@ function render_builders.build_comment_line_entries(
         local entry = LineEntry.new(
             item.item_doc,
             item.item_end_line,
-            {},
-            {},
+            item.item_start_line,
             nil,
             item.preserve_blank_line_after
         )
@@ -383,27 +386,6 @@ function render_builders.render_line_entries(
     build_item_suffix: BuildItemSuffix | nil,
     build_entry_separator: BuildEntrySeparator | nil
 ): doc.Doc
-    local function update_line_entry_metadata(entry: LineEntry)
-        local entry_item_doc = entry.item_doc
-        local standalone_comment = entry.standalone_comment
-        entry.is_item = not (entry_item_doc is nil)
-        entry.has_leading_comments = #entry.leading_comments > 0
-        entry.has_trailing_comments = #entry.trailing_comments > 0
-        entry.has_standalone_comment = not (standalone_comment is nil)
-        entry.has_any_comments = entry.has_leading_comments
-            or entry.has_trailing_comments
-            or entry.has_standalone_comment
-        if entry.has_leading_comments then
-            entry.first_emitted_comment = entry.leading_comments[1]
-        else
-            entry.first_emitted_comment = standalone_comment
-        end
-        local first_comment = entry.first_emitted_comment
-        entry.starts_with_blank_line = not (first_comment is nil)
-            and first_comment.blank_line_before == true
-        entry.is_comment_only = not entry.is_item and entry.has_any_comments
-    end
-
     local function default_build_item_suffix(_1: LineEntry, _2: boolean): doc.Doc
         return doc.text("")
     end
@@ -430,7 +412,7 @@ function render_builders.render_line_entries(
     if #line_items.prefixed_comments > 0 then
         local prefixed_entries: {LineEntry} = {}
         for _, comment in ipairs(line_items.prefixed_comments) do
-            local prefixed_entry = LineEntry.new(nil, nil, {}, {}, comment, false)
+            local prefixed_entry = LineEntry.new(nil, nil, nil, comment, false)
             update_line_entry_metadata(prefixed_entry)
             table.insert(prefixed_entries, prefixed_entry)
         end
@@ -470,6 +452,11 @@ function render_builders.render_line_entries(
         if #entry.leading_comments > 0 then
             append_comment_block(entry.leading_comments)
             if not (entry_item_doc is nil) then
+                local last_leading = entry.leading_comments[#entry.leading_comments]
+                local item_start = entry.item_start_line
+                if not (item_start is nil) and last_leading.y + 1 < item_start then
+                    table.insert(parts, doc.hardline())
+                end
                 table.insert(parts, doc.hardline())
             end
         end

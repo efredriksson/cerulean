@@ -100,18 +100,11 @@ local function render_enum_doc(
     local header = build_header()
 
     local enum_items = render_builders.CommentLineItems.new()
-    local previous_item_line = stmt.y
 
-    for _, enum_str in ipairs(def.enumset) do
-        local item_line = previous_item_line + 1
-        local comments = ((def.value_comments or {})[enum_str] or {})
-        for _, comment in ipairs(comments) do
-            if comment.y >= item_line then
-                item_line = comment.y + 1
-            end
-        end
-        enum_items:add(doc.text('"' .. enum_str .. '"'), item_line, comments, false)
-        previous_item_line = item_line
+    for _, item_node in ipairs(def.enum_items) do
+        enum_items:add(
+            doc.text(item_node.tk), item_node, item_node.comments or {}, false
+        )
     end
 
     local enum_end_comments: {parser.Comment} = {}
@@ -220,7 +213,7 @@ local function render_record_like_body_doc(
                 return nil
             end
             record_items:add(
-                nested_doc, entry.node.y, entry.comments, preserve_blank_line_after
+                nested_doc, entry.node, entry.comments, preserve_blank_line_after
             )
         elseif entry.is_meta then
             record_items:add(
@@ -230,7 +223,7 @@ local function render_record_like_body_doc(
                         type_doc.render(entry.the_type),
                     }
                 ),
-                render_builders.node_end_line(entry.the_type as parser.Node),
+                entry.the_type as parser.Node,
                 entry.comments,
                 preserve_blank_line_after
             )
@@ -239,7 +232,7 @@ local function render_record_like_body_doc(
                 doc.concat(
                     {doc.text(entry.name .. ": "), type_doc.render(entry.the_type)}
                 ),
-                render_builders.node_end_line(entry.the_type as parser.Node),
+                entry.the_type as parser.Node,
                 entry.comments,
                 preserve_blank_line_after
             )
@@ -251,9 +244,6 @@ local function render_record_like_body_doc(
         sep_ctx: render_builders.EntrySeparatorContext
     ): doc.Doc
         if sep_ctx.previous_preserve_blank_line_after then
-            if sep_ctx.next_starts_with_blank_line then
-                return doc.line()
-            end
             return doc.concat({doc.line(), doc.line()})
         end
         return doc.line()

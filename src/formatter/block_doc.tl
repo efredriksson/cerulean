@@ -67,12 +67,7 @@ local function render_block_doc_with(
             preserve_blank_line_after = statement_layout.preserve_blank_line_after
         end
 
-        line_items:add(
-            stmt_doc_node,
-            render_builders.statement_effective_end_line(stmt),
-            comments,
-            preserve_blank_line_after
-        )
+        line_items:add(stmt_doc_node, stmt, comments, preserve_blank_line_after)
     end
 
     line_items:add_end_comments(block.end_comments or {})

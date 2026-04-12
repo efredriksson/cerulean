@@ -881,6 +881,82 @@ describe("formatter comment matrix (single-line)", function()
              extra_flag: boolean
          end
       ]]))
+
+      it("preserves empty line between comment and following record", helpers.format([[
+         -- module docs
+
+         local record A
+            n: integer
+         end
+      ]], [[
+         -- module docs
+
+         local record A
+             n: integer
+         end
+      ]]))
+
+      it("preserves empty line between comment and following enum item", helpers.format([[
+         local enum A
+            -- stuff
+
+            "a1"
+            "a2"
+         end
+      ]], [[
+         local enum A
+             -- stuff
+
+             "a1"
+             "a2"
+         end
+      ]]))
+
+      it("preserves empty line between comment and following record field", helpers.format([[
+         local record Box
+            -- describes n
+
+            n: integer
+         end
+      ]], [[
+         local record Box
+             -- describes n
+
+             n: integer
+         end
+      ]]))
+
+      it("preserves empty line between comment and following table entry", helpers.format([[
+         local t = {
+            -- the answer
+
+            value = 42,
+         }
+      ]], [[
+         local t = {
+             -- the answer
+
+             value = 42,
+         }
+      ]]))
+
+      it("preserves empty line between comment and following call arg", helpers.format([[
+         local function f()
+            call(
+               -- the arg
+
+               x
+            )
+         end
+      ]], [[
+         local function f()
+             call(
+                 -- the arg
+
+                 x
+             )
+         end
+      ]]))
    end)
 
    describe("empty function body with comments", function()

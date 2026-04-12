@@ -162,10 +162,7 @@ local function call_doc_build_call_expr_doc(
     local line_items = render_builders.CommentLineItems.new()
     for _, arg_node in ipairs(args) do
         line_items:add(
-            ctx.render_expr(arg_node),
-            render_builders.node_effective_end_line(arg_node),
-            arg_node.comments or {},
-            false
+            ctx.render_expr(arg_node), arg_node, arg_node.comments or {}, false
         )
     end
     local has_trailing_comment = args.trailing_comment ~= nil

@@ -84,10 +84,7 @@ function table_doc.build_table_doc(ctx: RenderContext, node: parser.Node): doc.D
     line_items:add_end_comments(node.end_comments or {})
     for _, item in ipairs(node) do
         line_items:add(
-            build_table_item_text(ctx, item),
-            render_builders.node_effective_end_line(item),
-            item.comments or {},
-            false
+            build_table_item_text(ctx, item), item, item.comments or {}, false
         )
     end
 

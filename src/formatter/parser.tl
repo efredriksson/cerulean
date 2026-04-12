@@ -318,8 +318,7 @@ local record parser
       is StructuralType, HasDeclName
       where self.typename == "enum"
 
-      enumset: {string}
-      value_comments: {string: {Comment}}
+      enum_items: {Node}
       end_comments: {Comment}
    end
 
@@ -2649,20 +2648,13 @@ local function parse_nested_type(
 end
 
 parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, boolean
-   def.enumset = {}
+   def.enum_items = {}
    while ps.tokens[i].tk ~= "$EOF$" and ps.tokens[i].tk ~= "end" do
       local item: Node
       i, item = verify_kind(ps, i, "string", "string")
       if item then
-         local name = unquote(item.tk)
-         table.insert(def.enumset, name)
-         local comments = get_attached_comments(ps.tokens[i - 1])
-         if comments then
-            if not def.value_comments then
-               def.value_comments = {}
-            end
-            def.value_comments[name] = comments
-         end
+         item.comments = get_attached_comments(ps.tokens[i - 1])
+         table.insert(def.enum_items, item)
       end
    end
 
