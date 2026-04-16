@@ -9,14 +9,17 @@
    - `source.Text` for line view
    - `ast_traversal.collect_block_ranges` + `source.collect_fmt_off_regions`.
 3. Create a `RenderContext` via `block_doc.make_context()`.
-4. Layout analysis (`layout_analysis.analyze_block`):
+4. Sort top-level require declarations (`require_sort.sort_top_level_requires`):
+   - Reorders contiguous `local ... = require(...)` nodes in the AST in-place.
+   - Stops at the first non-require statement or fmt:off region.
+   - Returns `sorted_require_count` for the renderer to suppress blank lines within the group.
+5. Layout analysis (`layout_analysis.analyze_block`):
    - returns `{ can_render_structurally, block_layout }`.
-5. If structural render is allowed, render full AST block via doc tree:
-   - `block_doc.render_block(ctx, block, layout)` -> `stmt_doc` -> `expr_doc`/`table_doc`/`signature_doc`
+6. If structural render is allowed, render full AST block via doc tree:
+   - `block_doc.render_block(ctx, block, layout, sorted_require_count)` -> `stmt_doc` -> `expr_doc`/`table_doc`/`signature_doc`
    - render with `doc.Doc:render(...)`.
-6. Run `require_sort.rewrite(ctx, source, filename)` on resulting source.
 
-If structural render is blocked or rendering fails, keep original source and still run require sorting.
+If structural render is blocked or rendering fails, keep original source.
 
 ## Core Modules
 
@@ -34,7 +37,7 @@ If structural render is blocked or rendering fails, keep original source and sti
 - `table_doc.tl`: table constructor rendering.
 - `signature_doc.tl`: function signature rendering.
 - `render_builders.tl`: shared delimiter/comment builders.
-- `require_sort.tl`: top-level contiguous `local ... = require(...)` sort pass.
+- `require_sort.tl`: in-place AST reorder of top-level `local ... = require(...)` declarations.
 
 ## Dependency Shape
 

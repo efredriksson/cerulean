@@ -17,7 +17,6 @@ end
 local record CommentLineItems
     items: {CommentLineItem}
     end_comments: {parser.Comment}
-    prefixed_comments: {parser.Comment}
     has_comments: boolean
 end
 
@@ -63,30 +62,8 @@ function render_builders.node_end_line(node: parser.Node): integer
     return node.yend or node.y
 end
 
-function render_builders.node_effective_end_line(node: parser.Node): integer
-    local end_line = render_builders.node_end_line(node)
-    if node.kind == "op"
-        and node.op ~= nil
-        and node.op.op == "@funcall"
-        and node.e2 ~= nil
-        and node.e2.yend ~= nil
-        and node.e2.yend > end_line then
-        end_line = node.e2.yend
-    end
-    return end_line
-end
-
 local function statement_effective_end_line(stmt: parser.Node): integer
-    local end_line = render_builders.node_effective_end_line(stmt)
-
-    for _, exp in ipairs(stmt.exps or {}) do
-        local exp_end_line = render_builders.node_effective_end_line(exp)
-        if exp_end_line > end_line then
-            end_line = exp_end_line
-        end
-    end
-
-    return end_line
+    return stmt.yend or stmt.y
 end
 
 function DelimitedSequenceOptions.new(
@@ -120,7 +97,6 @@ function CommentLineItems.new(): CommentLineItems
     local self: CommentLineItems = setmetatable({}, {__index = CommentLineItems})
     self.items = {}
     self.end_comments = {}
-    self.prefixed_comments = {}
     self.has_comments = false
     return self
 end
@@ -158,15 +134,6 @@ function CommentLineItems:add_end_comments(comments: {parser.Comment})
     end
     for _, comment in ipairs(comments) do
         table.insert(self.end_comments, comment)
-    end
-end
-
-function CommentLineItems:add_prefixed_comments(comments: {parser.Comment})
-    if #comments > 0 then
-        self.has_comments = true
-    end
-    for _, comment in ipairs(comments) do
-        table.insert(self.prefixed_comments, comment)
     end
 end
 
@@ -283,7 +250,7 @@ function render_builders.build_comment_lines_doc(comments: {parser.Comment}): {d
 end
 
 function render_builders.call_arg_effective_end_line(node: parser.Node): integer
-    return render_builders.node_effective_end_line(node)
+    return render_builders.node_end_line(node)
 end
 
 local function update_line_entry_metadata(entry: LineEntry)
@@ -303,7 +270,7 @@ local function update_line_entry_metadata(entry: LineEntry)
     end
     local first_comment = entry.first_emitted_comment
     entry.starts_with_blank_line = not (first_comment is nil)
-        and first_comment.blank_line_before == true
+        and first_comment.blank_line_before
     entry.is_comment_only = not entry.is_item and entry.has_any_comments
 end
 
@@ -367,10 +334,6 @@ function render_builders.default_entry_separator(_ctx: EntrySeparatorContext): d
     return doc.line()
 end
 
-local function comment_has_blank_line_before(comment: parser.Comment): boolean
-    return comment.blank_line_before == true
-end
-
 function render_builders.render_line_entries(
     line_items: CommentLineItems,
     build_item_suffix: BuildItemSuffix | nil,
@@ -399,18 +362,6 @@ function render_builders.render_line_entries(
     end
 
     local entries = render_builders.build_comment_line_entries(line_items)
-    if #line_items.prefixed_comments > 0 then
-        local prefixed_entries: {LineEntry} = {}
-        for _, comment in ipairs(line_items.prefixed_comments) do
-            local prefixed_entry = LineEntry.new(nil, nil, nil, comment, false)
-            update_line_entry_metadata(prefixed_entry)
-            table.insert(prefixed_entries, prefixed_entry)
-        end
-        for _, entry in ipairs(entries) do
-            table.insert(prefixed_entries, entry)
-        end
-        entries = prefixed_entries
-    end
 
     local item_count = 0
     for _, entry in ipairs(entries) do
@@ -427,14 +378,21 @@ function render_builders.render_line_entries(
         for comment_index, comment in ipairs(comments) do
             if comment_index > 1 then
                 table.insert(parts, doc.hardline())
-                if comment_has_blank_line_before(comment) then
+                if comment.blank_line_before then
                     table.insert(parts, doc.hardline())
                 end
-            elseif comment_has_blank_line_before(comment) then
+            elseif comment.blank_line_before then
                 table.insert(parts, doc.hardline())
             end
             table.insert(parts, doc.text(comment.text))
         end
+    end
+
+    local function comment_len(comment: parser.Comment): integer
+        -- TODO: Can't use yend because comment yend is not updated when
+        -- sorting require statements
+        local _, comment_line_breaks = comment.text:gsub("\n", "\n")
+        return comment_line_breaks + 1
     end
 
     for index, entry in ipairs(entries) do
@@ -444,7 +402,8 @@ function render_builders.render_line_entries(
             if not (entry_item_doc is nil) then
                 local last_leading = entry.leading_comments[#entry.leading_comments]
                 local item_start = entry.item_start_line
-                if not (item_start is nil) and last_leading.y + 1 < item_start then
+                if not (item_start is nil)
+                    and last_leading.y + comment_len(last_leading) < item_start then
                     table.insert(parts, doc.hardline())
                 end
                 table.insert(parts, doc.hardline())
@@ -453,7 +412,7 @@ function render_builders.render_line_entries(
 
         local standalone_comment = entry.standalone_comment
         if not (standalone_comment is nil) then
-            if comment_has_blank_line_before(standalone_comment) then
+            if standalone_comment.blank_line_before then
                 table.insert(parts, doc.hardline())
             end
             table.insert(parts, doc.text(standalone_comment.text))

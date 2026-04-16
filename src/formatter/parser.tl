@@ -61,7 +61,6 @@ local record parser
       typeid: integer       -- unique identifier
       inferred_at: Where    -- for error messages
       needs_compat: boolean -- for Lua compatibilty
-      source_text: string
       paren: boolean
    end
 
@@ -154,8 +153,9 @@ local record parser
 
    record Comment
         is tl.LexerComment
+        yend: integer
         blank_line_before: boolean
-    end
+   end
 
    record FieldEntry
       name: string
@@ -448,7 +448,6 @@ local record parser
         symbol_list_slot:               integer
         semicolon:                      boolean
         hashbang:                       string
-        unattached_comments:            {Comment}
         is_longstring:                  boolean
         yend:                           integer
         xend:                           integer
@@ -527,8 +526,6 @@ local record parser
         input: string,
         filename: string
     ): Node, {Error}, {string}
-    lex: function(input: string, filename: string): {Token}, {Error}
-    loader: function()
 end
 
 -- ── Type aliases for parser_types public types ──────────────────────────────
@@ -883,60 +880,6 @@ local function split_source_lines(input: string): {string}
    return lines
 end
 
-local function slice_source_until(
-    lines: {string},
-    start_line: integer,
-    start_col: integer,
-    end_line: integer,
-    end_col_exclusive: integer
-): string
-   local final_line = end_line
-   local final_col = end_col_exclusive - 1
-
-   if final_col < 1 then
-      final_line = end_line - 1
-      final_col = #lines[final_line]
-   end
-
-   if final_line < start_line then
-      return ""
-   elseif start_line == final_line then
-      return lines[start_line]:sub(start_col, final_col)
-   end
-
-   local parts: {string} = {}
-   table.insert(parts, lines[start_line]:sub(start_col))
-   for line = start_line + 1, final_line - 1 do
-      table.insert(parts, lines[line])
-   end
-   table.insert(parts, lines[final_line]:sub(1, final_col))
-   return table.concat(parts, "\n")
-end
-
-local function capture_type_source_text(
-    ps: ParseState, start_i: integer, end_i: integer
-): string
-   -- end_i is the first token AFTER the type. Use end_i - 1 (the last token of the
-   -- type) to avoid capturing comments or code that appear between the type and the
-   -- next token in the source.
-   local last_i = end_i - 1
-   if ps.source_lines == nil or ps.tokens[start_i] == nil or ps.tokens[last_i] == nil then
-      return ""
-   end
-
-   local start_token = ps.tokens[start_i]
-   local last_token = ps.tokens[last_i]
-   local text = slice_source_until(
-      ps.source_lines,
-      start_token.y,
-      start_token.x,
-      last_token.y,
-      last_token.x + #last_token.tk
-   )
-
-   return text:match("^(.-)%s*$") or ""
-end
-
 local function new_first_order_type(
     ps: ParseState,
     i: integer,
@@ -1092,7 +1035,7 @@ local function parse_table_value(ps: ParseState, i: integer): integer, Node, int
    return i, e
 end
 
-local get_attached_comments: function(token: Token, previous_line?: integer): {Comment}
+local get_attached_comments: function(token: Token, previous_token?: Token): {Comment}
 local get_same_line_comment: function(token: Token, line: integer): Comment
 
 local function parse_table_item(
@@ -1101,7 +1044,7 @@ local function parse_table_item(
     n?: integer
 ): integer, Node, integer
    local node = new_node(ps, i, "literal_table_item")
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    if comments then
       node.comments = comments
    end
@@ -1242,9 +1185,9 @@ end
 
 local function parse_table_literal(ps: ParseState, i: integer): integer, Node
    local node = new_node(ps, i, "literal_table")
-   node.comments = get_attached_comments(ps.tokens[i])
+   node.comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    i, node = parse_bracket_list(ps, i, node, "{", "}", "term", parse_table_item)
-   node.end_comments = get_attached_comments(ps.tokens[i - 1])
+   node.end_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
    node.trailing_comma = #node > 0 and ps.tokens[i - 2].tk == ","
    return i, node
 end
@@ -1461,14 +1404,12 @@ local function parse_base_type(
 end
 
 parse_type = function(ps: ParseState, i: integer): integer, FirstClassType, integer
-   local start_i = i
    if ps.tokens[i].tk == "(" then
       i = i + 1
       local t: Type
       i, t = parse_type(ps, i)
       i = verify_tk(ps, i, ")")
       if t then
-         t.source_text = capture_type_source_text(ps, start_i, i)
          t.paren = true
       end
       return i, t
@@ -1493,7 +1434,6 @@ parse_type = function(ps: ParseState, i: integer): integer, FirstClassType, inte
       end
       bt = u
    end
-   bt.source_text = capture_type_source_text(ps, start_i, i)
    return i, bt
 end
 
@@ -1502,7 +1442,6 @@ parse_type_list = function(
     i: integer,
     mode: ParseTypeListMode
 ): integer, TupleType
-   local start_i = i
    local t, list = new_tuple(ps, i)
 
    local first_token = ps.tokens[i].tk
@@ -1539,10 +1478,6 @@ parse_type_list = function(
    if optional_paren then
       i = verify_tk(ps, i, ")")
       t.paren = true
-   end
-
-   if i > start_i then
-      t.source_text = capture_type_source_text(ps, start_i, i)
    end
 
    return i, t
@@ -1805,11 +1740,9 @@ do
             -- line (args.yend > args.y). For single-line calls like `f() -- note`
             -- the comment belongs to the surrounding statement, not the call.
             local close_paren_line = ps.tokens[i - 1].y
-            if args.yend ~= nil and args.yend > args.y then
-               local same_line = get_same_line_comment(ps.tokens[i], close_paren_line)
-               if same_line ~= nil then
-                  args.trailing_comment = same_line
-               end
+            local same_line = get_same_line_comment(ps.tokens[i], close_paren_line)
+            if same_line ~= nil then
+               args.trailing_comment = same_line
             end
 
             if not after_valid_prefixexp(ps, e1, prev_i) then
@@ -1918,7 +1851,7 @@ do
    end
 
    parse_expression = function(ps: ParseState, i: integer): integer, Node, integer
-      local comments = get_attached_comments(ps.tokens[i])
+      local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
       local lhs: Node
       local istart = i
       i, lhs = P(ps, i)
@@ -2243,7 +2176,7 @@ local function parse_if_block(
 end
 
 local function parse_if(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local istart = i
    local node = new_node(ps, i, "if")
    node.if_blocks = {}
@@ -2273,7 +2206,7 @@ local function parse_if(ps: ParseState, i: integer): integer, Node
 end
 
 local function parse_while(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local istart = i
    local node = new_node(ps, i, "while")
    i = verify_tk(ps, i, "while")
@@ -2287,7 +2220,7 @@ local function parse_while(ps: ParseState, i: integer): integer, Node
 end
 
 local function parse_fornum(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local istart = i
    local node = new_node(ps, i, "fornum")
    i = i + 1
@@ -2310,7 +2243,7 @@ local function parse_fornum(ps: ParseState, i: integer): integer, Node
 end
 
 local function parse_forin(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local istart = i
    local node = new_node(ps, i, "forin")
    i = i + 1
@@ -2349,7 +2282,7 @@ local function parse_for(ps: ParseState, i: integer): integer, Node
 end
 
 local function parse_repeat(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local node = new_node(ps, i, "repeat")
    i = verify_tk(ps, i, "repeat")
    i, node.body = parse_statements(ps, i)
@@ -2364,7 +2297,7 @@ local function parse_repeat(ps: ParseState, i: integer): integer, Node
 end
 
 local function parse_do(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local istart = i
    local node = new_node(ps, i, "do")
    i = verify_tk(ps, i, "do")
@@ -2377,7 +2310,7 @@ local function parse_do(ps: ParseState, i: integer): integer, Node
 end
 
 local function parse_break(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local node = new_node(ps, i, "break")
    i = verify_tk(ps, i, "break")
    if node then
@@ -2420,7 +2353,7 @@ for k, v in pairs(stop_statement_list) do
 end
 
 local function parse_return(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local node = new_node(ps, i, "return")
    i = verify_tk(ps, i, "return")
    node.exps = new_node(ps, i, "expression_list")
@@ -2536,57 +2469,40 @@ local function set_declname(def: Type, declname: string)
    end
 end
 
-local function make_comment(lc: tl.LexerComment): Comment
-   return { x = lc.x, y = lc.y, text = lc.text, blank_line_before = false }
+local function comment_len(comment: tl.LexerComment): integer
+   local _, comment_line_breaks = comment.text:gsub("\n", "\n")
+   return comment_line_breaks + 1
 end
 
-get_attached_comments = function(token: Token, previous_line?: integer): {Comment}
+local function make_comment(lc: tl.LexerComment): Comment
+   return { x = lc.x, y = lc.y, text = lc.text, blank_line_before = false, yend = lc.y + comment_len(lc) - 1 }
+end
+
+get_attached_comments = function(token: Token, previous_token?: Token): {Comment}
    local token_comments = token.comments
    if token_comments == nil or #token_comments == 0 then
       return nil
    end
 
-   local function is_long_comment(lc: tl.LexerComment): boolean
-      return lc.text:match("^%-%-%[(=*)%[") ~= nil
-   end
-
    local last_lc = token_comments[#token_comments]
-
-   if is_long_comment(last_lc) then
-      local _, newlines = string.gsub(last_lc.text, "\n", "")
-      local diff_y = token.y - last_lc.y - newlines
-      if diff_y >= 0 and diff_y <= 1 then
-         return { make_comment(last_lc) }
-      else
-         return nil
-      end
-   end
 
    local diff_y = token.y - last_lc.y
    if diff_y < 0 then
       return nil
    end
 
-   local first_n = 1
-   for i = #token_comments, 2, -1 do
-      if is_long_comment(token_comments[i - 1]) then
-         first_n = i
-         break
-      end
-   end
-
    local attached_comments: {Comment} = {}
-   for j = first_n, #token_comments do
+   for j = 1, #token_comments do
       table.insert(attached_comments, make_comment(token_comments[j]))
    end
 
    for i = 2, #attached_comments do
-      if attached_comments[i].y - attached_comments[i - 1].y > 1 then
+      if attached_comments[i].y - attached_comments[i - 1].yend > 1 then
          attached_comments[i].blank_line_before = true
       end
    end
 
-   if not (previous_line is nil) and attached_comments[1].y > previous_line + 1 then
+   if not (previous_token is nil) and attached_comments[1].y > previous_token.y + 1 then
       attached_comments[1].blank_line_before = true
    end
 
@@ -2642,7 +2558,7 @@ local function parse_nested_type(
        nt.newtype,
        def,
        nt,
-       get_attached_comments(ps.tokens[istart])
+       get_attached_comments(ps.tokens[istart], ps.tokens[istart-1])
    )
    return i
 end
@@ -2653,12 +2569,12 @@ parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, 
       local item: Node
       i, item = verify_kind(ps, i, "string", "string")
       if item then
-         item.comments = get_attached_comments(ps.tokens[i - 1])
+         item.comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
          table.insert(def.enum_items, item)
       end
    end
 
-   def.end_comments = get_attached_comments(ps.tokens[i])
+   def.end_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    return i, true
 end
 
@@ -2873,7 +2789,7 @@ parse_record_body = function(
              "syntax error: this syntax is no longer valid; declare array interface at the top with 'is {...}'"
          )
       elseif ps.tokens[i].tk == "type" and ps.tokens[i + 1].tk ~= ":" then
-         local comments = get_attached_comments(ps.tokens[i])
+         local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
          i = i + 1
          local iv = i
 
@@ -2911,7 +2827,7 @@ parse_record_body = function(
             i = parse_nested_type(ps, i, def, tn)
          end
       else
-         local comments = get_attached_comments(ps.tokens[i])
+         local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
          local is_metamethod = false
          if ps.tokens[i].tk == "metamethod" and ps.tokens[i + 1].tk ~= ":" then
             is_metamethod = true
@@ -3081,7 +2997,7 @@ do
    end
 
    parse_call_or_assignment = function(ps: ParseState, i: integer): integer, Node
-      local comments = get_attached_comments(ps.tokens[i])
+      local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
       local exp: Node
       local istart = i
       i, exp = parse_expression(ps, i)
@@ -3302,7 +3218,7 @@ local function parse_local_macroexp(ps: ParseState, i: integer): integer, Node
 end
 
 local function parse_local(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local ntk = ps.tokens[i + 1].tk
    local tn = ntk as TypeName
 
@@ -3316,7 +3232,7 @@ local function parse_local(ps: ParseState, i: integer): integer, Node
    elseif parse_type_body_fns[tn as BodyTypeName] and ps.tokens[i + 2].kind == "identifier" then
       i, node = parse_type_constructor(ps, i, "local_type", tn as BodyTypeName)
       if node then
-         node.end_comments = get_attached_comments(ps.tokens[i - 1])
+         node.end_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
       end
    else
       i, node = parse_variable_declarations(ps, i + 1, "local_declaration")
@@ -3328,7 +3244,7 @@ local function parse_local(ps: ParseState, i: integer): integer, Node
 end
 
 local function parse_global(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local ntk = ps.tokens[i + 1].tk
    local tn = ntk as TypeName
 
@@ -3351,7 +3267,7 @@ local function parse_global(ps: ParseState, i: integer): integer, Node
 end
 
 local function parse_record_function(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i])
+   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local node: Node
    i, node = parse_function(ps, i, "record")
    if node then
@@ -3421,30 +3337,6 @@ local needs_local_or_global: {string : function(
    ["enum"] = type_needs_local_or_global,
 }
 
-local function store_unattached_comments(node: Node, token: Token, item: Node)
-   local token_comments = token.comments
-   if token_comments == nil then return end
-   for _, tc in ipairs(token_comments) do
-      local is_attached = false
-      if item.comments then
-         for _, nc in ipairs(item.comments) do
-            if tc.y == nc.y and tc.x == nc.x and tc.text == nc.text then
-               is_attached = true
-               break
-            end
-         end
-      end
-      if not is_attached then
-         if not node.unattached_comments then
-            node.unattached_comments = {}
-         end
-         table.insert(node.unattached_comments, make_comment(tc))
-      else
-         break
-      end
-   end
-end
-
 parse_statements = function(
     ps: ParseState,
     i: integer,
@@ -3482,9 +3374,6 @@ parse_statements = function(
       i, item = fn(ps, i)
 
       if item then
-         if toplevel and token.comments ~= nil then
-            store_unattached_comments(node, token, item)
-         end
          table.insert(node, item)
       elseif i > 1 then
          local lasty = ps.tokens[i - 1].y
@@ -3494,8 +3383,7 @@ parse_statements = function(
       end
    end
 
-   local previous_line = i > 1 and ps.tokens[i - 1].y or nil
-   node.end_comments = get_attached_comments(ps.tokens[i], previous_line)
+   node.end_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    end_at(node, ps.tokens[i])
    return i, node
 end

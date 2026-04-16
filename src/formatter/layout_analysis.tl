@@ -60,7 +60,6 @@ local function min_source_line(node: parser.Node): integer
     local function consider_node_comments(candidate: parser.Node)
         consider_comments(candidate.comments or {})
         consider_comments(candidate.end_comments or {})
-        consider_comments(candidate.unattached_comments or {})
     end
 
     consider_node_comments(node)
@@ -69,37 +68,16 @@ local function min_source_line(node: parser.Node): integer
 end
 
 local function count_leading_comments_for_stmt(
-    stmt: parser.Node, previous_end_line: integer
+    stmt: parser.Node, non_nil_previous_end: integer
 ): integer
-    local count = 0
-    if stmt.comments ~= nil then
-        for _, comment in ipairs(stmt.comments) do
-            if comment.y > previous_end_line then
-                count = count + 1
-            end
+    local earliest_line = stmt.y
+
+    for _, comment in ipairs(stmt.comments or {}) do
+        if comment.y < earliest_line and comment.y ~= non_nil_previous_end then
+            earliest_line = comment.y
         end
     end
-    return count
-end
-
-local function top_level_block_has_leading_prelude(
-    block: parser.Node, lines: {string}
-): boolean
-    if #block == 0 then
-        return false
-    end
-
-    local first_stmt = block[1]
-    for line = 1, first_stmt.y - 1 do
-        local line_str = lines[line]
-        if line_str ~= nil
-            and line_str:match("%S") ~= nil
-            and line_str:match("^%s*%-%-") == nil then
-            return true
-        end
-    end
-
-    return false
+    return earliest_line
 end
 
 local function stmt_surface_range(stmt: parser.Node): source.Range
@@ -176,12 +154,12 @@ local function build_block_layout(
     local statement_layouts: {StatementLayout} = {}
     for _, stmt in ipairs(block) do
         local stmt_end = max_source_line(stmt)
-        if not (previous_end is nil) and stmt.y > previous_end + 1 then
+        if not (previous_end is nil) then
             local non_nil_previous_end = previous_end
-            local leading_comment_count = count_leading_comments_for_stmt(
+            local earliest_line_comment_or_stmt = count_leading_comments_for_stmt(
                 stmt, non_nil_previous_end
             )
-            local effective_blank_lines = stmt.y - non_nil_previous_end - 1 - leading_comment_count
+            local effective_blank_lines = earliest_line_comment_or_stmt - non_nil_previous_end - 1
             if effective_blank_lines > 0 then
                 statement_layouts[#statement_layouts].preserve_blank_line_after = true
             end
@@ -282,11 +260,6 @@ function layout_analysis.analyze_block(
 ): AnalysisResult
     local block_layout = build_block_layout(block, fmt_off_regions, source_lines)
     if block_layout == nil then
-        return AnalysisResult.new(false, nil)
-    end
-
-    if top_level_block_has_leading_prelude(block, source_lines) then
-        fmt_logger.info("[structural] blocked: top-level block has leading prelude")
         return AnalysisResult.new(false, nil)
     end
 

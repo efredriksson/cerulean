@@ -71,7 +71,6 @@ local function render_block_doc_with(
     end
 
     line_items:add_end_comments(block.end_comments or {})
-    line_items:add_prefixed_comments(block.unattached_comments or {})
 
     local function entry_separator(
         sep_ctx: render_builders.EntrySeparatorContext
@@ -102,7 +101,15 @@ function block_doc.render_block(
         return nil
     end
 
-    return doc.concat({block_doc_node, doc.hardline()}):render(88, 4)
+    local function get_prelude(): doc.Doc
+        if block.hashbang then
+            return doc.concat({doc.text(block.hashbang), doc.hardline()})
+        else
+            return doc.text("")
+        end
+    end
+
+    return doc.concat({get_prelude(), block_doc_node, doc.hardline()}):render(88, 4)
 end
 
 return block_doc

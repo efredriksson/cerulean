@@ -1,4 +1,4 @@
--- Top-level pipeline: parse -> source/layout analysis -> structural render -> require sort.
+-- Top-level pipeline: parse -> source/layout analysis -> require sort -> structural render.
 -- See ARCHITECTURE.md for the current module map and flow.
 local ast_traversal = require("formatter.ast_traversal")
 local block_doc = require("formatter.block_doc")
@@ -62,9 +62,8 @@ local function build_formatter_context(
 end
 
 local function run_structural_phase(
-    source_: string, filename: string, ast: parser.Node, ctx: RenderContext
+    source_: string, context: FormatterContext, ctx: RenderContext
 ): string
-    local context = build_formatter_context(source_, filename, ast)
     local structural_analysis = layout_analysis.analyze_block(
         context.ast, context.source_text.lines, context.fmt_off_regions
     )
@@ -81,29 +80,17 @@ local function run_structural_phase(
     return source_
 end
 
-local function run_require_sort_phase(
-    ctx: RenderContext, source_: string, filename: string
-): Rewrite
-    local output, parse_errors = require_sort.rewrite(ctx, source_, filename)
-    return Rewrite.new(output, output ~= source_, parse_errors)
-end
-
 function rewriter.rewrite(source_: string, filename: string): Rewrite
     local ast, parse_errors = parser.parse(source_, filename)
     if #parse_errors > 0 then
         return Rewrite.new(source_, false, parse_errors)
     end
 
+    local context = build_formatter_context(source_, filename, ast)
     local ctx = block_doc.make_context()
-    local intermediate = run_structural_phase(source_, filename, ast, ctx)
-    local reorder_rewrite = run_require_sort_phase(ctx, intermediate, filename)
-    if #reorder_rewrite.parse_errors > 0 then
-        return Rewrite.new(
-            intermediate, intermediate ~= source_, reorder_rewrite.parse_errors
-        )
-    end
-
-    return Rewrite.new(reorder_rewrite.output, reorder_rewrite.output ~= source_, {})
+    require_sort.sort_top_level_requires(context.ast, context.fmt_off_regions)
+    local output = run_structural_phase(source_, context, ctx)
+    return Rewrite.new(output, output ~= source_, {})
 end
 
 return rewriter

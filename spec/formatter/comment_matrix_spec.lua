@@ -700,6 +700,65 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]]))
 
+      it("regular comment that are end comments are stable", helpers.format([[
+         local x =  1
+
+         -- regular comment
+      ]], [[
+         local x = 1
+
+         -- regular comment
+      ]]))
+
+      it("unattached comments are stable", helpers.check([[   
+         -- regular comment
+      ]]))
+
+      it("hashbang are kept and supported", helpers.format([[
+         #!/usr/bin/env tl run
+         local x =  1
+      ]], [[
+         #!/usr/bin/env tl run
+         local x = 1
+      ]]))
+
+      it("empty lines between hashbang and stmt are removed, consider changing this behaviour", helpers.format([[
+         #!/usr/bin/env tl run
+
+
+         local x =  1
+      ]], [[
+         #!/usr/bin/env tl run
+         local x = 1
+      ]]))
+
+      it("empty lines between hashbang and comment are kept", helpers.format([[
+         #!/usr/bin/env tl run
+
+
+         -- hello
+      ]], [[
+         #!/usr/bin/env tl run
+
+         -- hello
+      ]]))
+
+      it("block comment that are end comments are stable", helpers.format([=[
+         local x =  1
+
+         --[[
+         this is a
+         block comment
+         ]]
+      ]=], [=[
+         local x = 1
+
+         --[[
+         this is a
+         block comment
+         ]]
+      ]=]))
+
       it("preserves a leading comment on the sole statement of an if body",
          helpers.format([[
             local function f(flag: boolean)
