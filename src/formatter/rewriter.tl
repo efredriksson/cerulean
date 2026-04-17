@@ -1,15 +1,11 @@
--- Top-level pipeline: parse -> source/layout analysis -> require sort -> structural render.
+-- Top-level pipeline: parse -> source analysis -> require sort -> structural render.
 -- See ARCHITECTURE.md for the current module map and flow.
 local ast_traversal = require("formatter.ast_traversal")
 local block_doc = require("formatter.block_doc")
-local layout_analysis = require("formatter.layout_analysis")
 local parser = require("formatter.parser")
-local render_context = require("formatter.render_context")
 local require_sort = require("formatter.require_sort")
 local source = require("formatter.source")
 local tl = require("tl")
-
-local type RenderContext = render_context.RenderContext
 
 local rewriter = {}
 
@@ -61,25 +57,6 @@ local function build_formatter_context(
     return FormatterContext.new(ast, tokens, source_text, fmt_off_regions)
 end
 
-local function run_structural_phase(
-    source_: string, context: FormatterContext, ctx: RenderContext
-): string
-    local structural_analysis = layout_analysis.analyze_block(
-        context.ast, context.source_text.lines, context.fmt_off_regions
-    )
-    if structural_analysis.can_render_structurally then
-        local block_layout = structural_analysis.block_layout
-        local structurally_rendered = block_doc.render_block(
-            ctx, context.ast, block_layout
-        )
-        if structurally_rendered ~= nil then
-            return structurally_rendered
-        end
-    end
-
-    return source_
-end
-
 function rewriter.rewrite(source_: string, filename: string): Rewrite
     local ast, parse_errors = parser.parse(source_, filename)
     if #parse_errors > 0 then
@@ -87,9 +64,11 @@ function rewriter.rewrite(source_: string, filename: string): Rewrite
     end
 
     local context = build_formatter_context(source_, filename, ast)
-    local ctx = block_doc.make_context()
+    local ctx = block_doc.make_context(
+        context.fmt_off_regions, context.source_text.lines
+    )
     require_sort.sort_top_level_requires(context.ast, context.fmt_off_regions)
-    local output = run_structural_phase(source_, context, ctx)
+    local output = block_doc.render_block(ctx, context.ast) or source_
     return Rewrite.new(output, output ~= source_, {})
 end
 

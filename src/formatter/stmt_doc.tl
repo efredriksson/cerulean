@@ -3,28 +3,14 @@ local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local function_doc = require("formatter.function_doc")
 local inline_stmt_doc = require("formatter.inline_stmt_doc")
-local layout_types = require("formatter.layout_types")
 local parser = require("formatter.parser")
 local render_builders = require("formatter.render_builders")
 local render_context = require("formatter.render_context")
 local type_doc = require("formatter.type_doc")
 
-local type BlockLayout = layout_types.BlockLayout
-local type StatementLayout = layout_types.StatementLayout
 local type RenderContext = render_context.RenderContext
 
 local stmt_doc = {}
-
-local function node_end_line(node: parser.Node): integer
-    return node.yend or node.y
-end
-
-local function get_body_layout(layout: StatementLayout | nil): BlockLayout | nil
-    if layout is nil then
-        return nil
-    end
-    return layout.body_layout
-end
 
 local function render_typearg_list(typeargs: {parser.TypeArgType}): doc.Doc
     if #typeargs == 0 then
@@ -243,7 +229,7 @@ local function render_record_like_body_doc(
     local function record_entry_separator(
         sep_ctx: render_builders.EntrySeparatorContext
     ): doc.Doc
-        if sep_ctx.previous_preserve_blank_line_after then
+        if sep_ctx.previous.preserve_blank_line_after then
             return doc.concat({doc.line(), doc.line()})
         end
         return doc.line()
@@ -434,24 +420,16 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
 end
 
 local function render_function_definition_doc(
-    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
+    ctx: RenderContext, node: parser.Node
 ): doc.Doc | nil
     local name_prefix = render_function_name(node)
     if name_prefix is nil then
         return nil
     end
-
-    local body_layout: BlockLayout | nil = nil
-    if not (layout is nil) then
-        body_layout = layout.body_layout
-    end
-
-    return function_doc.render(ctx, node, name_prefix, body_layout)
+    return function_doc.render(ctx, node, name_prefix)
 end
 
-local function render_if_doc(
-    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
-): doc.Doc | nil
+local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
     if node.if_blocks == nil then
         return nil
     end
@@ -461,14 +439,7 @@ local function render_if_doc(
         if if_block.body == nil then
             return nil
         end
-        local if_block_layout: BlockLayout | nil = nil
-        if not (layout is nil) then
-            local if_block_layouts = layout.if_block_layouts
-            if not (if_block_layouts is nil) then
-                if_block_layout = if_block_layouts[index]
-            end
-        end
-        local body_doc = ctx.render_block(if_block.body, if_block_layout)
+        local body_doc = ctx.render_block(if_block.body)
         if body_doc == nil then
             return nil
         end
@@ -498,14 +469,12 @@ local function render_if_doc(
     return doc.concat(parts)
 end
 
-local function render_while_doc(
-    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
-): doc.Doc | nil
+local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
     if node.exp == nil or node.body == nil or #node.body == 0 then
         return nil
     end
 
-    local body_doc = ctx.render_block(node.body, get_body_layout(layout))
+    local body_doc = ctx.render_block(node.body)
     if body_doc == nil then
         return nil
     end
@@ -514,9 +483,7 @@ local function render_while_doc(
     return block_with_close(header, body_doc, "end")
 end
 
-local function render_fornum_doc(
-    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
-): doc.Doc | nil
+local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
     if node.var == nil
         or node.from == nil
         or node.to == nil
@@ -525,7 +492,7 @@ local function render_fornum_doc(
         return nil
     end
 
-    local body_doc = ctx.render_block(node.body, get_body_layout(layout))
+    local body_doc = ctx.render_block(node.body)
     if body_doc == nil then
         return nil
     end
@@ -546,9 +513,7 @@ local function render_fornum_doc(
     return block_with_close(doc.concat({header, doc.text(" do")}), body_doc, "end")
 end
 
-local function render_forin_doc(
-    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
-): doc.Doc | nil
+local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
     if node.vars == nil or node.exps == nil or node.body == nil or #node.body == 0 then
         return nil
     end
@@ -558,7 +523,7 @@ local function render_forin_doc(
         table.insert(var_docs, doc.text(var_node.tk))
     end
 
-    local body_doc = ctx.render_block(node.body, get_body_layout(layout))
+    local body_doc = ctx.render_block(node.body)
     if body_doc == nil then
         return nil
     end
@@ -577,14 +542,12 @@ local function render_forin_doc(
     return block_with_close(header, body_doc, "end")
 end
 
-local function render_repeat_doc(
-    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
-): doc.Doc | nil
+local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
     if node.body == nil or node.exp == nil or #node.body == 0 then
         return nil
     end
 
-    local body_doc = ctx.render_block(node.body, get_body_layout(layout))
+    local body_doc = ctx.render_block(node.body)
     if body_doc is nil then
         return nil
     end
@@ -596,14 +559,12 @@ local function render_repeat_doc(
     )
 end
 
-local function render_do_doc(
-    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
-): doc.Doc | nil
+local function render_do_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
     if node.body == nil or #node.body == 0 then
         return nil
     end
 
-    local body_doc = ctx.render_block(node.body, get_body_layout(layout))
+    local body_doc = ctx.render_block(node.body)
     if body_doc == nil then
         return nil
     end
@@ -612,13 +573,11 @@ local function render_do_doc(
 end
 
 function stmt_doc.render_statement_doc(
-    ctx: RenderContext, node: parser.Node, layout: StatementLayout | nil
+    ctx: RenderContext, node: parser.Node
 ): doc.Doc | nil
-    local end_line = node_end_line(node)
-
-    if node.kind == "return" and end_line == node.y then
+    if node.kind == "return" then
         return render_return_doc(ctx, node)
-    elseif node.kind == "assignment" and end_line == node.y then
+    elseif node.kind == "assignment" then
         return render_assignment_doc(ctx, node)
     elseif node.kind == "local_declaration" then
         return inline_stmt_doc.render_declaration_doc(ctx, node, "local")
@@ -631,25 +590,23 @@ function stmt_doc.render_statement_doc(
     elseif (node.kind == "local_function"
         or node.kind == "global_function"
         or node.kind == "record_function") then
-        return render_function_definition_doc(ctx, node, layout)
+        return render_function_definition_doc(ctx, node)
     elseif node.kind == "if" then
-        return render_if_doc(ctx, node, layout)
+        return render_if_doc(ctx, node)
     elseif node.kind == "while" then
-        return render_while_doc(ctx, node, layout)
+        return render_while_doc(ctx, node)
     elseif node.kind == "fornum" then
-        return render_fornum_doc(ctx, node, layout)
+        return render_fornum_doc(ctx, node)
     elseif node.kind == "forin" then
-        return render_forin_doc(ctx, node, layout)
+        return render_forin_doc(ctx, node)
     elseif node.kind == "repeat" then
-        return render_repeat_doc(ctx, node, layout)
+        return render_repeat_doc(ctx, node)
     elseif node.kind == "do" then
-        return render_do_doc(ctx, node, layout)
+        return render_do_doc(ctx, node)
     elseif node.kind == "break" then
         return doc.text("break")
     elseif node.kind == "op" then
-        if end_line == node.y then
-            return ctx.render_expr(node)
-        end
+        return ctx.render_expr(node)
     end
 
     return nil

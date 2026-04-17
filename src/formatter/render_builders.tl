@@ -9,8 +9,10 @@ end
 local record CommentLineItem
     item_doc: doc.Doc
     item_end_line: integer
-    item_start_line: integer
-    comments: {parser.Comment}
+    item_start_line: integer | nil
+    blank_line_before: boolean
+    blank_line_after_leading_comments: boolean
+    raw_comments: {parser.Comment} | nil
     preserve_blank_line_after: boolean
 end
 
@@ -23,19 +25,15 @@ end
 local record LineEntry
     item_doc: doc.Doc | nil
     item_end_line: integer | nil
-    item_start_line: integer | nil
     leading_comments: {parser.Comment}
     trailing_comments: {parser.Comment}
-    standalone_comment: parser.Comment | nil
+    blank_line_before: boolean
+    blank_line_after_leading_comments: boolean
     preserve_blank_line_after: boolean
     is_item: boolean
     is_comment_only: boolean
     has_leading_comments: boolean
-    has_trailing_comments: boolean
-    has_standalone_comment: boolean
     has_any_comments: boolean
-    first_emitted_comment: parser.Comment | nil
-    starts_with_blank_line: boolean
 end
 
 local record EntrySeparatorContext
@@ -43,11 +41,8 @@ local record EntrySeparatorContext
     next: LineEntry
     previous_is_item: boolean
     next_is_item: boolean
-    previous_has_trailing_comments: boolean
     next_has_leading_comments: boolean
     next_is_comment_only: boolean
-    next_starts_with_blank_line: boolean
-    previous_preserve_blank_line_after: boolean
 end
 
 local render_builders = {
@@ -88,7 +83,9 @@ function CommentLineItem.new(
     self.item_doc = item_doc
     self.item_end_line = item_end_line
     self.item_start_line = item_start_line
-    self.comments = comments
+    self.blank_line_before = false
+    self.blank_line_after_leading_comments = false
+    self.raw_comments = comments
     self.preserve_blank_line_after = preserve_blank_line_after
     return self
 end
@@ -140,26 +137,21 @@ end
 function LineEntry.new(
     item_doc: doc.Doc | nil,
     item_end_line: integer | nil,
-    item_start_line: integer | nil,
-    standalone_comment: parser.Comment | nil,
-    preserve_blank_line_after: boolean
+    blank_line_before: boolean,
+    blank_line_after_leading_comments: boolean
 ): LineEntry
     local self: LineEntry = setmetatable({}, {__index = LineEntry})
     self.item_doc = item_doc
     self.item_end_line = item_end_line
-    self.item_start_line = item_start_line
     self.leading_comments = {}
     self.trailing_comments = {}
-    self.standalone_comment = standalone_comment
-    self.preserve_blank_line_after = preserve_blank_line_after
+    self.blank_line_before = blank_line_before
+    self.blank_line_after_leading_comments = blank_line_after_leading_comments
+    self.preserve_blank_line_after = false
     self.is_item = false
     self.is_comment_only = false
     self.has_leading_comments = false
-    self.has_trailing_comments = false
-    self.has_standalone_comment = false
     self.has_any_comments = false
-    self.first_emitted_comment = nil
-    self.starts_with_blank_line = false
     return self
 end
 
@@ -173,11 +165,8 @@ function EntrySeparatorContext.new(
     self.next = next_entry
     self.previous_is_item = previous.is_item
     self.next_is_item = next_entry.is_item
-    self.previous_has_trailing_comments = previous.has_trailing_comments
     self.next_has_leading_comments = next_entry.has_leading_comments
     self.next_is_comment_only = next_entry.is_comment_only
-    self.next_starts_with_blank_line = next_entry.starts_with_blank_line
-    self.previous_preserve_blank_line_after = previous.preserve_blank_line_after
     return self
 end
 
@@ -254,24 +243,11 @@ function render_builders.call_arg_effective_end_line(node: parser.Node): integer
 end
 
 local function update_line_entry_metadata(entry: LineEntry)
-    local entry_item_doc = entry.item_doc
-    local standalone_comment = entry.standalone_comment
-    entry.is_item = not (entry_item_doc is nil)
+    local item_doc = entry.item_doc
+    entry.is_item = not (item_doc is nil)
     entry.has_leading_comments = #entry.leading_comments > 0
-    entry.has_trailing_comments = #entry.trailing_comments > 0
-    entry.has_standalone_comment = not (standalone_comment is nil)
-    entry.has_any_comments = entry.has_leading_comments
-        or entry.has_trailing_comments
-        or entry.has_standalone_comment
-    if entry.has_leading_comments then
-        entry.first_emitted_comment = entry.leading_comments[1]
-    else
-        entry.first_emitted_comment = standalone_comment
-    end
-    local first_comment = entry.first_emitted_comment
-    entry.starts_with_blank_line = not (first_comment is nil)
-        and first_comment.blank_line_before
-    entry.is_comment_only = not entry.is_item and entry.has_any_comments
+    entry.is_comment_only = not entry.is_item and entry.has_leading_comments
+    entry.has_any_comments = entry.has_leading_comments or #entry.trailing_comments > 0
 end
 
 function render_builders.build_comment_line_entries(
@@ -281,47 +257,60 @@ function render_builders.build_comment_line_entries(
     local previous_entry: LineEntry | nil = nil
     local previous_end_line: integer | nil = nil
 
-    local function attach_comment(comment: parser.Comment, next_entry: LineEntry | nil)
+    -- Legacy classification: attach a comment to the previous entry (trailing)
+    -- or the next entry (leading), or create a standalone entry.
+    local function attach_comment_legacy(
+        comment: parser.Comment, next_entry: LineEntry | nil
+    )
         if not (previous_entry is nil) and not (previous_end_line is nil) then
-            local non_nil_previous_end_line = previous_end_line
-            if comment.y <= non_nil_previous_end_line then
+            if comment.y <= previous_end_line then
                 table.insert(previous_entry.trailing_comments, comment)
                 return
             end
         end
 
-        local attached_comment = comment
         if not (next_entry is nil) then
-            table.insert(next_entry.leading_comments, attached_comment)
+            table.insert(next_entry.leading_comments, comment)
         else
-            table.insert(entries, LineEntry.new(nil, nil, nil, attached_comment, false))
+            local standalone = LineEntry.new(nil, nil, comment.blank_line_before, false)
+            table.insert(standalone.leading_comments, comment)
+            update_line_entry_metadata(standalone)
+            table.insert(entries, standalone)
         end
     end
 
     for _, item in ipairs(line_items.items) do
-        local entry = LineEntry.new(
-            item.item_doc,
-            item.item_end_line,
-            item.item_start_line,
-            nil,
-            item.preserve_blank_line_after
-        )
+        local entry = LineEntry.new(item.item_doc, item.item_end_line, false, false)
+        entry.preserve_blank_line_after = item.preserve_blank_line_after
 
-        for _, comment in ipairs(item.comments) do
-            attach_comment(comment, entry)
+        local raw_comments = item.raw_comments
+        if not (raw_comments is nil) then
+            for _, comment in ipairs(raw_comments) do
+                attach_comment_legacy(comment, entry)
+            end
         end
 
+        if #entry.leading_comments > 0 then
+            entry.blank_line_before = entry.leading_comments[1].blank_line_before
+        end
+
+        local item_start = item.item_start_line
+        if #entry.leading_comments > 0 and not (item_start is nil) then
+            local last_leading = entry.leading_comments[#entry.leading_comments]
+            local last_comment_end = last_leading.yend or last_leading.y
+            if last_comment_end < item_start - 1 then
+                entry.blank_line_after_leading_comments = true
+            end
+        end
+
+        update_line_entry_metadata(entry)
         table.insert(entries, entry)
         previous_entry = entry
         previous_end_line = item.item_end_line
     end
 
     for _, comment in ipairs(line_items.end_comments) do
-        attach_comment(comment, nil)
-    end
-
-    for _, entry in ipairs(entries) do
-        update_line_entry_metadata(entry)
+        attach_comment_legacy(comment, nil)
     end
 
     return entries
@@ -365,8 +354,8 @@ function render_builders.render_line_entries(
 
     local item_count = 0
     for _, entry in ipairs(entries) do
-        local entry_item_doc = entry.item_doc
-        if not (entry_item_doc is nil) then
+        local entry_item_doc_check = entry.item_doc
+        if not (entry_item_doc_check is nil) then
             item_count = item_count + 1
         end
     end
@@ -374,50 +363,46 @@ function render_builders.render_line_entries(
     local parts: {doc.Doc} = {}
     local item_index = 0
 
-    local function append_comment_block(comments: {parser.Comment})
-        for comment_index, comment in ipairs(comments) do
+    for index, entry in ipairs(entries) do
+        -- Separator between entries (hardline by default; callers may customise).
+        if index > 1 then
+            local prev_entry = entries[index - 1]
+            local separator = non_nil_build_entry_separator(
+                EntrySeparatorContext.new(prev_entry, entry)
+            )
+            table.insert(parts, separator)
+        end
+
+        -- Blank line before this entry (applies to the first leading comment or
+        -- the statement itself when there are no leading comments).
+        if entry.blank_line_before then
+            table.insert(parts, doc.hardline())
+        end
+
+        -- Leading comments, each on its own line, preserving internal blank lines.
+        for comment_index, comment in ipairs(entry.leading_comments) do
             if comment_index > 1 then
                 table.insert(parts, doc.hardline())
                 if comment.blank_line_before then
                     table.insert(parts, doc.hardline())
                 end
-            elseif comment.blank_line_before then
-                table.insert(parts, doc.hardline())
             end
             table.insert(parts, doc.text(comment.text))
         end
-    end
 
-    local function comment_len(comment: parser.Comment): integer
-        -- TODO: Can't use yend because comment yend is not updated when
-        -- sorting require statements
-        local _, comment_line_breaks = comment.text:gsub("\n", "\n")
-        return comment_line_breaks + 1
-    end
+        -- Gap between leading comments and the statement body, when present.
+        if entry.has_leading_comments then
+            if entry.blank_line_after_leading_comments then
+                table.insert(parts, doc.hardline())
+            end
+            local item_doc_check = entry.item_doc
+            if not (item_doc_check is nil) then
+                table.insert(parts, doc.hardline())
+            end
+        end
 
-    for index, entry in ipairs(entries) do
+        -- Statement body.
         local entry_item_doc = entry.item_doc
-        if #entry.leading_comments > 0 then
-            append_comment_block(entry.leading_comments)
-            if not (entry_item_doc is nil) then
-                local last_leading = entry.leading_comments[#entry.leading_comments]
-                local item_start = entry.item_start_line
-                if not (item_start is nil)
-                    and last_leading.y + comment_len(last_leading) < item_start then
-                    table.insert(parts, doc.hardline())
-                end
-                table.insert(parts, doc.hardline())
-            end
-        end
-
-        local standalone_comment = entry.standalone_comment
-        if not (standalone_comment is nil) then
-            if standalone_comment.blank_line_before then
-                table.insert(parts, doc.hardline())
-            end
-            table.insert(parts, doc.text(standalone_comment.text))
-        end
-
         if not (entry_item_doc is nil) then
             item_index = item_index + 1
             table.insert(parts, entry_item_doc)
@@ -426,20 +411,11 @@ function render_builders.render_line_entries(
             if not (suffix is nil) then
                 table.insert(parts, suffix)
             end
-
-            if #entry.trailing_comments > 0 then
-                for _, comment in ipairs(entry.trailing_comments) do
-                    table.insert(parts, doc.text(" " .. comment.text))
-                end
-            end
         end
 
-        if index < #entries then
-            local next_entry = entries[index + 1]
-            local separator = non_nil_build_entry_separator(
-                EntrySeparatorContext.new(entry, next_entry)
-            )
-            table.insert(parts, separator)
+        -- Trailing inline comments (same line as the statement).
+        for _, comment in ipairs(entry.trailing_comments) do
+            table.insert(parts, doc.text(" " .. comment.text))
         end
     end
 

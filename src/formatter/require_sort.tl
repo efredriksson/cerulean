@@ -144,6 +144,8 @@ function require_sort.sort_top_level_requires(
     end
 
     table.sort(sortable, by_module_path)
+    local first_require_stmt = sortable[1].node
+    first_require_stmt.blank_line_before = true
 
     -- TODO: Need to refactor all these for loops so things
     -- can be read in a more declarative way!
@@ -155,26 +157,34 @@ function require_sort.sort_top_level_requires(
     for _, comment in ipairs(attach_module_documentation) do
         table.insert(total_top_level_comments, comment)
         current_y = comment_yend(comment) + 1
+        first_require_stmt.blank_line_before = false
     end
-    for index, comment in ipairs(sortable[1].node.comments) do
+    for index, comment in ipairs(first_require_stmt.comments) do
         if index == 1 and #attach_module_documentation == 0 then
             comment.blank_line_before = true
         end
         comment.y = current_y
+        comment.yend = comment_yend(comment)
         table.insert(total_top_level_comments, comment)
-        current_y = comment_yend(comment) + 1
+        current_y = comment.yend + 1
+        first_require_stmt.blank_line_before = false
     end
-    sortable[1].node.comments = total_top_level_comments
+    first_require_stmt.comments = total_top_level_comments
+    if #first_require_stmt.comments == 0 then
+        first_require_stmt.blank_line_before = false
+    end
 
     for index, entry in ipairs(sortable) do
         if index ~= 1 then
             for _, comment in ipairs(entry.node.comments or {}) do
                 comment.y = current_y
-                current_y = current_y + comment_len(comment)
+                comment.yend = comment_yend(comment)
+                current_y = comment.yend + 1
             end
+            entry.node.blank_line_before = false
         end
 
-        local node_len = entry.node.yend or entry.node.y - entry.node.y
+        local node_len = (entry.node.yend or entry.node.y) - entry.node.y
         entry.node.y = current_y
         entry.node.yend = current_y + node_len
         ast[index] = entry.node
@@ -188,7 +198,8 @@ function require_sort.sort_top_level_requires(
         end
 
         comment.y = current_y
-        current_y = current_y + 1
+        comment.yend = comment_yend(comment)
+        current_y = comment.yend + 1
     end
 
     local next_stmt = ast[count + 1]

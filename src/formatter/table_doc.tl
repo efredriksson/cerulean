@@ -54,7 +54,7 @@ local function build_delimited_sequence_doc(
 
     local function entry_separator(ctx: render_builders.EntrySeparatorContext): doc.Doc
         if force_wrap
-            or ctx.previous_has_trailing_comments
+            or #ctx.previous.trailing_comments > 0
             or ctx.next_has_leading_comments
             or ctx.next_is_comment_only then
             return doc.hardline()

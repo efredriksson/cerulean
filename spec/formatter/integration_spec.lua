@@ -113,6 +113,34 @@ describe("formatter integration", function()
              },
          }
       ]]))
+
+      it("preserves blank lines between verbatim statements inside a fmt:off block", helpers.check([[
+         do
+            -- fmt: off
+
+            local function foo()
+               local x = 1
+            end
+
+            local function bar()
+               local y = 2
+            end
+         end
+      ]]))
+
+      it("preserves blank lines before off comment after block", helpers.format([[
+         local function f( )
+         end
+
+         -- fmt: off
+         local a  =  5
+      ]], [[
+         local function f()
+         end
+
+         -- fmt: off
+         local a  =  5
+      ]]))
    end)
 
    describe("multi-line expressions in local declarations", function()
@@ -172,6 +200,16 @@ describe("formatter integration", function()
       ]]))
 
       it("fmt: off at top level freezes to end of file", helpers.check([[
+         -- fmt: off
+         local x = {1,  2,  3}
+      ]]))
+
+      pending("fmt: off after comment, still formats comment", helpers.format([[
+           -- comment to format
+         -- fmt: off
+         local x = {1,  2,  3}
+      ]], [[
+         -- comment to format
          -- fmt: off
          local x = {1,  2,  3}
       ]]))

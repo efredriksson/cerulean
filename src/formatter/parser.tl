@@ -509,6 +509,7 @@ local record parser
         trailing_comma:                 boolean
         end_comments:                   {Comment}
         trailing_comment:               Comment
+        blank_line_before:              boolean
         debug_type:                     Type
         is_self:                        boolean
         is_type_declaration:            boolean
@@ -1737,12 +1738,11 @@ do
 
             -- Capture a comment that immediately follows the closing ')' on the
             -- same line, but only for multi-line calls where ')' is on its own
-            -- line (args.yend > args.y). For single-line calls like `f() -- note`
-            -- the comment belongs to the surrounding statement, not the call.
+            -- line. For single-line calls like `f() -- note` the comment belongs
+            -- to the surrounding statement and is extracted there instead.
             local close_paren_line = ps.tokens[i - 1].y
-            local same_line = get_same_line_comment(ps.tokens[i], close_paren_line)
-            if same_line ~= nil then
-               args.trailing_comment = same_line
+            if close_paren_line > args.y then
+               args.trailing_comment = get_same_line_comment(ps.tokens[i], close_paren_line)
             end
 
             if not after_valid_prefixexp(ps, e1, prev_i) then
@@ -3344,6 +3344,7 @@ parse_statements = function(
 ): integer, Node
    local node = new_node(ps, i, "statements")
    local item: Node
+   local previous_end: integer | nil = nil
    while true do
       while ps.tokens[i].kind == ";" do
          i = i + 1
@@ -3374,6 +3375,22 @@ parse_statements = function(
       i, item = fn(ps, i)
 
       if item then
+         -- Set yend from last consumed token. For block stmts (function, if, etc.)
+         -- this matches what end_at already wrote; for simple stmts it was nil.
+         item.yend = ps.tokens[i - 1].y
+         -- Extract a same-line trailing comment (e.g. `local x = 1 -- note`).
+         -- get_same_line_comment removes it from ps.tokens[i].comments so it
+         -- won't be re-attached as a leading comment of the next statement.
+         item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
+
+         local leading = item.comments or {}
+         if #leading > 0 then
+            previous_end = leading[#leading].yend
+         end
+         if previous_end then   
+            item.blank_line_before = item.y > previous_end + 1
+         end
+         previous_end = item.yend
          table.insert(node, item)
       elseif i > 1 then
          local lasty = ps.tokens[i - 1].y
