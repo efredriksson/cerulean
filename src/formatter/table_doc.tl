@@ -38,17 +38,14 @@ local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc
 end
 
 local function has_any_comments(items: parser.Node): boolean
-    for _, item in ipairs(items) do
-        if #(item.comments or {}) > 0 or item.trailing_comment then
-            return true
-        end
-    end
-    return items.trailing_comma or #(items.end_comments or {}) > 0
+    return render_builders.any_items_have_comments(items)
+        or items.trailing_comma
+        or #(items.end_comments or {}) > 0
 end
 
 function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.Doc
     local force_wrap = has_any_comments(items)
-    local line_doc = force_wrap and doc.hardline() or doc.softline()
+    local line_doc = render_builders.item_line_doc(force_wrap)
     local parts: {doc.Doc} = {}
 
     local line_before = false

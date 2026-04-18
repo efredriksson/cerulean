@@ -117,21 +117,12 @@ local function render_string_literal(node: parser.Node): doc.Doc
     return doc.text('"' .. content .. '"')
 end
 
-local function has_any_call_arg_comments(args: parser.Node): boolean
-    for _, arg_node in ipairs(args) do
-        if #(arg_node.comments or {}) > 0 or arg_node.trailing_comment then
-            return true
-        end
-    end
-    return false
-end
-
 local function call_doc_build_call_expr_doc(
     ctx: RenderContext, callee: parser.Node, args: parser.Node
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee)
-    local force_wrap = has_any_call_arg_comments(args)
-    local line_doc = force_wrap and doc.hardline() or doc.softline()
+    local force_wrap = render_builders.any_items_have_comments(args)
+    local line_doc = render_builders.item_line_doc(force_wrap)
     local parts: {doc.Doc} = {}
     local line_before = false
 
