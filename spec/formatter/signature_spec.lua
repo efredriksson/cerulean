@@ -179,4 +179,20 @@ describe("formatter signature wrapping", function()
       end
    ]]))
 
+   describe("generic function type annotations", function()
+
+      it("normalises spacing around type parameters in a function type annotation", helpers.format([[
+         local f: function < T > ( value : T ) : T
+      ]], [[
+         local f: function<T>(value: T): T
+      ]]))
+
+      it("renders multiple type parameters separated by commas", helpers.check([[
+         local f: function<K, V>(key: K, value: V): boolean
+      ]]))
+
+      it("renders type parameters with constraints", helpers.check([[
+         local f: function<K is Base, V>(key: K): V
+      ]]))
+   end)
 end)

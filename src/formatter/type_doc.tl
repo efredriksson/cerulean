@@ -22,7 +22,29 @@ local function is_optional_arg(type_def: parser.FunctionType, index: integer): b
         and not (is_variadic_tail and index == #type_def.args.tuple)
 end
 
-local function type_doc_render(type_def: parser.Type): doc.Doc
+local type_doc_render: function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
+
+local function function_type_render(
+    type_def: parser.FunctionType, generic_doc?: doc.Doc
+): doc.Doc
+    local arg_docs: {doc.Doc} = {}
+    local argnames = type_def.args.argnames or {}
+    for index, arg_type in ipairs(type_def.args.tuple) do
+        local arg_name = arg_name_doc(argnames[index], is_optional_arg(type_def, index))
+        table.insert(arg_docs, doc.concat({arg_name, type_doc_render(arg_type)}))
+    end
+    local opts = render_builders.DelimitedSequenceOptions.new("(", ")")
+    return doc.concat(
+        {
+            doc.text("function"),
+            generic_doc or doc.text(""),
+            render_builders.build_delimited_sequence_doc(arg_docs, opts),
+            render_return(type_def.rets),
+        }
+    )
+end
+
+type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
     if type_def is parser.NominalType then
         local parts: {doc.Doc} = {doc.text(table.concat(type_def.names, "."))}
         if type_def.typevals ~= nil and #type_def.typevals > 0 then
@@ -73,21 +95,7 @@ local function type_doc_render(type_def: parser.Type): doc.Doc
     elseif type_def is parser.TypeVarType then
         return doc.text(type_def.typevar)
     elseif type_def is parser.FunctionType then
-        local arg_docs: {doc.Doc} = {}
-        local argnames = type_def.args.argnames or {}
-        for index, arg_type in ipairs(type_def.args.tuple) do
-            local arg_name = arg_name_doc(
-                argnames[index], is_optional_arg(type_def, index)
-            )
-            table.insert(arg_docs, doc.concat({arg_name, type_doc_render(arg_type)}))
-        end
-        local opts = render_builders.DelimitedSequenceOptions.new("function(", ")")
-        return doc.concat(
-            {
-                render_builders.build_delimited_sequence_doc(arg_docs, opts),
-                render_return(type_def.rets),
-            }
-        )
+        return function_type_render(type_def, generic_doc)
     elseif type_def is parser.TypeDeclType then
         assert(false, "implementation error, does not support enum/interface/...")
     elseif type_def is parser.TupleTableType then
@@ -102,6 +110,19 @@ local function type_doc_render(type_def: parser.Type): doc.Doc
                 doc.text("}"),
             }
         )
+    elseif type_def is parser.GenericType then
+        local typearg_docs: {doc.Doc} = {}
+        for _, typearg in ipairs(type_def.typeargs) do
+            table.insert(typearg_docs, type_doc_render(typearg))
+        end
+        generic_doc = doc.concat(
+            {
+                doc.text("<"),
+                render_builders.build_separated_docs(typearg_docs, ", "),
+                doc.text(">"),
+            }
+        )
+        return type_doc_render(type_def.t, generic_doc)
     elseif parser.simple_types[type_def.typename] then
         return doc.text(type_def.typename)
     end
