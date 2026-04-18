@@ -1,6 +1,7 @@
 -- Table constructor → doc.Doc (build_table_doc) or {string} (render_table).
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
+local render_builders = require("formatter.render_builders")
 local render_context = require("formatter.render_context")
 local type_doc = require("formatter.type_doc")
 
@@ -78,9 +79,7 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
             table.insert(parts, doc.if_wrapped(sep))
         end
 
-        if item.trailing_comment then
-            table.insert(parts, doc.text(" " .. item.trailing_comment.text))
-        end
+        table.insert(parts, render_builders.trailing_comment_doc(item))
         line_before = true
     end
 

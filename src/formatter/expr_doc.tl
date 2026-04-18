@@ -3,6 +3,7 @@
 local doc = require("formatter.doc")
 local function_doc = require("formatter.function_doc")
 local parser = require("formatter.parser")
+local render_builders = require("formatter.render_builders")
 local render_context = require("formatter.render_context")
 local table_doc = require("formatter.table_doc")
 local type_doc = require("formatter.type_doc")
@@ -157,9 +158,7 @@ local function call_doc_build_call_expr_doc(
             arg_doc = doc.concat({arg_doc, doc.text(sep)})
         end
         table.insert(parts, arg_doc)
-        if arg_node.trailing_comment then
-            table.insert(parts, doc.text(" " .. arg_node.trailing_comment.text))
-        end
+        table.insert(parts, render_builders.trailing_comment_doc(arg_node))
         line_before = true
     end
 
@@ -180,11 +179,8 @@ local function call_doc_build_call_expr_doc(
         call_args_doc = doc.group(call_args_doc)
     end
 
-    local call_node = doc.concat({callee_doc, call_args_doc})
-    if args.trailing_comment then
-        return doc.concat({call_node, doc.text(" " .. args.trailing_comment.text)})
-    end
-    return call_node
+    local args_tc = render_builders.trailing_comment_doc(args)
+    return doc.concat({callee_doc, call_args_doc, args_tc})
 end
 
 local function render_op(

@@ -3,6 +3,7 @@ local doc = require("formatter.doc")
 local expr_doc = require("formatter.expr_doc")
 local fmt_logger = require("formatter.fmt_logger")
 local parser = require("formatter.parser")
+local render_builders = require("formatter.render_builders")
 local render_context = require("formatter.render_context")
 local source = require("formatter.source")
 local stmt_doc = require("formatter.stmt_doc")
@@ -145,10 +146,7 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                 return nil
             end
             table.insert(parts, node_doc)
-
-            if stmt.trailing_comment then
-                table.insert(parts, doc.text(" " .. stmt.trailing_comment.text))
-            end
+            table.insert(parts, render_builders.trailing_comment_doc(stmt))
         end
 
         previous_end = stmt.yend

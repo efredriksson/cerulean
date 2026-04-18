@@ -107,4 +107,11 @@ function render_builders.build_delimited_sequence_doc(
     return render_builders.build_grouped_delimited_sequence_doc(item_docs, opts)
 end
 
+function render_builders.trailing_comment_doc(node: parser.Node): doc.Doc
+    if node.trailing_comment then
+        return doc.text(" " .. node.trailing_comment.text)
+    end
+    return doc.text("")
+end
+
 return render_builders

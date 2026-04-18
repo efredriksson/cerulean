@@ -105,9 +105,7 @@ local function render_enum_doc(
             table.insert(parts, doc.line())
         end
         table.insert(parts, doc.text(item_node.tk))
-        if item_node.trailing_comment then
-            table.insert(parts, doc.text(" " .. item_node.trailing_comment.text))
-        end
+        table.insert(parts, render_builders.trailing_comment_doc(item_node))
         line_before = true
     end
     local end_comments: {parser.Comment} = def.end_comments or stmt.end_comments or {}

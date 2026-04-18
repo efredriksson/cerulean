@@ -19,13 +19,8 @@ function inline_stmt_doc.render_return_doc(
         stmt.exps, ctx.render_expr
     )
     local last_exp = stmt.exps[#stmt.exps]
-    if last_exp.trailing_comment then
-        return_exp_doc = doc.concat(
-            {return_exp_doc, doc.text(" " .. last_exp.trailing_comment.text)}
-        )
-    end
-
-    return doc.concat({doc.text("return "), return_exp_doc})
+    local last_tc = render_builders.trailing_comment_doc(last_exp)
+    return doc.concat({doc.text("return "), return_exp_doc, last_tc})
 end
 
 function inline_stmt_doc.render_assignment_doc(
