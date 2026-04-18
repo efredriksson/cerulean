@@ -418,5 +418,42 @@ describe("formatter function call wrapping", function()
    ]], [[
       local type Color = {number, number, number}
    ]]))
-   
+
+   it("function wrapping without any arguments does not create an empty line", helpers.format([[
+      local a_very_long_variable_name = function_call() -- A very long trailing comment on the function forcing line break
+   ]], [[
+      local a_very_long_variable_name = function_call(
+      ) -- A very long trailing comment on the function forcing line break
+   ]]))
+
+   it("function call with function calls as arguments formats correctly", helpers.format([[
+      local new_value = get_new_value(
+        update_value(
+            some_long_argument_1,
+            some_long_argument_2,
+            some_long_argument_3,
+            some_long_argument_4
+        ), update_value(some_long_argument_5,
+            some_long_argument_6,
+            some_long_argument_7,
+            some_long_argument_8
+        )
+    )
+   ]], [[
+      local new_value = get_new_value(
+          update_value(
+              some_long_argument_1,
+              some_long_argument_2,
+              some_long_argument_3,
+              some_long_argument_4
+          ),
+          update_value(
+              some_long_argument_5,
+              some_long_argument_6,
+              some_long_argument_7,
+              some_long_argument_8
+          )
+      )
+   ]]))
+
 end)

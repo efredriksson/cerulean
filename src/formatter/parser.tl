@@ -1138,10 +1138,10 @@ local function parse_list<T>(
       local oldn = n
       i, item, n = parse_item(ps, i, n)
       n = n or oldn
-      if item is Node and item.yend ~= nil then
+      if item is Node then
          local is_separator = ps.tokens[i].tk == "," or ps.tokens[i].tk == ";"
-         local comment_token = is_separator and ps.tokens[i + 1] or ps.tokens[i]
-         item.trailing_comment = get_same_line_comment(comment_token, item.yend)
+         local comment_token = (is_separator and ps.tokens[i + 1]) or ps.tokens[i]
+         item.trailing_comment = get_same_line_comment(comment_token, item.yend or item.y)
       end
       table.insert(list, item)
       if ps.tokens[i].tk == "," then
@@ -1760,6 +1760,18 @@ do
             local args = new_node(ps, i, "expression_list")
             i, args = parse_bracket_list(ps, i, args, "(", ")", "sep", parse_expression)
 
+            local previous_end: integer | nil = nil
+            for _, arg_node in ipairs(args) do
+               local leading = arg_node.comments or {}
+               if #leading > 0 then
+                  previous_end = leading[#leading].yend
+               end
+               if previous_end ~= nil then
+                  arg_node.blank_line_before = arg_node.y > previous_end + 1
+               end
+               previous_end = arg_node.yend or arg_node.y
+            end
+
             -- Capture a comment that immediately follows the closing ')' on the
             -- same line, but only for multi-line calls where ')' is on its own
             -- line. For single-line calls like `f() -- note` the comment belongs
@@ -1774,7 +1786,8 @@ do
                return i, failstore(ps, tkop, e1)
             end
 
-            e1 = { f = ps.filename, y = args.y, x = args.x, kind = "op", op = op, e1 = e1, e2 = args }
+            local funcall_yend = math.max(args.yend or args.y, args.y)
+            e1 = { f = ps.filename, y = args.y, x = args.x, yend = funcall_yend, kind = "op", op = op, e1 = e1, e2 = args }
 
             table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
          elseif tkop.tk == "[" then

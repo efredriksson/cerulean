@@ -15,14 +15,17 @@ function inline_stmt_doc.render_return_doc(
         return doc.text("return")
     end
 
-    return doc.concat(
-        {
-            doc.text("return "),
-            render_builders.build_mapped_comma_separated_docs(
-                stmt.exps, ctx.render_expr
-            ),
-        }
+    local return_exp_doc = render_builders.build_mapped_comma_separated_docs(
+        stmt.exps, ctx.render_expr
     )
+    local last_exp = stmt.exps[#stmt.exps]
+    if last_exp.trailing_comment then
+        return_exp_doc = doc.concat(
+            {return_exp_doc, doc.text(" " .. last_exp.trailing_comment.text)}
+        )
+    end
+
+    return doc.concat({doc.text("return "), return_exp_doc})
 end
 
 function inline_stmt_doc.render_assignment_doc(

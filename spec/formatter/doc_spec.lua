@@ -121,7 +121,7 @@ describe("formatter doc close node", function()
             doc.close("end"),
         }))
 
-        assert.same("function()end", render(tree, 88))
+        assert.same("function() end", render(tree, 88))
     end)
 
     it("accounts for close text width when deciding if the group fits flat", function()
@@ -131,8 +131,8 @@ describe("formatter doc close node", function()
             doc.close("end"),
         }))
 
-        assert.same("function()end", render(tree, 13))
-        assert.same("function()\nend", render(tree, 12))
+        assert.same("function() end", render(tree, 14))
+        assert.same("function()\nend", render(tree, 13))
     end)
 
     it("places close text on a new line at the enclosing indent when broken", function()

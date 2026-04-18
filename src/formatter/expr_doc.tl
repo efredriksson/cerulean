@@ -3,7 +3,6 @@
 local doc = require("formatter.doc")
 local function_doc = require("formatter.function_doc")
 local parser = require("formatter.parser")
-local render_builders = require("formatter.render_builders")
 local render_context = require("formatter.render_context")
 local table_doc = require("formatter.table_doc")
 local type_doc = require("formatter.type_doc")
@@ -117,69 +116,75 @@ local function render_string_literal(node: parser.Node): doc.Doc
     return doc.text('"' .. content .. '"')
 end
 
-local function build_call_args_doc_with_comments(
-    line_items: render_builders.CommentLineItems,
-    opts: render_builders.DelimitedSequenceOptions
-): doc.Doc
-    local function item_suffix(
-        _entry: render_builders.LineEntry, is_final: boolean
-    ): doc.Doc
-        if is_final then
-            return doc.text("")
+local function has_any_call_arg_comments(args: parser.Node): boolean
+    for _, arg_node in ipairs(args) do
+        if #(arg_node.comments or {}) > 0 or arg_node.trailing_comment then
+            return true
         end
-        return doc.text(",")
     end
-
-    local function entry_separator(
-        _separator_context: render_builders.EntrySeparatorContext
-    ): doc.Doc
-        return doc.hardline()
-    end
-
-    return render_builders.build_broken_delimited_sequence_doc_from_items(
-        render_builders.render_line_entries(line_items, item_suffix, entry_separator),
-        opts
-    )
-end
-
-local function build_call_args_doc(
-    item_docs: {doc.Doc},
-    line_items: render_builders.CommentLineItems,
-    opts: render_builders.DelimitedSequenceOptions
-): doc.Doc
-    if line_items.has_comments then
-        return build_call_args_doc_with_comments(line_items, opts)
-    end
-    return render_builders.build_delimited_sequence_doc(item_docs, opts)
+    return false
 end
 
 local function call_doc_build_call_expr_doc(
     ctx: RenderContext, callee: parser.Node, args: parser.Node
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee)
-    local line_items = render_builders.CommentLineItems.new()
-    for _, arg_node in ipairs(args) do
-        line_items:add(
-            ctx.render_expr(arg_node), arg_node, arg_node.comments or {}, false
-        )
-    end
-    local has_trailing_comment = args.trailing_comment ~= nil
+    local force_wrap = has_any_call_arg_comments(args)
+    local line_doc = force_wrap and doc.hardline() or doc.softline()
+    local parts: {doc.Doc} = {}
+    local line_before = false
 
-    local item_docs: {doc.Doc} = {}
-    for _, arg_node in ipairs(args) do
-        table.insert(item_docs, ctx.render_expr(arg_node))
+    for index, arg_node in ipairs(args) do
+        for _, comment in ipairs(arg_node.comments or {}) do
+            if line_before then
+                table.insert(parts, doc.hardline())
+            end
+            if comment.blank_line_before then
+                table.insert(parts, doc.hardline())
+            end
+            table.insert(parts, doc.text(comment.text))
+            line_before = true
+        end
+        if line_before then
+            table.insert(parts, line_doc)
+        end
+        if arg_node.blank_line_before then
+            table.insert(parts, doc.hardline())
+        end
+        local arg_doc = ctx.render_expr(arg_node)
+        if index < #args then
+            local sep = arg_node.trailing_comment and "," or ", "
+            arg_doc = doc.concat({arg_doc, doc.text(sep)})
+        end
+        table.insert(parts, arg_doc)
+        if arg_node.trailing_comment then
+            table.insert(parts, doc.text(" " .. arg_node.trailing_comment.text))
+        end
+        line_before = true
     end
-    local opts = render_builders.DelimitedSequenceOptions.new("(", ")")
-    local call_args_doc = build_call_args_doc(item_docs, line_items, opts)
+
+    local args_items_doc = doc.concat(parts)
+    if not force_wrap then
+        args_items_doc = doc.group(args_items_doc)
+    end
+    local call_args_doc = doc.concat(
+        {
+            doc.text("("),
+            doc.indent_softline(doc.trim_lines(args_items_doc)),
+            doc.softclose(")"),
+        }
+    )
+    if force_wrap then
+        call_args_doc = doc.concat({doc.break_parent(), call_args_doc})
+    else
+        call_args_doc = doc.group(call_args_doc)
+    end
 
     local call_node = doc.concat({callee_doc, call_args_doc})
-    if has_trailing_comment then
+    if args.trailing_comment then
         return doc.concat({call_node, doc.text(" " .. args.trailing_comment.text)})
     end
-    if line_items.has_comments then
-        return call_node
-    end
-    return doc.group(call_node)
+    return call_node
 end
 
 local function render_op(
