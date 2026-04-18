@@ -85,25 +85,44 @@ local function render_enum_doc(
     end
     local header = build_header()
 
-    local enum_items = render_builders.CommentLineItems.new()
-
+    local parts: {doc.Doc} = {}
+    local line_before = false
     for _, item_node in ipairs(def.enum_items) do
-        enum_items:add(
-            doc.text(item_node.tk), item_node, item_node.comments or {}, false
-        )
+        for _, comment in ipairs(item_node.comments or {}) do
+            if line_before then
+                table.insert(parts, doc.line())
+            end
+            if comment.blank_line_before then
+                table.insert(parts, doc.line())
+            end
+            table.insert(parts, doc.text(comment.text))
+            line_before = true
+        end
+        if line_before then
+            table.insert(parts, doc.line())
+        end
+        if item_node.blank_line_before then
+            table.insert(parts, doc.line())
+        end
+        table.insert(parts, doc.text(item_node.tk))
+        if item_node.trailing_comment then
+            table.insert(parts, doc.text(" " .. item_node.trailing_comment.text))
+        end
+        line_before = true
+    end
+    local end_comments: {parser.Comment} = def.end_comments or stmt.end_comments or {}
+    for _, comment in ipairs(end_comments) do
+        if line_before then
+            table.insert(parts, doc.line())
+        end
+        if comment.blank_line_before then
+            table.insert(parts, doc.line())
+        end
+        table.insert(parts, doc.text(comment.text))
+        line_before = true
     end
 
-    local enum_end_comments: {parser.Comment} = {}
-    if def.end_comments ~= nil then
-        enum_end_comments = def.end_comments
-    elseif stmt.end_comments ~= nil then
-        enum_end_comments = stmt.end_comments
-    end
-    enum_items:add_end_comments(enum_end_comments)
-
-    return block_with_close(
-        header, render_builders.render_line_entries(enum_items, nil, nil), "end"
-    )
+    return block_with_close(header, doc.concat(parts), "end")
 end
 
 local render_nested_typedecl_doc: function(RenderContext, parser.Node): doc.Doc | nil
@@ -161,11 +180,24 @@ local function render_interface_list_parts(record_def: parser.RecordLikeType): {
     return parts
 end
 
-local function field_entry_end_line(entry: parser.FieldEntry): integer
-    if entry.node ~= nil then
-        return entry.node.yend or entry.node.y
+local function render_field_entry(
+    ctx: RenderContext, entry: parser.FieldEntry
+): doc.Doc | nil
+    if entry.node ~= nil and entry.node.newtype ~= nil then
+        return render_nested_typedecl_doc(ctx, entry.node)
     end
-    return render_builders.node_end_line(entry.the_type as parser.Node)
+
+    local function prefix(): string
+        if entry.is_meta then
+            return "metamethod "
+        else
+            return ""
+        end
+    end
+
+    return doc.concat(
+        {doc.text(prefix() .. entry.name .. ": "), type_doc.render(entry.the_type)}
+    )
 end
 
 local function render_record_like_body_doc(
@@ -174,75 +206,48 @@ local function render_record_like_body_doc(
     header_parts: {doc.Doc},
     record_def: parser.RecordLikeType
 ): doc.Doc | nil
-    local entries = record_def.field_entries
-    local record_items = render_builders.CommentLineItems.new()
-    for index, entry in ipairs(entries) do
-        local next_entry = entries[index + 1]
-        local preserve_blank_line_after = false
-        if next_entry ~= nil then
-            local end_line = field_entry_end_line(entry)
-            local next_comments = next_entry.comments
-            local next_first_line: integer
-            if #next_comments > 0 then
-                next_first_line = next_comments[1].y
-            else
-                next_first_line = next_entry.line
+    local parts: {doc.Doc} = {}
+    local line_before = false
+    for _, entry in ipairs(record_def.field_entries) do
+        for _, comment in ipairs(entry.comments or {}) do
+            if line_before then
+                table.insert(parts, doc.line())
             end
-            preserve_blank_line_after = next_first_line > end_line + 1
+            if comment.blank_line_before then
+                table.insert(parts, doc.line())
+            end
+            table.insert(parts, doc.text(comment.text))
+            line_before = true
+        end
+        if line_before then
+            table.insert(parts, doc.line())
+        end
+        if entry.blank_line_before then
+            table.insert(parts, doc.line())
         end
 
-        if entry.is_meta and entry.name == "__is" then
-            -- rendered in header as `where` clause
-        elseif entry.node ~= nil and entry.node.newtype ~= nil then
-            local nested_doc = render_nested_typedecl_doc(ctx, entry.node)
-            if nested_doc == nil then
-                return nil
-            end
-            record_items:add(
-                nested_doc, entry.node, entry.comments, preserve_blank_line_after
-            )
-        elseif entry.is_meta then
-            record_items:add(
-                doc.concat(
-                    {
-                        doc.text("metamethod " .. entry.name .. ": "),
-                        type_doc.render(entry.the_type),
-                    }
-                ),
-                entry.the_type as parser.Node,
-                entry.comments,
-                preserve_blank_line_after
-            )
-        else
-            record_items:add(
-                doc.concat(
-                    {doc.text(entry.name .. ": "), type_doc.render(entry.the_type)}
-                ),
-                entry.the_type as parser.Node,
-                entry.comments,
-                preserve_blank_line_after
-            )
+        table.insert(parts, render_field_entry(ctx, entry))
+
+        if entry.trailing_comment then
+            table.insert(parts, doc.text(" " .. entry.trailing_comment.text))
         end
+        line_before = true
     end
-    record_items:add_end_comments(node.end_comments or {})
-
-    local function record_entry_separator(
-        sep_ctx: render_builders.EntrySeparatorContext
-    ): doc.Doc
-        if sep_ctx.previous.preserve_blank_line_after then
-            return doc.concat({doc.line(), doc.line()})
+    for _, comment in ipairs(node.end_comments or {}) do
+        if line_before then
+            table.insert(parts, doc.line())
         end
-        return doc.line()
+        if comment.blank_line_before then
+            table.insert(parts, doc.line())
+        end
+        table.insert(parts, doc.text(comment.text))
+        line_before = true
     end
 
     return doc.concat(
         {
             doc.concat(header_parts),
-            doc.indent_line(
-                render_builders.render_line_entries(
-                    record_items, nil, record_entry_separator
-                )
-            ),
+            doc.indent_line(doc.concat(parts)),
             doc.close("end"),
         }
     )

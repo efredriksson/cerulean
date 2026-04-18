@@ -53,10 +53,6 @@ local render_builders = {
     EntrySeparatorContext = EntrySeparatorContext,
 }
 
-function render_builders.node_end_line(node: parser.Node): integer
-    return node.yend or node.y
-end
-
 local function statement_effective_end_line(stmt: parser.Node): integer
     return stmt.yend or stmt.y
 end
@@ -222,24 +218,6 @@ function render_builders.build_delimited_body_doc(
             doc.text(opts.close_delim),
         }
     )
-end
-
-function render_builders.build_comment_lines_doc(comments: {parser.Comment}): {doc.Doc}
-    local parts: {doc.Doc} = {}
-    for index, comment in ipairs(comments) do
-        if index > 1 then
-            table.insert(parts, doc.hardline())
-        end
-        if index > 1 and comment.blank_line_before then
-            table.insert(parts, doc.hardline())
-        end
-        table.insert(parts, doc.text(comment.text))
-    end
-    return parts
-end
-
-function render_builders.call_arg_effective_end_line(node: parser.Node): integer
-    return render_builders.node_end_line(node)
 end
 
 local function update_line_entry_metadata(entry: LineEntry)

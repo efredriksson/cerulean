@@ -164,6 +164,9 @@ local record parser
       comments: {Comment}
       is_meta: boolean
       line: integer
+      yend: integer
+      blank_line_before: boolean
+      trailing_comment: Comment
       new: function(string, Type, Node, {Comment}, boolean, integer): FieldEntry
    end
 
@@ -2398,6 +2401,7 @@ local function store_field_in_record(
     newt: Type,
     def: RecordLikeType,
     node: parser.Node,
+    end_i: integer,
     comments?: {Comment},
     meta?: string
 ): boolean
@@ -2423,10 +2427,10 @@ local function store_field_in_record(
    nodes[field_name] = node
 
    local entry_line = node ~= nil and node.y or newt.y
-   table.insert(
-         def.field_entries,
-         parser.FieldEntry.new(field_name, newt, node, comments or {}, meta ~= nil, entry_line)
-   )
+   local entry = parser.FieldEntry.new(field_name, newt, node, comments or {}, meta ~= nil, entry_line)
+   entry.yend = ps.tokens[end_i - 1].y
+   entry.trailing_comment = get_same_line_comment(ps.tokens[end_i], entry.yend)
+   table.insert(def.field_entries, entry)
 
    if not fields[field_name] then
       fields[field_name] = newt
@@ -2579,6 +2583,7 @@ local function parse_nested_type(
        nt.newtype,
        def,
        nt,
+       i,
        get_attached_comments(ps.tokens[istart], ps.tokens[istart-1])
    )
    return i
@@ -2591,8 +2596,22 @@ parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, 
       i, item = verify_kind(ps, i, "string", "string")
       if item then
          item.comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
+         item.yend = item.y
+         item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
          table.insert(def.enum_items, item)
       end
+   end
+
+   local previous_end: integer | nil = nil
+   for _, item in ipairs(def.enum_items) do
+      local leading = item.comments or {}
+      if #leading > 0 then
+         previous_end = leading[#leading].yend
+      end
+      if previous_end ~= nil then
+         item.blank_line_before = item.y > previous_end + 1
+      end
+      previous_end = item.yend
    end
 
    def.end_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
@@ -2791,7 +2810,8 @@ parse_record_body = function(
 
       def.meta_fields = {}
       def.meta_field_order = {}
-      store_field_in_record(ps, i, "__is", typ, def, nil, nil, "meta")
+      def.meta_fields["__is"] = typ
+      table.insert(def.meta_field_order, "__is")
    end
 
    while not (ps.tokens[i].kind == "$EOF$" or ps.tokens[i].tk == "end") do
@@ -2835,7 +2855,7 @@ parse_record_body = function(
             ntt.is_nested_alias = true
          end
 
-         store_field_in_record(ps, iv, v.tk, nt.newtype, def, nt, comments)
+         store_field_in_record(ps, iv, v.tk, nt.newtype, def, nt, i, comments)
       elseif parse_type_body_fns[tn] and ps.tokens[i + 1].tk ~= ":" then
          if def.typename == "interface" and tn == "record" then
             i = failskip(
@@ -2911,6 +2931,7 @@ parse_record_body = function(
                 t,
                 def,
                 nil,
+                i,
                 comments,
                 is_metamethod and "meta" or nil
             )
@@ -2940,6 +2961,19 @@ parse_record_body = function(
          end
       end
    end
+
+   local previous_end: integer | nil = nil
+   for _, entry in ipairs(def.field_entries) do
+      local leading = entry.comments or {}
+      if #leading > 0 then
+         previous_end = leading[#leading].yend
+      end
+      if previous_end ~= nil then
+         entry.blank_line_before = entry.line > previous_end + 1
+      end
+      previous_end = entry.yend
+   end
+
    return i, true
 end
 
