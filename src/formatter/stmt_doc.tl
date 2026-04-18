@@ -91,12 +91,9 @@ local function render_enum_doc(
         line_before = render_builders.append_comment_docs(
             parts, item_node.comments or {}, line_before
         )
-        if line_before then
-            table.insert(parts, doc.line())
-        end
-        if item_node.blank_line_before then
-            table.insert(parts, doc.line())
-        end
+        table.insert(
+            parts, render_builders.append_lines_pre_node(item_node, line_before)
+        )
         table.insert(parts, doc.text(item_node.tk))
         table.insert(parts, render_builders.trailing_comment_doc(item_node))
         line_before = true
@@ -194,13 +191,7 @@ local function render_record_like_body_doc(
         line_before = render_builders.append_comment_docs(
             parts, entry.comments or {}, line_before
         )
-        if line_before then
-            table.insert(parts, doc.line())
-        end
-        if entry.blank_line_before then
-            table.insert(parts, doc.line())
-        end
-
+        table.insert(parts, render_builders.append_lines_pre_node(entry, line_before))
         table.insert(parts, render_field_entry(ctx, entry))
 
         if entry.trailing_comment then

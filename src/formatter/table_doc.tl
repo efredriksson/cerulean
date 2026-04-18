@@ -54,13 +54,7 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
             parts, item.comments or {}, line_before
         )
 
-        if line_before then
-            table.insert(parts, line_doc)
-        end
-        if item.blank_line_before then
-            table.insert(parts, doc.hardline())
-        end
-
+        table.insert(parts, render_builders.append_lines_pre_node(item, line_before))
         table.insert(parts, build_table_item_text(ctx, item))
 
         local sep = item.trailing_comment and "," or ", "

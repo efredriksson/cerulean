@@ -122,7 +122,6 @@ local function call_doc_build_call_expr_doc(
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee)
     local force_wrap = render_builders.any_items_have_comments(args)
-    local line_doc = render_builders.item_line_doc(force_wrap)
     local parts: {doc.Doc} = {}
     local line_before = false
 
@@ -130,12 +129,9 @@ local function call_doc_build_call_expr_doc(
         line_before = render_builders.append_comment_docs(
             parts, arg_node.comments or {}, line_before
         )
-        if line_before then
-            table.insert(parts, line_doc)
-        end
-        if arg_node.blank_line_before then
-            table.insert(parts, doc.hardline())
-        end
+        table.insert(
+            parts, render_builders.append_lines_pre_node(arg_node, line_before)
+        )
         local arg_doc = ctx.render_expr(arg_node)
         if index < #args then
             local sep = arg_node.trailing_comment and "," or ", "

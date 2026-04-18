@@ -122,13 +122,10 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                 parts, stmt.comments or {}, line_before
             )
 
-            if line_before then
-                table.insert(parts, doc.line())
-            end
-            if stmt.blank_line_before then
-                table.insert(parts, doc.hardline())
-            end
-
+            table.insert(
+                parts,
+                render_builders.append_lines_pre_node(stmt, line_before, doc.line())
+            )
             local node_doc = stmt_doc.render_statement_doc(ctx, stmt)
             if node_doc is nil then
                 fmt_logger.info(

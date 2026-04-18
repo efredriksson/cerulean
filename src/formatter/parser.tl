@@ -158,6 +158,7 @@ local record parser
    end
 
    record FieldEntry
+      where self.the_type ~= nil
       name: string
       the_type: Type
       node: Node

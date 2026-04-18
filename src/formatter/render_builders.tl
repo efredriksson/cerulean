@@ -131,6 +131,22 @@ function render_builders.item_line_doc(should_force_wrap: boolean): doc.Doc
     end
 end
 
+function render_builders.append_lines_pre_node(
+    node: parser.Node | parser.FieldEntry,
+    line_before: boolean,
+    line_from_before?: doc.Doc
+): doc.Doc
+    local parts: {doc.Doc} = {}
+    if line_before then
+        table.insert(parts, line_from_before or doc.softline())
+    end
+    if node.blank_line_before then
+        table.insert(parts, doc.hardline())
+    end
+
+    return doc.concat(parts)
+end
+
 function render_builders.append_comment_docs(
     parts: {doc.Doc}, comments: {parser.Comment}, line_before: boolean
 ): boolean
