@@ -1,7 +1,6 @@
 -- Table constructor → doc.Doc (build_table_doc) or {string} (render_table).
 local doc = require("formatter.doc")
 local parser = require("formatter.parser")
-local render_builders = require("formatter.render_builders")
 local render_context = require("formatter.render_context")
 local type_doc = require("formatter.type_doc")
 
@@ -37,59 +36,82 @@ local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc
     )
 end
 
-local function build_delimited_sequence_doc(
-    line_items: render_builders.CommentLineItems,
-    opts: render_builders.DelimitedSequenceOptions,
-    force_wrap: boolean
-): doc.Doc
-    local function item_suffix(
-        entry: render_builders.LineEntry, is_final: boolean
-    ): doc.Doc | nil
-        local sep = #entry.trailing_comments > 0 and "," or ", "
-        if is_final then
-            return doc.if_wrapped(sep)
+local function has_any_comments(items: parser.Node): boolean
+    for _, item in ipairs(items) do
+        if #(item.comments or {}) > 0 or item.trailing_comment then
+            return true
         end
-        return doc.text(sep)
     end
-
-    local function entry_separator(ctx: render_builders.EntrySeparatorContext): doc.Doc
-        if force_wrap
-            or #ctx.previous.trailing_comments > 0
-            or ctx.next_has_leading_comments
-            or ctx.next_is_comment_only then
-            return doc.hardline()
-        end
-        return doc.softline()
-    end
-
-    local items_doc = render_builders.render_line_entries(
-        line_items, item_suffix, entry_separator
-    )
-    if not (force_wrap or line_items.has_comments) then
-        items_doc = doc.group(items_doc)
-    end
-    local line_doc = force_wrap and doc.hardline() or doc.softline()
-    local table_doc_node = render_builders.build_delimited_body_doc(
-        items_doc, opts, line_doc
-    )
-    if force_wrap or line_items.has_comments then
-        return doc.concat({doc.break_parent(), table_doc_node})
-    else
-        return doc.group(table_doc_node)
-    end
+    return items.trailing_comma or #(items.end_comments or {}) > 0
 end
 
-function table_doc.build_table_doc(ctx: RenderContext, node: parser.Node): doc.Doc
-    local line_items = render_builders.CommentLineItems.new()
-    line_items:add_end_comments(node.end_comments or {})
-    for _, item in ipairs(node) do
-        line_items:add(
-            build_table_item_text(ctx, item), item, item.comments or {}, false
-        )
+function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.Doc
+    local force_wrap = has_any_comments(items)
+    local line_doc = force_wrap and doc.hardline() or doc.softline()
+    local parts: {doc.Doc} = {}
+
+    local line_before = false
+    for index, item in ipairs(items) do
+        for _, comment in ipairs(item.comments or {}) do
+            if line_before then
+                table.insert(parts, doc.hardline())
+            end
+            if comment.blank_line_before then
+                table.insert(parts, doc.hardline())
+            end
+            table.insert(parts, doc.text(comment.text))
+            line_before = true
+        end
+        if line_before then
+            table.insert(parts, line_doc)
+        end
+        if item.blank_line_before then
+            table.insert(parts, doc.hardline())
+        end
+
+        table.insert(parts, build_table_item_text(ctx, item))
+
+        local sep = item.trailing_comment and "," or ", "
+        if index < #items then
+            table.insert(parts, doc.text(sep))
+        else
+            table.insert(parts, doc.if_wrapped(sep))
+        end
+
+        if item.trailing_comment then
+            table.insert(parts, doc.text(" " .. item.trailing_comment.text))
+        end
+        line_before = true
     end
 
-    local opts = render_builders.DelimitedSequenceOptions.new("{", "}")
-    return build_delimited_sequence_doc(line_items, opts, node.trailing_comma)
+    for _, comment in ipairs(items.end_comments or {}) do
+        if line_before then
+            table.insert(parts, doc.hardline())
+        end
+        if comment.blank_line_before then
+            table.insert(parts, doc.hardline())
+        end
+        table.insert(parts, doc.text(comment.text))
+        line_before = true
+    end
+
+    local items_doc = doc.concat(parts)
+    if not force_wrap then
+        items_doc = doc.group(items_doc)
+    end
+    local table_body_doc = doc.concat(
+        {
+            doc.text("{"),
+            doc.indent(doc.concat({line_doc, items_doc})),
+            line_doc,
+            doc.text("}"),
+        }
+    )
+    if force_wrap then
+        return doc.concat({doc.break_parent(), table_body_doc})
+    else
+        return doc.group(table_body_doc)
+    end
 end
 
 return table_doc

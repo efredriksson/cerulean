@@ -1059,6 +1059,7 @@ local function parse_table_item(
       i, node.key = parse_expression_and_tk(ps, i, "]")
       i = verify_tk(ps, i, "=")
       i, node.value = parse_table_value(ps, i)
+      node.yend = ps.tokens[i - 1].y
       return i, node, n
    elseif ps.tokens[i].kind == "identifier" then
       if ps.tokens[i + 1].tk == "=" then
@@ -1068,6 +1069,7 @@ local function parse_table_item(
          node.key.tk = '"' .. node.key.tk .. '"'
          i = verify_tk(ps, i, "=")
          i, node.value = parse_table_value(ps, i)
+         node.yend = ps.tokens[i - 1].y
          return i, node, n
       elseif ps.tokens[i + 1].tk == ":" then
          node.key_parsed = "short"
@@ -1091,6 +1093,7 @@ local function parse_table_item(
                for _, e in ipairs(try_ps.errs) do
                   table.insert(ps.errs, e)
                end
+               node.yend = ps.tokens[i - 1].y
                return i, node, n
             end
          end
@@ -1108,6 +1111,7 @@ local function parse_table_item(
    if not node.value then
       return fail(ps, i, "expected an expression")
    end
+   node.yend = ps.tokens[i - 1].y
    return i, node, n + 1
 end
 
@@ -1131,6 +1135,11 @@ local function parse_list<T>(
       local oldn = n
       i, item, n = parse_item(ps, i, n)
       n = n or oldn
+      if item is Node and item.yend ~= nil then
+         local is_separator = ps.tokens[i].tk == "," or ps.tokens[i].tk == ";"
+         local comment_token = is_separator and ps.tokens[i + 1] or ps.tokens[i]
+         item.trailing_comment = get_same_line_comment(comment_token, item.yend)
+      end
       table.insert(list, item)
       if ps.tokens[i].tk == "," then
          i = i + 1
@@ -1190,6 +1199,18 @@ local function parse_table_literal(ps: ParseState, i: integer): integer, Node
    i, node = parse_bracket_list(ps, i, node, "{", "}", "term", parse_table_item)
    node.end_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
    node.trailing_comma = #node > 0 and ps.tokens[i - 2].tk == ","
+   local items = node
+   local previous_end: integer | nil = nil
+   for _, item in ipairs(items) do
+      local leading = item.comments or {}
+      if #leading > 0 then
+         previous_end = leading[#leading].yend
+      end
+      if previous_end ~= nil then
+         item.blank_line_before = item.y > previous_end + 1
+      end
+      previous_end = item.yend
+   end
    return i, node
 end
 
