@@ -1139,7 +1139,7 @@ local function parse_list<T>(
       local oldn = n
       i, item, n = parse_item(ps, i, n)
       n = n or oldn
-      if item is Node then
+      if item and item is Node then
          local is_separator = ps.tokens[i].tk == "," or ps.tokens[i].tk == ";"
          local comment_token = (is_separator and ps.tokens[i + 1]) or ps.tokens[i]
          item.trailing_comment = get_same_line_comment(comment_token, item.yend or item.y)
