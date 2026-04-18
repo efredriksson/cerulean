@@ -88,16 +88,9 @@ local function render_enum_doc(
     local parts: {doc.Doc} = {}
     local line_before = false
     for _, item_node in ipairs(def.enum_items) do
-        for _, comment in ipairs(item_node.comments or {}) do
-            if line_before then
-                table.insert(parts, doc.line())
-            end
-            if comment.blank_line_before then
-                table.insert(parts, doc.line())
-            end
-            table.insert(parts, doc.text(comment.text))
-            line_before = true
-        end
+        line_before = render_builders.append_comment_docs(
+            parts, item_node.comments or {}, line_before
+        )
         if line_before then
             table.insert(parts, doc.line())
         end
@@ -108,17 +101,8 @@ local function render_enum_doc(
         table.insert(parts, render_builders.trailing_comment_doc(item_node))
         line_before = true
     end
-    local end_comments: {parser.Comment} = def.end_comments or stmt.end_comments or {}
-    for _, comment in ipairs(end_comments) do
-        if line_before then
-            table.insert(parts, doc.line())
-        end
-        if comment.blank_line_before then
-            table.insert(parts, doc.line())
-        end
-        table.insert(parts, doc.text(comment.text))
-        line_before = true
-    end
+    local end_comments = def.end_comments or stmt.end_comments or {}
+    render_builders.append_comment_docs(parts, end_comments, line_before)
 
     return block_with_close(header, doc.concat(parts), "end")
 end
@@ -207,16 +191,9 @@ local function render_record_like_body_doc(
     local parts: {doc.Doc} = {}
     local line_before = false
     for _, entry in ipairs(record_def.field_entries) do
-        for _, comment in ipairs(entry.comments or {}) do
-            if line_before then
-                table.insert(parts, doc.line())
-            end
-            if comment.blank_line_before then
-                table.insert(parts, doc.line())
-            end
-            table.insert(parts, doc.text(comment.text))
-            line_before = true
-        end
+        line_before = render_builders.append_comment_docs(
+            parts, entry.comments or {}, line_before
+        )
         if line_before then
             table.insert(parts, doc.line())
         end
@@ -231,16 +208,7 @@ local function render_record_like_body_doc(
         end
         line_before = true
     end
-    for _, comment in ipairs(node.end_comments or {}) do
-        if line_before then
-            table.insert(parts, doc.line())
-        end
-        if comment.blank_line_before then
-            table.insert(parts, doc.line())
-        end
-        table.insert(parts, doc.text(comment.text))
-        line_before = true
-    end
+    render_builders.append_comment_docs(parts, node.end_comments or {}, line_before)
 
     return doc.concat(
         {

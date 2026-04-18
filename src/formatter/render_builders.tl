@@ -131,4 +131,20 @@ function render_builders.item_line_doc(should_force_wrap: boolean): doc.Doc
     end
 end
 
+function render_builders.append_comment_docs(
+    parts: {doc.Doc}, comments: {parser.Comment}, line_before: boolean
+): boolean
+    for _, comment in ipairs(comments) do
+        if line_before then
+            table.insert(parts, doc.hardline())
+        end
+        if comment.blank_line_before then
+            table.insert(parts, doc.hardline())
+        end
+        table.insert(parts, doc.text(comment.text))
+        line_before = true
+    end
+    return line_before
+end
+
 return render_builders

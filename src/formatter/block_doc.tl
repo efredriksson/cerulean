@@ -118,16 +118,9 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
             )
             table.insert(parts, doc.raw(verbatim_lines))
         else
-            for _, comment in ipairs(stmt.comments or {}) do
-                if line_before then
-                    table.insert(parts, doc.hardline())
-                end
-                if comment.blank_line_before then
-                    table.insert(parts, doc.hardline())
-                end
-                table.insert(parts, doc.text(comment.text))
-                line_before = true
-            end
+            line_before = render_builders.append_comment_docs(
+                parts, stmt.comments or {}, line_before
+            )
 
             if line_before then
                 table.insert(parts, doc.line())
@@ -153,16 +146,7 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
         line_before = true
     end
 
-    for _, comment in ipairs(block.end_comments or {}) do
-        if line_before then
-            table.insert(parts, doc.hardline())
-        end
-        if comment.blank_line_before then
-            table.insert(parts, doc.hardline())
-        end
-        table.insert(parts, doc.text(comment.text))
-        line_before = true
-    end
+    render_builders.append_comment_docs(parts, block.end_comments or {}, line_before)
 
     return doc.concat(parts)
 end

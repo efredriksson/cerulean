@@ -50,16 +50,10 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
 
     local line_before = false
     for index, item in ipairs(items) do
-        for _, comment in ipairs(item.comments or {}) do
-            if line_before then
-                table.insert(parts, doc.hardline())
-            end
-            if comment.blank_line_before then
-                table.insert(parts, doc.hardline())
-            end
-            table.insert(parts, doc.text(comment.text))
-            line_before = true
-        end
+        line_before = render_builders.append_comment_docs(
+            parts, item.comments or {}, line_before
+        )
+
         if line_before then
             table.insert(parts, line_doc)
         end
@@ -80,16 +74,7 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
         line_before = true
     end
 
-    for _, comment in ipairs(items.end_comments or {}) do
-        if line_before then
-            table.insert(parts, doc.hardline())
-        end
-        if comment.blank_line_before then
-            table.insert(parts, doc.hardline())
-        end
-        table.insert(parts, doc.text(comment.text))
-        line_before = true
-    end
+    render_builders.append_comment_docs(parts, items.end_comments or {}, line_before)
 
     local items_doc = doc.concat(parts)
     if not force_wrap then

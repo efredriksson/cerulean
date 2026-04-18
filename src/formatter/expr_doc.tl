@@ -127,16 +127,9 @@ local function call_doc_build_call_expr_doc(
     local line_before = false
 
     for index, arg_node in ipairs(args) do
-        for _, comment in ipairs(arg_node.comments or {}) do
-            if line_before then
-                table.insert(parts, doc.hardline())
-            end
-            if comment.blank_line_before then
-                table.insert(parts, doc.hardline())
-            end
-            table.insert(parts, doc.text(comment.text))
-            line_before = true
-        end
+        line_before = render_builders.append_comment_docs(
+            parts, arg_node.comments or {}, line_before
+        )
         if line_before then
             table.insert(parts, line_doc)
         end
