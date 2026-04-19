@@ -16,17 +16,17 @@ local function should_log_for(level_name: string): boolean
     return LEVEL_NUMBERS[current_level] >= LEVEL_NUMBERS[level_name]
 end
 
-local function log_internal(msg: string, level: string, ...: string)
+local function log_internal(msg: string, level: string, ...: string | number | boolean)
     if should_log_for(level) then
         io.stderr:write(string.format("[fmt:%s] %s\n", level, string.format(msg, ...)))
     end
 end
 
-function fmt_logger.info(msg: string, ...: string)
+function fmt_logger.info(msg: string, ...: string | number | boolean)
     log_internal(msg, "info", ...)
 end
 
-function fmt_logger.debug(msg: string, ...: string)
+function fmt_logger.debug(msg: string, ...: string | number | boolean)
     log_internal(msg, "debug", ...)
 end
 

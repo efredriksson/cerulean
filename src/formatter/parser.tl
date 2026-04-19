@@ -1,5 +1,6 @@
 -- Adapted from tl.tl (the teal-lang project), version 0.24.8.
 -- This is a typed copy of the tl parser. It will be simplified over time.
+local fmt_logger = require("formatter.fmt_logger")
 local tl = require("tl")
 
 local type Error = tl.Error
@@ -1743,6 +1744,14 @@ do
             end
 
             e1 = { f = ps.filename, y = e1.y, x = e1.x, kind = "op", op = op, e1 = e1, e2 = key }
+            fmt_logger.debug(
+                "[expr] %s op node: base y=%s op_tk=%s op_y=%s -> node y=%s",
+                op.op,
+                e1.e1.y,
+                tkop.tk,
+                tkop.y,
+                e1.y
+            )
          elseif tkop.tk == "(" then
             local prev_tk = ps.tokens[i - 1]
             if tkop.y > prev_tk.y then
@@ -1789,6 +1798,12 @@ do
 
             local funcall_yend = math.max(args.yend or args.y, args.y)
             e1 = { f = ps.filename, y = e1.y, x = e1.x, yend = funcall_yend, kind = "op", op = op, e1 = e1, e2 = args }
+            fmt_logger.debug(
+                "[expr] @funcall op node: base y=%s args_y=%s -> node y=%s",
+                e1.e1.y,
+                args.y,
+                e1.y
+            )
 
             table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
          elseif tkop.tk == "[" then
@@ -3456,8 +3471,15 @@ parse_statements = function(
          if #leading > 0 then
             previous_end = leading[#leading].yend
          end
-         if previous_end then   
+         if previous_end then
             item.blank_line_before = item.y > previous_end + 1
+            fmt_logger.debug(
+                "[block] stmt %s at line %s: blank_line_before=%s (previous_end=%s)",
+                item.kind,
+                item.y,
+                item.blank_line_before,
+                previous_end
+            )
          end
          previous_end = item.yend
          table.insert(node, item)
