@@ -194,5 +194,11 @@ describe("formatter signature wrapping", function()
       it("renders type parameters with constraints", helpers.check([[
          local f: function<K is Base, V>(key: K): V
       ]]))
+
+      it("renders generic function type definition", helpers.format([[
+         local type B = function<i   >(): return_type
+      ]], [[
+         local type B = function<i>(): return_type
+      ]]))
    end)
 end)

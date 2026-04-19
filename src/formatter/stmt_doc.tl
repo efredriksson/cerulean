@@ -308,13 +308,18 @@ local function render_type_doc(
     if stmt.value.newtype == nil or stmt.value.newtype.def == nil then
         return nil
     end
+
+    -- TODO: Fix so type_doc.render handle these types also!
     local def = stmt.value.newtype.def
     if def.typename == "record"
         or def.typename == "interface"
         or def.typename == "generic"
         or def.typename == "enum"
         or def.typename == "typedecl" then
-        return render_record_like_doc(ctx, stmt, keyword)
+        local result = render_record_like_doc(ctx, stmt, keyword)
+        if result ~= nil then
+            return result
+        end
     end
     return doc.concat(
         {doc.text(keyword .. " type " .. stmt.var.tk .. " = "), type_doc.render(def)}
