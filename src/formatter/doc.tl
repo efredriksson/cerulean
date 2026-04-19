@@ -1,5 +1,4 @@
--- Wadler-Lindig document algebra. Build a Doc tree with text/line/concat/indent/group,
--- then call Doc:render to produce {string}.
+-- Wadler-Lindig pretty-printer: groups try flat first, break when they don't fit.
 local record Doc
     kind: string
     text: string
@@ -14,6 +13,7 @@ local record Doc
     break_child: Doc
     group_id: integer
     target_group_id: integer
+    should_break: boolean
 end
 
 local doc = {Doc = Doc}
@@ -262,6 +262,35 @@ local function should_take_break_branch(
     return not flat
 end
 
+-- Pre-mark groups before rendering so fits() skips break_parent traversal during width checks.
+local function propagate_breaks(node: Doc): boolean
+    if node.kind == "break_parent" then
+        return true
+    elseif node.kind == "group" then
+        local child_propagate = propagate_breaks(node.child)
+        node.should_break = node.should_break or child_propagate
+        return false
+    elseif node.kind == "concat" then
+        -- Must visit every part: an early return would leave later groups unmarked,
+        -- so their should_break stays false and fits() treats them as flat incorrectly.
+        local any_part_breaks = false
+        for _, part in ipairs(node.parts or {}) do
+            if propagate_breaks(part) then
+                any_part_breaks = true
+            end
+        end
+        return any_part_breaks
+    elseif node.kind == "indent" or node.kind == "line_suffix" then
+        return propagate_breaks(node.child)
+    elseif node.kind == "if_break" then
+        -- Same constraint: evaluate both sides before combining.
+        local break_propagates = propagate_breaks(node.break_child)
+        local flat_propagates = propagate_breaks(node.flat_child)
+        return break_propagates or flat_propagates
+    end
+    return false
+end
+
 local function has_line_break_opportunity(node: Doc): boolean
     if node.kind == "line"
         or node.kind == "hardline"
@@ -379,10 +408,9 @@ local function fits(
                 RenderCommand.new(chosen, command.indent, flat, current_group_id)
             )
         elseif node.kind == "break_parent" then
-            return false
+            -- propagate_breaks already set group.should_break; nothing to measure here.
         elseif node.kind == "line_suffix" or node.kind == "line_suffix_boundary" then
 
-            -- Line suffixes are rendered at boundaries and do not consume inline width.
         elseif node.kind == "hardline" then
             return true
         elseif node.kind == "blankline" then
@@ -407,6 +435,9 @@ local function fits(
                 )
             )
         elseif node.kind == "group" then
+            if flat and node.should_break then
+                return false
+            end
             local group_id = node.group_id or current_group_id
             table.insert(
                 commands, RenderCommand.new(node.child, command.indent, flat, group_id)
@@ -552,6 +583,13 @@ local function render_doc(root: Doc, state: RenderState)
                 table.insert(
                     commands, RenderCommand.new(node.child, indent, true, group_id)
                 )
+            elseif node.should_break then
+                if group_id ~= nil and has_line_break_opportunity(node.child) then
+                    state.broken_groups[group_id] = true
+                end
+                table.insert(
+                    commands, RenderCommand.new(node.child, indent, false, group_id)
+                )
             else
                 local trial = clone_commands(commands)
                 table.insert(
@@ -577,6 +615,7 @@ local function render_doc(root: Doc, state: RenderState)
 end
 
 function Doc:render(max_width: integer, indent_width: integer): string
+    propagate_breaks(self)
     local state: RenderState = {
         lines = {},
         current_line = "",

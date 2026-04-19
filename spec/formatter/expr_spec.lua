@@ -22,4 +22,15 @@ describe("formatter function expressions", function()
           return a -- Good to have
       end
    ]]))
+
+   it("empty anonymous function renders as function() end regardless of surrounding context", helpers.format([[
+      return a or function() end and {
+          x = 1,
+      }
+   ]], [[
+      return a
+          or function() end and {
+          x = 1,
+      }
+   ]]))
 end)

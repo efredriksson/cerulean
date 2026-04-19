@@ -456,4 +456,40 @@ describe("formatter function call wrapping", function()
       )
    ]]))
 
+   it("function call with tables are wrapped, not affect by other blocks", helpers.format([[
+      function f1(stmt: Node)
+         if stmt then
+         end
+      end
+
+      function f2(): doc.Doc
+         return concatinator(
+            {
+               a_very_long_long_long_function_call_site(
+                  some_variable, another_variable
+               ),
+               a_short_call_site(),
+               a_very_long_long_long_function_call_site(
+                  some_variable, another_variable
+               ),
+            }
+         )
+      end
+   ]], [[
+      function f1(stmt: Node)
+          if stmt then
+          end
+      end
+
+      function f2(): doc.Doc
+          return concatinator(
+              {
+                  a_very_long_long_long_function_call_site(some_variable, another_variable),
+                  a_short_call_site(),
+                  a_very_long_long_long_function_call_site(some_variable, another_variable),
+              }
+          )
+      end
+   ]]))
+
 end)
