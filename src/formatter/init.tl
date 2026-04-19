@@ -1,21 +1,8 @@
 -- CLI entry point. Reads files, calls rewriter.rewrite, writes output (or checks in --check mode).
--- Run with: tl run src/formatter/init.tl -- [--check] [--log-level <level>] <file...>
+-- Run with: tl run src/formatter/init.tl -- [--check] [--no-sort-requires] [--log-level <level>] [--indent <n>] [--line-length <n>] <file...>
 local fmt_logger = require("formatter.fmt_logger")
+local FormatterOptions = require("formatter.options")
 local rewriter = require("formatter.rewriter")
-
-local record Args
-    check_only: boolean
-    log_level: string
-    files: {string}
-end
-
-function Args.new(check_only: boolean, log_level: string, files: {string}): Args
-    local self: Args = setmetatable({}, {__index = Args})
-    self.check_only = check_only
-    self.log_level = log_level
-    self.files = files
-    return self
-end
 
 local function read_file(path: string): string, string
     local file, open_err = io.open(path, "r")
@@ -45,47 +32,14 @@ local function write_ok(msg: string, ...: string)
     io.stdout:write(string.format(msg .. "\n", ...))
 end
 
-local function parse_args(script_args: {string}): Args
-    local check_only = false
-    local log_level = "nothing"
-    local files: {string} = {}
-
-    local i = 1
-    while i <= #script_args do
-        local value = script_args[i]
-        if value == "--check" then
-            check_only = true
-        elseif value == "--log-level" then
-            i = i + 1
-            if i > #script_args then
-                write_error("--log-level requires an argument")
-                os.exit(1)
-            end
-            log_level = script_args[i]
-        else
-            table.insert(files, value)
-        end
-        i = i + 1
-    end
-
-    if #files == 0 then
-        write_error(
-            "usage: tl run src/formatter/init.tl -- [--check] [--log-level <level>] <file...>"
-        )
-        os.exit(1)
-    end
-
-    return Args.new(check_only, log_level, files)
-end
-
-local function process_file(path: string, check_only: boolean): rewriter.Status
+local function process_file(path: string, opts: FormatterOptions): rewriter.Status
     local source, read_err = read_file(path)
     if read_err then
         write_error("error reading %s: %s", path, read_err)
         os.exit(1)
     end
 
-    local rewrite = rewriter.rewrite(source, path)
+    local rewrite = rewriter.rewrite(source, path, opts)
 
     if #rewrite.parse_errors > 0 then
         for _, err in ipairs(rewrite.parse_errors) do
@@ -102,7 +56,7 @@ local function process_file(path: string, check_only: boolean): rewriter.Status
         return rewrite.status
     end
 
-    if check_only then
+    if opts.check_only then
         write_ok("%s: would reformat", path)
     else
         local write_err = write_file(path, rewrite.output)
@@ -143,10 +97,15 @@ local function format_summary(
 end
 
 local function main()
-    local args = parse_args(arg)
-    local ok_log_level = fmt_logger.set_level(args.log_level)
+    local opts, parse_err = FormatterOptions.from_args(arg)
+    if parse_err then
+        write_error(parse_err)
+        os.exit(1)
+    end
+
+    local ok_log_level = fmt_logger.set_level(opts.log_level)
     if not ok_log_level then
-        write_error("error, unknown log level: '%s'", args.log_level)
+        write_error("error, unknown log level: '%s'", opts.log_level)
         os.exit(1)
     end
 
@@ -154,8 +113,8 @@ local function main()
     local unchanged = 0
     local failed_format = 0
 
-    for _, path in ipairs(args.files) do
-        local status = process_file(path, args.check_only)
+    for _, path in ipairs(opts.files) do
+        local status = process_file(path, opts)
         if status == "failed" then
             failed_format = failed_format + 1
         elseif status == "reformatted" then
@@ -165,7 +124,7 @@ local function main()
         end
     end
 
-    local summary = format_summary(reformatted, unchanged, args.check_only)
+    local summary = format_summary(reformatted, unchanged, opts.check_only)
     if summary ~= "" then
         write_ok(summary)
     end
@@ -173,7 +132,7 @@ local function main()
         write_error("%s failed to reformat.", file_word(failed_format))
     end
 
-    if args.check_only and reformatted > 0 then
+    if opts.check_only and reformatted > 0 then
         os.exit(1)
     end
 end

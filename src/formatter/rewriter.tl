@@ -2,6 +2,7 @@
 -- See ARCHITECTURE.md for the current module map and flow.
 local ast_traversal = require("formatter.ast_traversal")
 local block_doc = require("formatter.block_doc")
+local FormatterOptions = require("formatter.options")
 local parser = require("formatter.parser")
 local require_sort = require("formatter.require_sort")
 local source = require("formatter.source")
@@ -63,7 +64,9 @@ local function build_formatter_context(
     return FormatterContext.new(ast, tokens, source_text, fmt_off_regions)
 end
 
-function rewriter.rewrite(source_: string, filename: string): Rewrite
+function rewriter.rewrite(
+    source_: string, filename: string, opts: FormatterOptions
+): Rewrite
     local ast, parse_errors = parser.parse(source_, filename)
     if #parse_errors > 0 then
         return Rewrite.new(source_, "unchanged", parse_errors)
@@ -73,8 +76,12 @@ function rewriter.rewrite(source_: string, filename: string): Rewrite
     local ctx = block_doc.make_context(
         context.fmt_off_regions, context.source_text.lines
     )
-    require_sort.sort_top_level_requires(context.ast, context.fmt_off_regions)
-    local output = block_doc.render_block(ctx, context.ast)
+    if opts.sort_requires then
+        require_sort.sort_top_level_requires(context.ast, context.fmt_off_regions)
+    end
+    local output = block_doc.render_block(
+        ctx, context.ast, opts.max_line_width, opts.indent_width
+    )
     if not output then
         return Rewrite.new(source_, "failed", {})
     end

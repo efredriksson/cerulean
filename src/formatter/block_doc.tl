@@ -156,7 +156,9 @@ function block_doc.make_context(
     )
 end
 
-function block_doc.render_block(ctx: RenderContext, block: parser.Node): string | nil
+function block_doc.render_block(
+    ctx: RenderContext, block: parser.Node, max_width: integer, indent_width: integer
+): string | nil
     local block_doc_node = render_block_doc(ctx, block)
     if block_doc_node is nil then
         return nil
@@ -170,7 +172,9 @@ function block_doc.render_block(ctx: RenderContext, block: parser.Node): string 
         end
     end
 
-    return doc.concat({get_prelude(), block_doc_node, doc.hardline()}):render(88, 4)
+    return doc.concat({get_prelude(), block_doc_node, doc.hardline()}):render(
+        max_width, indent_width
+    )
 end
 
 return block_doc

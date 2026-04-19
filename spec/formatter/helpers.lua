@@ -2,6 +2,7 @@ require("tl").loader()
 
 local parser = require("formatter.parser")
 local rewriter = require("formatter.rewriter")
+local FormatterOptions = require("formatter.options")
 local assert = require("luassert")
 
 local helpers = {}
@@ -150,10 +151,10 @@ local function assert_equivalent_ast_shape(before_source, after_source)
 end
 
 local function assert_stable_rewrite(output, opts)
-    local second_pass = rewriter.rewrite(output, "test.tl")
+    local second_pass = rewriter.rewrite(output, "test.tl", FormatterOptions.default())
     assert.same({}, second_pass.parse_errors)
     assert.same(output, second_pass.output)
-    assert.is_false(second_pass.changed)
+    assert.same("unchanged", second_pass.status)
 
     if not opts.skip_ast_equivalence then
         assert_equivalent_ast_shape(output, second_pass.output)
@@ -166,11 +167,11 @@ function helpers.format(input, expected, opts)
     return function()
         local source = dedent(input)
         local expected_output = dedent(expected)
-        local result = rewriter.rewrite(source, "test.tl")
+        local result = rewriter.rewrite(source, "test.tl", FormatterOptions.default())
 
         assert.same({}, result.parse_errors)
         assert.same(expected_output, result.output)
-        assert.is_true(result.changed)
+        assert.same("reformatted", result.status)
 
         if not opts.skip_ast_equivalence then
             assert_equivalent_ast_shape(source, result.output)
@@ -185,9 +186,9 @@ end
 function helpers.parse_error(source)
     return function()
         local dedented = dedent(source)
-        local result = rewriter.rewrite(dedented, "test.tl")
+        local result = rewriter.rewrite(dedented, "test.tl", FormatterOptions.default())
         assert.same(dedented, result.output)
-        assert.is_false(result.changed)
+        assert.same("unchanged", result.status)
         assert.is_true(#result.parse_errors > 0)
     end
 end
@@ -197,10 +198,10 @@ function helpers.check(source, opts)
     opts = opts or {}
     return function()
         local dedented = dedent(source)
-        local result = rewriter.rewrite(dedented, "test.tl")
+        local result = rewriter.rewrite(dedented, "test.tl", FormatterOptions.default())
         assert.same({}, result.parse_errors)
         assert.same(dedented, result.output)
-        assert.is_false(result.changed)
+        assert.same("unchanged", result.status)
 
         if not opts.skip_ast_equivalence then
             assert_equivalent_ast_shape(dedented, result.output)
