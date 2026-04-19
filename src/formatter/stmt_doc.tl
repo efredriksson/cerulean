@@ -432,7 +432,7 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
 end
 
 local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
-    if node.exp == nil or node.body == nil or #node.body == 0 then
+    if node.exp == nil or node.body == nil then
         return nil
     end
 
@@ -446,11 +446,7 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
 end
 
 local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
-    if node.var == nil
-        or node.from == nil
-        or node.to == nil
-        or node.body == nil
-        or #node.body == 0 then
+    if node.var == nil or node.from == nil or node.to == nil or node.body == nil then
         return nil
     end
 
@@ -476,7 +472,7 @@ local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc
 end
 
 local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
-    if node.vars == nil or node.exps == nil or node.body == nil or #node.body == 0 then
+    if node.vars == nil or node.exps == nil or node.body == nil then
         return nil
     end
 
@@ -505,7 +501,7 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
 end
 
 local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
-    if node.body == nil or node.exp == nil or #node.body == 0 then
+    if node.body == nil or node.exp == nil then
         return nil
     end
 
@@ -522,7 +518,7 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
 end
 
 local function render_do_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
-    if node.body == nil or #node.body == 0 then
+    if node.body == nil then
         return nil
     end
 
@@ -567,6 +563,10 @@ function stmt_doc.render_statement_doc(
         return render_do_doc(ctx, node)
     elseif node.kind == "break" then
         return doc.text("break")
+    elseif node.kind == "goto" then
+        return doc.text("goto " .. node.label)
+    elseif node.kind == "label" then
+        return doc.text("::" .. node.label .. "::")
     elseif node.kind == "op" then
         return ctx.render_expr(node)
     end

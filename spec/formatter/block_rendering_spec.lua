@@ -1239,4 +1239,60 @@ describe("formatter structural block rendering", function()
          end
       ]]))
    end)
+
+   describe("goto and labels", function()
+      it("formats a goto statement", helpers.format([[
+         goto  done
+      ]], [[
+         goto done
+      ]]))
+
+      it("formats a label", helpers.format([[
+         :: done ::
+      ]], [[
+         ::done::
+      ]]))
+
+      it("formats goto and label together", helpers.format([[
+         goto  done
+         :: done ::
+      ]], [[
+         goto done
+         ::done::
+      ]]))
+   end)
+
+   describe("empty loop bodies", function()
+      it("formats an empty numeric for loop", helpers.format([[
+         for i = 1,    10 do
+         end
+      ]], [[
+         for i = 1, 10 do
+         end
+      ]]))
+
+      it("formats an empty generic for loop", helpers.format([[
+         for _, v in     ipairs(t) do
+         end
+      ]], [[
+         for _, v in ipairs(t) do
+         end
+      ]]))
+
+      it("formats an empty while loop", helpers.format([[
+         while true     do
+         end
+      ]], [[
+         while true do
+         end
+      ]]))
+
+      it("formats an empty do block", helpers.format([[
+         do   
+         end  
+      ]], [[
+         do
+         end
+      ]]))
+   end)
 end)
