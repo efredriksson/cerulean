@@ -492,4 +492,10 @@ describe("formatter function call wrapping", function()
       end
    ]]))
 
+   it("do not add blank line before function call on multi-line expression", helpers.check([[
+      if stmt then
+      end
+      (some_very_long_long_long_variable_that_exists
+          or some_very_long_long_long_variable_that_exists):MIZ()
+   ]]))
 end)

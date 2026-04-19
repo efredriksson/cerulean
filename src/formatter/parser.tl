@@ -1742,7 +1742,7 @@ do
                end
             end
 
-            e1 = { f = ps.filename, y = tkop.y, x = tkop.x, kind = "op", op = op, e1 = e1, e2 = key }
+            e1 = { f = ps.filename, y = e1.y, x = e1.x, kind = "op", op = op, e1 = e1, e2 = key }
          elseif tkop.tk == "(" then
             local prev_tk = ps.tokens[i - 1]
             if tkop.y > prev_tk.y then
@@ -1788,7 +1788,7 @@ do
             end
 
             local funcall_yend = math.max(args.yend or args.y, args.y)
-            e1 = { f = ps.filename, y = args.y, x = args.x, yend = funcall_yend, kind = "op", op = op, e1 = e1, e2 = args }
+            e1 = { f = ps.filename, y = e1.y, x = e1.x, yend = funcall_yend, kind = "op", op = op, e1 = e1, e2 = args }
 
             table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
          elseif tkop.tk == "[" then
