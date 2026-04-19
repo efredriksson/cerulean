@@ -1770,6 +1770,13 @@ do
             local args = new_node(ps, i, "expression_list")
             i, args = parse_bracket_list(ps, i, args, "(", ")", "sep", parse_expression)
 
+            local function leftmost_y(node: Node): integer
+               if node.kind == "op" and node.e1 then
+                  return leftmost_y(node.e1)
+               end
+               return node.y
+            end
+
             local previous_end: integer | nil = nil
             for _, arg_node in ipairs(args) do
                local leading = arg_node.comments or {}
@@ -1777,7 +1784,7 @@ do
                   previous_end = leading[#leading].yend
                end
                if previous_end ~= nil then
-                  arg_node.blank_line_before = arg_node.y > previous_end + 1
+                  arg_node.blank_line_before = leftmost_y(arg_node) > previous_end + 1
                end
                previous_end = arg_node.yend or arg_node.y
             end

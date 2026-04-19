@@ -498,4 +498,15 @@ describe("formatter function call wrapping", function()
       (some_very_long_long_long_variable_that_exists
           or some_very_long_long_long_variable_that_exists):MIZ()
    ]]))
+
+   it("function call with logical or and function calls formats correctly and is idempotent", helpers.format([[
+      f1(arg1, val1 or val2 .. f2() .. "some very very very very long string that comes after this hello")
+   ]], [[
+      f1(
+          arg1,
+          val1
+              or val2 .. f2(
+          ) .. "some very very very very long string that comes after this hello"
+      )
+   ]]))
 end)
