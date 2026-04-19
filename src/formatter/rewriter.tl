@@ -7,20 +7,26 @@ local require_sort = require("formatter.require_sort")
 local source = require("formatter.source")
 local tl = require("tl")
 
-local rewriter = {}
+local enum Status
+    "reformatted"
+    "unchanged"
+    "failed"
+end
+
+local rewriter = {Status = Status}
 
 local record Rewrite
     output: string
-    changed: boolean
+    status: Status
     parse_errors: {parser.Error}
 end
 
 function Rewrite.new(
-    output: string, changed: boolean, parse_errors: {parser.Error}
+    output: string, status: Status, parse_errors: {parser.Error}
 ): Rewrite
     local self: Rewrite = setmetatable({}, {__index = Rewrite})
     self.output = output
-    self.changed = changed
+    self.status = status
     self.parse_errors = parse_errors
     return self
 end
@@ -60,7 +66,7 @@ end
 function rewriter.rewrite(source_: string, filename: string): Rewrite
     local ast, parse_errors = parser.parse(source_, filename)
     if #parse_errors > 0 then
-        return Rewrite.new(source_, false, parse_errors)
+        return Rewrite.new(source_, "unchanged", parse_errors)
     end
 
     local context = build_formatter_context(source_, filename, ast)
@@ -68,8 +74,14 @@ function rewriter.rewrite(source_: string, filename: string): Rewrite
         context.fmt_off_regions, context.source_text.lines
     )
     require_sort.sort_top_level_requires(context.ast, context.fmt_off_regions)
-    local output = block_doc.render_block(ctx, context.ast) or source_
-    return Rewrite.new(output, output ~= source_, {})
+    local output = block_doc.render_block(ctx, context.ast)
+    if not output then
+        return Rewrite.new(source_, "failed", {})
+    end
+    if output == source_ then
+        return Rewrite.new(output, "unchanged", {})
+    end
+    return Rewrite.new(output, "reformatted", {})
 end
 
 return rewriter
