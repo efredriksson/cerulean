@@ -1784,7 +1784,16 @@ do
                   previous_end = leading[#leading].yend
                end
                if previous_end ~= nil then
-                  arg_node.blank_line_before = leftmost_y(arg_node) > previous_end + 1
+                  local left_y = leftmost_y(arg_node)
+                  arg_node.blank_line_before = left_y > previous_end + 1
+                  fmt_logger.debug(
+                      "[call args] blank_line_before=%s kind=%s y=%s leftmost_y=%s previous_end=%s",
+                      arg_node.blank_line_before,
+                      arg_node.kind,
+                      arg_node.y,
+                      left_y,
+                      previous_end
+                  )
                end
                previous_end = arg_node.yend or arg_node.y
             end
