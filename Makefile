@@ -1,16 +1,16 @@
 include $(wildcard .env)
 
-SRCS := $(shell find src/formatter -type f -name "*.tl")
+SRCS := $(shell find src/cerulean -type f -name "*.tl")
 SRCS_LINT := $(patsubst src/%, ./src/%, $(SRCS))
 
-FORMATTER := tl run src/formatter/init.tl --
+FORMATTER := tl run src/cerulean/init.tl --
 
 lint:
 	tl check ${SRCS_LINT}
-	${FORMATTER} --check src/formatter
+	${FORMATTER} --check src/cerulean
 
 format:
-	${FORMATTER} src/formatter
+	${FORMATTER} src/cerulean
 
 test: lint
 	busted spec/

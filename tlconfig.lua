@@ -1,5 +1,5 @@
 return {
-   include_dir = {"./src", "./src/formatter"},
+   include_dir = {"./src", "./src/cerulean"},
    warning_error = {
       "branch",
       "debug",
