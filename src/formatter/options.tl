@@ -1,5 +1,7 @@
--- CLI argument parsing: raw argv -> FormatterOptions domain object.
+-- CLI argument parsing: raw argv -> FormatterOptions domain object. Accepts files and directories.
 -- All user-facing formatter knobs live here; init.tl stays thin I/O orchestration.
+local file_discovery = require("formatter.file_discovery")
+
 local record FormatterOptions
     check_only: boolean
     log_level: string
@@ -8,6 +10,8 @@ local record FormatterOptions
     sort_requires: boolean
     files: {string}
 end
+
+local options = {FormatterOptions = FormatterOptions}
 
 function FormatterOptions.new(
     check_only: boolean,
@@ -27,7 +31,7 @@ function FormatterOptions.new(
     return self
 end
 
-function FormatterOptions.default(): FormatterOptions
+local function default(): FormatterOptions
     return FormatterOptions.new(false, "nothing", 4, 88, true, {})
 end
 
@@ -39,22 +43,22 @@ local function parse_positive_integer(raw: string, flag: string): integer, strin
     return n, nil
 end
 
-function FormatterOptions.apply_args(
-    options: FormatterOptions, script_args: {string}
+local function apply_args(
+    apply_to: FormatterOptions, script_args: {string}
 ): FormatterOptions, string
     local i = 1
     while i <= #script_args do
         local value = script_args[i]
         if value == "--check" then
-            options.check_only = true
+            apply_to.check_only = true
         elseif value == "--no-sort-requires" then
-            options.sort_requires = false
+            apply_to.sort_requires = false
         elseif value == "--log-level" then
             i = i + 1
             if i > #script_args then
                 return nil, "--log-level requires an argument"
             end
-            options.log_level = script_args[i]
+            apply_to.log_level = script_args[i]
         elseif value == "--indent" then
             i = i + 1
             if i > #script_args then
@@ -64,7 +68,7 @@ function FormatterOptions.apply_args(
             if err then
                 return nil, err
             end
-            options.indent_width = n
+            apply_to.indent_width = n
         elseif value == "--line-length" then
             i = i + 1
             if i > #script_args then
@@ -74,27 +78,29 @@ function FormatterOptions.apply_args(
             if err then
                 return nil, err
             end
-            options.max_line_width = n
+            apply_to.max_line_width = n
         elseif value:sub(1, 2) == "--" then
             return nil, string.format("unknown flag: '%s'", value)
         else
-            table.insert(options.files, value)
+            table.insert(apply_to.files, value)
         end
         i = i + 1
     end
 
-    if #options.files == 0 then
-        return nil, "usage: tl run src/formatter/init.tl -- [--check] [--no-sort-requires] [--log-level <level>] [--indent <n>] [--line-length <n>] <file...>"
+    if #apply_to.files == 0 then
+        table.insert(apply_to.files, ".")
     end
 
-    return options, nil
+    local expanded, expand_err = file_discovery.expand_paths(apply_to.files)
+    if expand_err then
+        return nil, expand_err
+    end
+    apply_to.files = expanded
+
+    return apply_to, nil
 end
 
-function FormatterOptions.from_args(script_args: {string}): FormatterOptions, string
-    return FormatterOptions.apply_args(FormatterOptions.default(), script_args)
-end
-
-function FormatterOptions.from_config_file(): FormatterOptions, string
+local function from_config_file(): FormatterOptions, string
     local chunk, _load_err = loadfile("tlconfig.lua")
     if not chunk then
         return nil, nil
@@ -110,7 +116,7 @@ function FormatterOptions.from_config_file(): FormatterOptions, string
     if not (formatter is {any: any}) then
         return nil, "tlconfig.lua: 'formatter' must be a table"
     end
-    local opts = FormatterOptions.default()
+    local opts = default()
 
     local iw = formatter["indent_width"]
     if iw ~= nil then
@@ -147,4 +153,20 @@ function FormatterOptions.from_config_file(): FormatterOptions, string
     return opts, nil
 end
 
-return FormatterOptions
+function options.from_config_file_and_args(
+    script_args: {string}
+): FormatterOptions, string
+    local file_opts, config_err = from_config_file()
+    if config_err then
+        return nil, config_err
+    end
+
+    local opts, parse_err = apply_args(file_opts or default(), script_args)
+    if parse_err then
+        return nil, parse_err
+    end
+
+    return opts, nil
+end
+
+return options

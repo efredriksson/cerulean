@@ -1,9 +1,14 @@
 require("tl").loader()
 
+local lfs = require("lfs")
 local parser = require("formatter.parser")
 local rewriter = require("formatter.rewriter")
-local FormatterOptions = require("formatter.options")
+local options_module = require("formatter.options")
 local assert = require("luassert")
+
+local function default_opts()
+    return options_module.FormatterOptions.new(false, "nothing", 4, 88, true, {})
+end
 
 local helpers = {}
 
@@ -151,7 +156,7 @@ local function assert_equivalent_ast_shape(before_source, after_source)
 end
 
 local function assert_stable_rewrite(output, opts)
-    local second_pass = rewriter.rewrite(output, "test.tl", FormatterOptions.default())
+    local second_pass = rewriter.rewrite(output, "test.tl", default_opts())
     assert.same({}, second_pass.parse_errors)
     assert.same(output, second_pass.output)
     assert.same("unchanged", second_pass.status)
@@ -167,7 +172,7 @@ function helpers.format(input, expected, opts)
     return function()
         local source = dedent(input)
         local expected_output = dedent(expected)
-        local result = rewriter.rewrite(source, "test.tl", FormatterOptions.default())
+        local result = rewriter.rewrite(source, "test.tl", default_opts())
 
         assert.same({}, result.parse_errors)
         assert.same(expected_output, result.output)
@@ -186,7 +191,7 @@ end
 function helpers.parse_error(source)
     return function()
         local dedented = dedent(source)
-        local result = rewriter.rewrite(dedented, "test.tl", FormatterOptions.default())
+        local result = rewriter.rewrite(dedented, "test.tl", default_opts())
         assert.same(dedented, result.output)
         assert.same("unchanged", result.status)
         assert.is_true(#result.parse_errors > 0)
@@ -198,7 +203,7 @@ function helpers.check(source, opts)
     opts = opts or {}
     return function()
         local dedented = dedent(source)
-        local result = rewriter.rewrite(dedented, "test.tl", FormatterOptions.default())
+        local result = rewriter.rewrite(dedented, "test.tl", default_opts())
         assert.same({}, result.parse_errors)
         assert.same(dedented, result.output)
         assert.same("unchanged", result.status)
@@ -209,6 +214,17 @@ function helpers.check(source, opts)
 
         assert_stable_rewrite(result.output, opts)
     end
+end
+
+-- Returns a test function that resolves FormatterOptions from a given directory
+-- (for tlconfig.lua pickup) and CLI args. Restores the working directory after.
+function helpers.resolve_options(directory, args)
+    local saved = assert(lfs.currentdir())
+    assert(lfs.chdir(directory))
+    local ok, opts, err = pcall(options_module.from_config_file_and_args, args)
+    lfs.chdir(saved)
+    if not ok then error(opts, 2) end
+    return opts, err
 end
 
 return helpers

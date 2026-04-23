@@ -2,11 +2,13 @@
 -- See ARCHITECTURE.md for the current module map and flow.
 local ast_traversal = require("formatter.ast_traversal")
 local block_doc = require("formatter.block_doc")
-local FormatterOptions = require("formatter.options")
+local options = require("formatter.options")
 local parser = require("formatter.parser")
 local require_sort = require("formatter.require_sort")
 local source = require("formatter.source")
 local tl = require("tl")
+
+local type FormatterOptions = options.FormatterOptions
 
 local enum Status
     "reformatted"

@@ -1,8 +1,10 @@
 -- CLI entry point. Reads files, calls rewriter.rewrite, writes output (or checks in --check mode).
--- Run with: tl run src/formatter/init.tl -- [--check] [--no-sort-requires] [--log-level <level>] [--indent <n>] [--line-length <n>] <file...>
+-- Run with: tl run src/formatter/init.tl -- [--check] [--no-sort-requires] [--log-level <level>] [--indent <n>] [--line-length <n>] [file|dir...]
 local fmt_logger = require("formatter.fmt_logger")
-local FormatterOptions = require("formatter.options")
+local options = require("formatter.options")
 local rewriter = require("formatter.rewriter")
+
+local type FormatterOptions = options.FormatterOptions
 
 local function read_file(path: string): string, string
     local file, open_err = io.open(path, "r")
@@ -97,16 +99,9 @@ local function format_summary(
 end
 
 local function main()
-    local file_opts, config_err = FormatterOptions.from_config_file()
+    local opts, config_err = options.from_config_file_and_args(arg)
     if config_err then
         write_error(config_err)
-        os.exit(1)
-    end
-
-    local base = file_opts or FormatterOptions.default()
-    local opts, parse_err = FormatterOptions.apply_args(base, arg)
-    if parse_err then
-        write_error(parse_err)
         os.exit(1)
     end
 

@@ -30,10 +30,10 @@ FORMATTER := tl run src/formatter/init.tl --
 
 lint:
 	tl check ${SRCS_LINT}
-	${FORMATTER} --check ${SRCS_LINT}
+	${FORMATTER} --check src
 
 format:
-	${FORMATTER} ${SRCS_LINT}
+	${FORMATTER} src
 
 test: lint
 	busted spec/
