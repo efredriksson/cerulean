@@ -2,6 +2,11 @@ include $(wildcard .env)
 
 SRCS := $(shell find src/cerulean -type f -name "*.tl")
 SRCS_LINT := $(patsubst src/%, ./src/%, $(SRCS))
+TL_SOURCES := $(filter-out %.d.tl, $(SRCS))
+TL_COMPILED := $(patsubst src/cerulean/%.tl, dist/cerulean/%.lua, $(TL_SOURCES))
+
+LUADIR ?= /usr/local/share/lua/5.4
+BINDIR ?= /usr/local/bin
 
 FORMATTER := tl run src/cerulean/init.tl --
 
@@ -14,6 +19,23 @@ format:
 
 test: lint
 	busted spec/
+
+dist/cerulean/%.lua: src/cerulean/%.tl | dist/cerulean
+	tl gen $< -o $@
+
+dist/cerulean:
+	mkdir -p $@
+
+compile: $(TL_COMPILED)
+
+install: compile
+	install -d $(LUADIR)/cerulean
+	cp dist/cerulean/*.lua $(LUADIR)/cerulean/
+	install -d $(BINDIR)
+	install -m 755 bin/cerulean $(BINDIR)/cerulean
+
+rock:
+	luarocks make cerulean-dev-1.rockspec
 
 .PHONY: fuzz
 fuzz:

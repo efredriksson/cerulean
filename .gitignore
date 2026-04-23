@@ -1,6 +1,5 @@
 dist
 .env
-explodelon*.lutro
 fuzz/gen/
 fuzz/corpus/
 fuzz/regressions_spec.lua
