@@ -4,6 +4,7 @@
 require("tl").loader()
 
 local rewriter = require("formatter.rewriter")
+local FormatterOptions = require("formatter.options")
 
 local function read_file(path)
     local f = io.open(path, "r")
@@ -36,12 +37,12 @@ for i = 1, #arg do
         io.stderr:write("ERROR: could not read " .. path .. "\n")
         table.insert(failures, { kind = "crash", path = path, content = "", error = "could not read file" })
     else
-        local ok, result = pcall(rewriter.rewrite, content, path)
+        local ok, result = pcall(rewriter.rewrite, content, path, FormatterOptions.default())
         if not ok then
             io.stderr:write("CRASH: " .. path .. "\n" .. tostring(result) .. "\n")
             table.insert(failures, { kind = "crash", path = path, content = content, error = tostring(result) })
         elseif #result.parse_errors == 0 then
-            local ok2, result2 = pcall(rewriter.rewrite, result.output, path)
+            local ok2, result2 = pcall(rewriter.rewrite, result.output, path, FormatterOptions.default())
             if not ok2 then
                 io.stderr:write("CRASH on second pass: " .. path .. "\n" .. tostring(result2) .. "\n")
                 table.insert(failures, { kind = "crash", path = path, content = result.output, error = "second pass: " .. tostring(result2) })
@@ -63,6 +64,7 @@ if #failures > 0 then
     f:write("-- Run: busted fuzz/regressions_spec.lua\n\n")
     f:write('require("tl").loader()\n')
     f:write('local rewriter = require("formatter.rewriter")\n')
+    f:write('local FormatterOptions = require("formatter.options")\n')
     f:write('local helpers = require("spec.formatter.helpers")\n\n')
     f:write('describe("fuzz regressions", function()\n\n')
 
@@ -73,7 +75,7 @@ if #failures > 0 then
         if failure.kind == "crash" then
             f:write("    -- " .. failure.error:gsub("\n", "\n    -- ") .. "\n")
             f:write('    it("does not crash: ' .. name .. '", function()\n')
-            f:write("        rewriter.rewrite(" .. embedded .. ', "test.tl")\n')
+            f:write("        rewriter.rewrite(" .. embedded .. ', "test.tl", FormatterOptions.default())\n')
             f:write("    end)\n\n")
         elseif failure.kind == "not_idempotent" then
             f:write('    it("is idempotent: ' .. name .. '", function()\n')

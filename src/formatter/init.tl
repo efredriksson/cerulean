@@ -97,7 +97,14 @@ local function format_summary(
 end
 
 local function main()
-    local opts, parse_err = FormatterOptions.from_args(arg)
+    local file_opts, config_err = FormatterOptions.from_config_file()
+    if config_err then
+        write_error(config_err)
+        os.exit(1)
+    end
+
+    local base = file_opts or FormatterOptions.default()
+    local opts, parse_err = FormatterOptions.apply_args(base, arg)
     if parse_err then
         write_error(parse_err)
         os.exit(1)

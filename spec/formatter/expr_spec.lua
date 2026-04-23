@@ -33,4 +33,10 @@ describe("formatter function expressions", function()
           x = 1,
       }
    ]]))
+
+   pending("expression with table type is kept", helpers.format([[
+      local x = not ( formatter is table)
+   ]], [[
+      local x = not (formatter is table)
+   ]]))
 end)
