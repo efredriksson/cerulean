@@ -1,0 +1,88 @@
+on: [push, pull_request]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 15
+      - uses: actions/setup-node@v4
+      - name: Install Lua dependencies
+        run: sudo apt-get install -y luarocks make && sudo luarocks install tl && sudo luarocks install busted && sudo luarocks install luafilesystem
+      - name: Install commitlint
+        run: npm install -g @commitlint/cli @commitlint/config-conventional
+      - name: Lint commits
+        run: commitlint --from=HEAD~10
+      - name: Test
+        run: make test
+
+  build-rock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua dependencies
+        run: sudo apt-get install -y luarocks make && sudo luarocks install tl
+      - name: Compile
+        run: make compile
+      - name: Build rock
+        run: sudo luarocks make --pack-binary-rock cerulean-dev-1.rockspec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cerulean-rock
+          path: "*.rock"
+
+  smoke-test:
+    needs: [build-rock]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lua: ["5.1", "5.4"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leafo/gh-actions-lua@v13
+        with:
+          luaVersion: ${{ matrix.lua }}
+      - uses: leafo/gh-actions-luarocks@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cerulean-rock
+      - name: Install rock
+        shell: bash
+        run: luarocks install *.rock
+      - name: Smoke test
+        shell: bash
+        run: lua bin/ceru --check spec/cerulean/fixtures/file_discovery/flat
+
+  luajit-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get install -y luajit lua-filesystem luarocks make && sudo luarocks install tl
+      - name: Compile
+        run: make compile
+      - name: Smoke test
+        run: LUA_PATH="dist/?.lua;dist/?/init.lua;;" luajit bin/ceru --check spec/cerulean/fixtures/file_discovery/flat
+
+  release:
+    needs: [lint-and-test, smoke-test, luajit-smoke-test]
+    runs-on: ubuntu-latest
+    environment: luarocks
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+      - name: Install Lua dependencies
+        run: sudo apt-get install -y luarocks make && sudo luarocks install tl
+      - name: Install semantic-release
+        run: npm install -g semantic-release @semantic-release/release-notes-generator @semantic-release/commit-analyzer @semantic-release/github @semantic-release/exec
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LUAROCKS_API_KEY: ${{ secrets.LUAROCKS_API_KEY }}
+        run: npx semantic-release

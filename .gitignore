@@ -4,3 +4,4 @@ fuzz/gen/
 fuzz/corpus/
 fuzz/regressions_spec.lua
 .venv
+cerulean-*-1.rockspec
