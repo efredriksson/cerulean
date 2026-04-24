@@ -78,7 +78,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
       - name: Install Lua dependencies
-        run: sudo apt-get install -y luarocks make && sudo luarocks install tl
+        run: sudo apt-get install -y luarocks make && sudo luarocks install tl && sudo luarocks install dkjson
       - name: Install semantic-release
         run: npm install -g semantic-release @semantic-release/release-notes-generator @semantic-release/commit-analyzer @semantic-release/github @semantic-release/exec
       - name: Release
