@@ -1,5 +1,7 @@
--- Adapted from tl.tl (the teal-lang project), version 0.24.8.
--- This is a typed copy of the tl parser. It will be simplified over time.
+-- Adapted from tl.tl (the teal-language/tl project), version 0.24.8.
+-- Original work Copyright 2019 Hisham Muhammad, MIT License (see LICENSES/MIT-teal.txt).
+-- Modifications Copyright (c) 2026 Emil Fredriksson, MIT License (see LICENSE).
+-- This copy should be simplified and specialized over time.
 local fmt_logger = require("cerulean.fmt_logger")
 local tl = require("tl")
 
