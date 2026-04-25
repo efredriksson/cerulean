@@ -683,6 +683,36 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("function types with ... args are preserved", helpers.format([[
+         local record A
+            a: function(...:  string)
+         end
+      ]], [[
+         local record A
+             a: function(...: string)
+         end
+      ]]))
+
+      it("function types with named ... args are preserved", helpers.format([[
+         local record A
+            a: function(rest:  string...)
+         end
+      ]], [[
+         local record A
+             a: function(rest: string...)
+         end
+      ]]))
+
+      it("function types with ... as last arg after regular args are preserved", helpers.format([[
+         local record A
+            a: function(integer, ...:  string)
+         end
+      ]], [[
+         local record A
+             a: function(integer, ...: string)
+         end
+      ]]))
+
       it("records where condition are perserved", helpers.format([[
          local record Node
             is {Node}, types.Node, Where
