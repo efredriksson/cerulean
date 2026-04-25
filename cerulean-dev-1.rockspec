@@ -14,7 +14,7 @@ description = {
       line width, and require-statement sorting. It can be run as a CLI
       tool or integrated into editor workflows.
    ]],
-   homepage = "https://github.com/efredriksson/cerulean",
+   homepage = "https://efredriksson.github.io/cerulean",
    license = "MIT",
 }
 
