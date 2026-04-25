@@ -3,6 +3,7 @@ local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 
 local render_return: function(parser.TupleType): doc.Doc
+local render_type: function(parser.Type): doc.Doc
 
 local function arg_name_doc(
     arg_name: string, is_optional: boolean, is_variadic: boolean
@@ -41,7 +42,7 @@ local type_doc_render: function(type_def: parser.Type, generic_doc?: doc.Doc): d
 function type_doc.render_typeargs(typeargs: {parser.TypeArgType}): doc.Doc
     local typearg_docs: {doc.Doc} = {}
     for _, typearg in ipairs(typeargs) do
-        table.insert(typearg_docs, type_doc_render(typearg))
+        table.insert(typearg_docs, render_type(typearg))
     end
     return doc.concat(
         {
@@ -62,7 +63,7 @@ local function function_type_render(
         local arg_name, type_suffix = arg_name_doc(
             argnames[index], is_optional_arg(type_def, index), is_variadic
         )
-        local rendered_type = type_doc_render(arg_type)
+        local rendered_type = render_type(arg_type)
         table.insert(arg_docs, doc.concat({arg_name, rendered_type, type_suffix}))
     end
     local opts = render_builders.DelimitedSequenceOptions.new("(", ")")
@@ -82,7 +83,7 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
         if type_def.typevals ~= nil and #type_def.typevals > 0 then
             local typeval_docs: {doc.Doc} = {}
             for _, typeval in ipairs(type_def.typevals) do
-                table.insert(typeval_docs, type_doc_render(typeval))
+                table.insert(typeval_docs, render_type(typeval))
             end
             table.insert(parts, doc.text("<"))
             table.insert(
@@ -95,36 +96,40 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
         return doc.concat(
             {
                 doc.text("{"),
-                type_doc_render(type_def.elements),
+                render_type(type_def.elements),
                 doc.text("}"),
             }
         )
     elseif type_def is parser.TypeArgType then
         local typearg_text = doc.text(type_def.typearg)
         if type_def.constraint ~= nil then
-            local constraint_text = type_doc_render(type_def.constraint)
+            local constraint_text = render_type(type_def.constraint)
             typearg_text = doc.concat({typearg_text, doc.text(" is "), constraint_text})
         end
         return typearg_text
     elseif type_def is parser.UnionType then
         local type_docs: {doc.Doc} = {}
         for _, t in ipairs(type_def.types) do
-            table.insert(type_docs, type_doc_render(t))
+            table.insert(type_docs, render_type(t))
         end
         return render_builders.build_separated_docs(type_docs, " | ")
     elseif type_def is parser.TupleType then
         local type_docs: {doc.Doc} = {}
         for _, t in ipairs(type_def.tuple) do
-            table.insert(type_docs, type_doc_render(t))
+            table.insert(type_docs, render_type(t))
         end
-        return render_builders.build_separated_docs(type_docs, ", ")
+        local result = render_builders.build_separated_docs(type_docs, ", ")
+        if type_def.is_va then
+            return doc.concat({result, doc.text("...")})
+        end
+        return result
     elseif type_def is parser.MapType then
         return doc.concat(
             {
                 doc.text("{"),
-                type_doc_render(type_def.keys),
+                render_type(type_def.keys),
                 doc.text(": "),
-                type_doc_render(type_def.values),
+                render_type(type_def.values),
                 doc.text("}"),
             }
         )
@@ -137,7 +142,7 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
     elseif type_def is parser.TupleTableType then
         local type_docs: {doc.Doc} = {}
         for _, t in ipairs(type_def.types) do
-            table.insert(type_docs, type_doc_render(t))
+            table.insert(type_docs, render_type(t))
         end
         return doc.concat(
             {
@@ -155,13 +160,16 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
     assert(false, "unhandled type: " .. tostring(type_def.typename))
 end
 
-function type_doc.render(type_def: parser.Type): doc.Doc
-    local type_doc_res = type_doc_render(type_def)
+render_type = function(type_def: parser.Type): doc.Doc
+    local result = type_doc_render(type_def)
     if type_def.paren then
-        type_doc_res = doc.concat({doc.text("("), type_doc_res, doc.text(")")})
+        result = doc.concat({doc.text("("), result, doc.text(")")})
     end
+    return result
+end
 
-    return type_doc_res
+function type_doc.render(type_def: parser.Type): doc.Doc
+    return render_type(type_def)
 end
 
 render_return = function(type_def: parser.TupleType): doc.Doc
