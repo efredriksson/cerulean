@@ -1318,6 +1318,7 @@ local function parse_function_type(
     ps: ParseState,
     i: integer
 ): integer, GenericType | FunctionType
+   local istart = i
    local typeargs: {TypeArgType}
    local typ = new_type(ps, i, "function") as FunctionType
    i = i + 1
@@ -1335,7 +1336,7 @@ local function parse_function_type(
    typ.yend = ps.tokens[i - 1].y
 
    if typeargs then
-      return i, new_generic(ps, i, typeargs, typ)
+      return i, new_generic(ps, istart, typeargs, typ)
    end
 
    return i, typ
