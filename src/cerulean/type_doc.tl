@@ -4,13 +4,25 @@ local render_builders = require("cerulean.render_builders")
 
 local render_return: function(parser.TupleType): doc.Doc
 
-local function arg_name_doc(arg_name: string, is_optional: boolean): doc.Doc
+local function arg_name_doc(
+    arg_name: string, is_optional: boolean, is_variadic: boolean
+): doc.Doc, doc.Doc
+    local function type_suffix(): doc.Doc
+        if is_variadic and arg_name ~= nil then
+            return doc.text("...")
+        else
+            return doc.text("")
+        end
+    end
+
     if arg_name ~= nil then
         local optional_str = is_optional and "?: " or ": "
-        return doc.text(arg_name .. optional_str)
+        return doc.text(arg_name .. optional_str), type_suffix()
+    elseif is_variadic then
+        return doc.text("...: "), type_suffix()
     else
         local optional_str = is_optional and "? " or ""
-        return doc.text(optional_str)
+        return doc.text(optional_str), type_suffix()
     end
 end
 
@@ -30,8 +42,12 @@ local function function_type_render(
     local arg_docs: {doc.Doc} = {}
     local argnames = type_def.args.argnames or {}
     for index, arg_type in ipairs(type_def.args.tuple) do
-        local arg_name = arg_name_doc(argnames[index], is_optional_arg(type_def, index))
-        table.insert(arg_docs, doc.concat({arg_name, type_doc_render(arg_type)}))
+        local is_variadic = type_def.args.is_va and index == #type_def.args.tuple
+        local arg_name, type_suffix = arg_name_doc(
+            argnames[index], is_optional_arg(type_def, index), is_variadic
+        )
+        local rendered_type = type_doc_render(arg_type)
+        table.insert(arg_docs, doc.concat({arg_name, rendered_type, type_suffix}))
     end
     local opts = render_builders.DelimitedSequenceOptions.new("(", ")")
     return doc.concat(
