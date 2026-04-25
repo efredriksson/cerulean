@@ -6,6 +6,7 @@ local inline_stmt_doc = require("cerulean.inline_stmt_doc")
 local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
+local signature_doc = require("cerulean.signature_doc")
 local type_doc = require("cerulean.type_doc")
 
 local type RenderContext = render_context.RenderContext
@@ -405,6 +406,32 @@ local function render_function_definition_doc(
     return function_doc.render(ctx, node, name_prefix)
 end
 
+local function render_local_macroexp_doc(ctx: RenderContext, node: parser.Node): doc.Doc
+    assert(
+        node.name ~= nil and node.macrodef ~= nil and node.macrodef.exp ~= nil,
+        "bad local_macroexp node"
+    )
+    local header = doc.group(
+        doc.concat(
+            {
+                doc.text("local macroexp " .. node.name.tk),
+                signature_doc.render_signature_doc(node.macrodef.args),
+                type_doc.render_return(node.macrodef.rets),
+            }
+        )
+    )
+    local body_doc = doc.concat(
+        {doc.text("return "), ctx.render_expr(node.macrodef.exp)}
+    )
+    return doc.concat(
+        {
+            header,
+            doc.indent_line(body_doc),
+            doc.close("end"),
+        }
+    )
+end
+
 local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
     if node.if_blocks == nil then
         return nil
@@ -563,6 +590,8 @@ function stmt_doc.render_statement_doc(
         or node.kind == "global_function"
         or node.kind == "record_function") then
         return render_function_definition_doc(ctx, node)
+    elseif node.kind == "local_macroexp" then
+        return render_local_macroexp_doc(ctx, node)
     elseif node.kind == "if" then
         return render_if_doc(ctx, node)
     elseif node.kind == "while" then
