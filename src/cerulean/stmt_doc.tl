@@ -219,8 +219,7 @@ local function render_resolved_record_doc(
     for _, part in ipairs(render_interface_list_parts(resolved.record_def)) do
         table.insert(header_parts, part)
     end
-    if resolved.keyword == "interface"
-        and resolved.record_def.meta_fields ~= nil
+    if resolved.record_def.meta_fields ~= nil
         and resolved.record_def.meta_fields["__is"] ~= nil then
         local where_function = resolved.record_def.meta_fields["__is"]
         if not (where_function is parser.FunctionType) then
