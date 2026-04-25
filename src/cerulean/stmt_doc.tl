@@ -13,24 +13,6 @@ local type RenderContext = render_context.RenderContext
 
 local stmt_doc = {}
 
-local function render_typearg_list(typeargs: {parser.TypeArgType}): doc.Doc
-    if #typeargs == 0 then
-        return doc.text("")
-    end
-
-    local parts: {doc.Doc} = {}
-    for _, typearg in ipairs(typeargs) do
-        table.insert(parts, type_doc.render(typearg))
-    end
-    return doc.concat(
-        {
-            doc.text("<"),
-            render_builders.build_comma_separated_docs(parts),
-            doc.text(">"),
-        }
-    )
-end
-
 local function with_indented_body(
     header: doc.Doc, body: doc.Doc, tail: doc.Doc
 ): doc.Doc
@@ -131,7 +113,7 @@ local function resolve_record_like_def(
 ): ResolvedRecordLikeDef | nil
     local typeargs_str = doc.text("")
     if def is parser.GenericType then
-        typeargs_str = render_typearg_list(def.typeargs or {})
+        typeargs_str = type_doc.render_typeargs(def.typeargs or {})
         def = def.t
         if def == nil then
             return nil
@@ -331,8 +313,19 @@ local function render_type_doc(
             return result
         end
     end
+    local function render_stmt_typeargs(): doc.Doc
+        if stmt.typeargs == nil then
+            return doc.text("")
+        end
+        return type_doc.render_typeargs(stmt.typeargs)
+    end
     return doc.concat(
-        {doc.text(keyword .. " type " .. stmt.var.tk .. " = "), type_doc.render(def)}
+        {
+            doc.text(keyword .. " type " .. stmt.var.tk),
+            render_stmt_typeargs(),
+            doc.text(" = "),
+            type_doc.render(def),
+        }
     )
 end
 
@@ -361,7 +354,7 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
         if fn_node.typeargs == nil then
             return doc.text("")
         end
-        return render_typearg_list(fn_node.typeargs)
+        return type_doc.render_typeargs(fn_node.typeargs)
     end
 
     if node.kind == "local_function" and node.name ~= nil then

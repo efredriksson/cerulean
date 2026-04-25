@@ -3253,6 +3253,7 @@ parse_type_declaration = function(
             )
          else
             nt.def = new_generic(ps, istart, typeargs, def)
+            asgn.typeargs = typeargs
          end
       end
 
