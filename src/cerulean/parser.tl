@@ -187,7 +187,6 @@ local record parser
       meta_fields: {string: Type}
       meta_field_order: {string}
       meta_field_comments: {string: {{Comment}}}
-      is_userdata: boolean
       field_entries: {FieldEntry}
    end
 
@@ -2757,16 +2756,14 @@ local function parse_array_interface_type(
     i: integer,
     def: RecordLikeType
 ): integer, ArrayType
-   if def.interface_list then
-      local first = def.interface_list[1]
-      if first is ArrayType then
-         return failskip(
-             ps,
-             i,
-             "duplicated declaration of array element type",
-             parse_type as SkipFunction
-         )
-      end
+   local first = def.interface_list[1]
+   if first and first is ArrayType then
+      return failskip(
+            ps,
+            i,
+            "duplicated declaration of array element type",
+            parse_type as SkipFunction
+      )
    end
    local t: Type
    i, t = parse_base_type(ps, i)
@@ -2781,20 +2778,15 @@ local function parse_array_interface_type(
    return i, t
 end
 
-local function extract_userdata_from_interface_list(
-    ps: ParseState,
-    i: integer,
-    def: RecordLikeType
-)
-   for j = #def.interface_list, 1, -1 do
-      local iface = def.interface_list[j]
+local function fail_if_duplicate_userdata(ps: ParseState, i: integer, interface_list: {Type})
+   local userdata_count = 0
+   for _, iface in ipairs(interface_list) do
       if iface is NominalType and #iface.names == 1 and iface.names[1] == "userdata" then
-         table.remove(def.interface_list, j)
-         if def.is_userdata then
-            fail(ps, i, "duplicated 'userdata' declaration")
-         end
-         def.is_userdata = true
+         userdata_count = userdata_count + 1
       end
+   end
+   if userdata_count > 1 then
+      fail(ps, i, "duplicated 'userdata' declaration")
    end
 end
 
@@ -2807,6 +2799,7 @@ parse_record_body = function(
    def.nodes = {}
    def.field_order = {}
    def.field_entries = {}
+   def.interface_list = {}
 
    if ps.tokens[i].tk == "{" then
       local atype: Type
@@ -2835,9 +2828,7 @@ parse_record_body = function(
          i, def.interface_list = parse_trying_list(ps, i, {}, parse_interface_name)
       end
 
-      if def.interface_list then
-         extract_userdata_from_interface_list(ps, i, def)
-      end
+      fail_if_duplicate_userdata(ps, i, def.interface_list)
    end
 
    if ps.tokens[i].tk == "where" then
@@ -2864,11 +2855,8 @@ parse_record_body = function(
    while not (ps.tokens[i].kind == "$EOF$" or ps.tokens[i].tk == "end") do
       local tn = ps.tokens[i].tk as BodyTypeName
       if ps.tokens[i].tk == "userdata" and ps.tokens[i + 1].tk ~= ":" then
-         if def.is_userdata then
-            fail(ps, i, "duplicated 'userdata' declaration")
-         else
-            def.is_userdata = true
-         end
+         table.insert(def.interface_list, new_nominal(ps, i, "userdata"))
+         fail_if_duplicate_userdata(ps, i, def.interface_list)
          i = i + 1
       elseif ps.tokens[i].tk == "{" then
          return fail(

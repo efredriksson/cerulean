@@ -725,6 +725,15 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("format records that is userdata", helpers.format([[
+         local record A
+            is userdata
+         end
+      ]], [[
+         local record A is userdata
+         end
+      ]]))
+
       it("type declarations in records are perserved and formatterd", helpers.format([[
          local record ast
             type Attribute = Attribute
