@@ -45,4 +45,5 @@ describe("formatter function expressions", function()
    ]], [[
       local data: Data<string, boolean>
    ]]))
+
 end)

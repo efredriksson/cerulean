@@ -38,6 +38,12 @@ end
 function function_doc.render_anonymous(
     ctx: RenderContext, node: parser.Node, header_prefix: doc.Doc
 ): doc.Doc
+    if node.typeargs ~= nil and #node.typeargs > 0 then
+        header_prefix = doc.concat(
+            {header_prefix, type_doc.render_typeargs(node.typeargs)}
+        )
+    end
+
     return doc.group(function_doc.render(ctx, node, header_prefix))
 end
 
