@@ -68,6 +68,7 @@ jobs:
 
   release:
     needs: [lint-and-test, smoke-test, luajit-smoke-test]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/beta'
     runs-on: ubuntu-latest
     environment: luarocks
     permissions:
