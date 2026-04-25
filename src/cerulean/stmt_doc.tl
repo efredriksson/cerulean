@@ -163,7 +163,17 @@ local function render_field_entry(
     ctx: RenderContext, entry: parser.FieldEntry
 ): doc.Doc | nil
     if entry.node ~= nil and entry.node.newtype ~= nil then
-        return render_nested_typedecl_doc(ctx, entry.node)
+        local nested = render_nested_typedecl_doc(ctx, entry.node)
+        if nested ~= nil then
+            return nested
+        end
+        local def = entry.node.newtype.def
+        if def == nil then
+            return nil
+        end
+        return doc.concat(
+            {doc.text("type " .. entry.name .. " = "), type_doc.render(def)}
+        )
     end
 
     local function prefix(): string
