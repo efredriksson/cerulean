@@ -34,7 +34,23 @@ local function is_optional_arg(type_def: parser.FunctionType, index: integer): b
         and not (is_variadic_tail and index == #type_def.args.tuple)
 end
 
+local type_doc = {}
+
 local type_doc_render: function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
+
+function type_doc.render_typeargs(typeargs: {parser.TypeArgType}): doc.Doc
+    local typearg_docs: {doc.Doc} = {}
+    for _, typearg in ipairs(typeargs) do
+        table.insert(typearg_docs, type_doc_render(typearg))
+    end
+    return doc.concat(
+        {
+            doc.text("<"),
+            render_builders.build_separated_docs(typearg_docs, ", "),
+            doc.text(">"),
+        }
+    )
+end
 
 local function function_type_render(
     type_def: parser.FunctionType, generic_doc?: doc.Doc
@@ -131,26 +147,13 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
             }
         )
     elseif type_def is parser.GenericType then
-        local typearg_docs: {doc.Doc} = {}
-        for _, typearg in ipairs(type_def.typeargs) do
-            table.insert(typearg_docs, type_doc_render(typearg))
-        end
-        generic_doc = doc.concat(
-            {
-                doc.text("<"),
-                render_builders.build_separated_docs(typearg_docs, ", "),
-                doc.text(">"),
-            }
-        )
-        return type_doc_render(type_def.t, generic_doc)
+        return type_doc_render(type_def.t, type_doc.render_typeargs(type_def.typeargs))
     elseif parser.simple_types[type_def.typename] then
         return doc.text(type_def.typename)
     end
 
     assert(false, "unhandled type: " .. tostring(type_def.typename))
 end
-
-local type_doc = {}
 
 function type_doc.render(type_def: parser.Type): doc.Doc
     local type_doc_res = type_doc_render(type_def)

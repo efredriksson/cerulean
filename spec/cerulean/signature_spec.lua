@@ -200,5 +200,11 @@ describe("formatter signature wrapping", function()
       ]], [[
          local type B = function<i>(): return_type
       ]]))
+
+      it("normalises spacing in generic type parameters of an anonymous function expression", helpers.format([[
+         local a = function<A,  B>(a: A, b: B): {string} end
+      ]], [[
+         local a = function<A, B>(a: A, b: B): {string} end
+      ]]))
    end)
 end)
