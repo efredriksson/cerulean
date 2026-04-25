@@ -2,6 +2,7 @@
 -- header prefix ("local function foo" vs "function").
 local doc = require("cerulean.doc")
 local parser = require("cerulean.parser")
+local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local signature_doc = require("cerulean.signature_doc")
 local type_doc = require("cerulean.type_doc")
@@ -44,7 +45,11 @@ function function_doc.render_anonymous(
         )
     end
 
-    return doc.group(function_doc.render(ctx, node, header_prefix))
+    local rendered = function_doc.render(ctx, node, header_prefix)
+    if render_builders.block_has_any_comments(node.body) then
+        return rendered
+    end
+    return doc.group(rendered)
 end
 
 return function_doc

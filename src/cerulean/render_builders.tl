@@ -123,6 +123,11 @@ function render_builders.any_items_have_comments(items: parser.Node): boolean
     return false
 end
 
+function render_builders.block_has_any_comments(block: parser.Node): boolean
+    return render_builders.any_items_have_comments(block)
+        or #(block.end_comments or {}) > 0
+end
+
 function render_builders.item_line_doc(should_force_wrap: boolean): doc.Doc
     if should_force_wrap then
         return doc.hardline()
