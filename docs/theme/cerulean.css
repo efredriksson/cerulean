@@ -1,0 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;600&display=swap');
+
+/* Light theme */
+.light, :root {
+    --bg: #ffffff;
+    --fg: #0f2a2a;
+    --sidebar-bg: #0d5c5c;
+    --sidebar-fg: #dff6f1;
+    --sidebar-active: #4fd1c5;
+    --sidebar-spacer: #1a7a7a;
+    --icons: #a3e4db;
+    --icons-hover: #4fd1c5;
+    --links: #12786f;
+    --inline-code-color: #0d5c5c;
+    --theme-popup-bg: #dff6f1;
+    --theme-popup-border: #14a89a;
+    --theme-hover: #a3e4db;
+    --quote-bg: #dff6f1;
+    --quote-border: #14a89a;
+    --table-border-color: #a3e4db;
+    --table-header-bg: #dff6f1;
+    --table-alternate-bg: #f5fdfc;
+    --searchbar-border-color: #14a89a;
+    --searchbar-bg: #ffffff;
+    --searchresults-header-fg: #0d5c5c;
+    --searchresults-border-color: #a3e4db;
+    --searchresults-li-bg: #f5fdfc;
+    --search-mark-bg: #4fd1c5;
+}
+
+/* Dark themes */
+.coal, .navy, .ayu {
+    --bg: #0f2a2a;
+    --fg: #dff6f1;
+    --sidebar-bg: #091e1e;
+    --sidebar-fg: #a3e4db;
+    --sidebar-active: #4fd1c5;
+    --sidebar-spacer: #1a4040;
+    --icons: #4fd1c5;
+    --icons-hover: #a3e4db;
+    --links: #4fd1c5;
+    --inline-code-color: #a3e4db;
+    --theme-popup-bg: #0d3535;
+    --theme-popup-border: #14a89a;
+    --theme-hover: #1a4040;
+    --quote-bg: #0d3535;
+    --quote-border: #14a89a;
+    --table-border-color: #1a5050;
+    --table-header-bg: #0d3535;
+    --table-alternate-bg: #0d2e2e;
+    --searchbar-border-color: #14a89a;
+    --searchbar-bg: #0d3535;
+    --searchresults-header-fg: #4fd1c5;
+    --searchresults-border-color: #1a5050;
+    --searchresults-li-bg: #0d3535;
+    --search-mark-bg: #1eaed6;
+}
+
+/* Typography */
+body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+code, pre, .hljs, kbd {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    color: #0d5c5c;
+}
+
+.coal h1, .coal h2, .coal h3, .coal h4, .coal h5, .coal h6,
+.navy h1, .navy h2, .navy h3, .navy h4, .navy h5, .navy h6,
+.ayu h1, .ayu h2, .ayu h3, .ayu h4, .ayu h5, .ayu h6 {
+    color: #4fd1c5;
+}

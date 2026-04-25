@@ -6,3 +6,5 @@ src = "src"
 
 [output.html]
 site-url = "/cerulean/"
+additional-css = ["theme/cerulean.css"]
+additional-js = ["theme/logo.js"]
