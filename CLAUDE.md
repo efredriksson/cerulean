@@ -1,10 +1,12 @@
 # Claude Code conventions for this repository
 
+See [ARCHITECTURE.md](src/cerulean/ARCHITECTURE.md) for a full overview of the codebase.
+
 ## Workflow
 
-After making changes, run `make lint` to verify the Teal code is correct.
+After making changes, run  `busted spec/` to verify logic of the code is correct, then `make lint` to ensure the code conforms and that the formatter formatting itself looks reasonable. Running `make format` will format the code which might be neccessary for new code or when new formatting features/updates are added.
 
-After `make lint` passes, go through each changed function and check it explicitly against every convention listed below. Only mark the task complete after this checklist pass.
+After, go through each changed function and check it explicitly against every convention listed below. Only mark the task complete after this checklist pass.
 
 ## Teal style
 
