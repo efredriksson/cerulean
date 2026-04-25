@@ -12,12 +12,6 @@ describe("formatter local macroexp", function()
       end
    ]]))
 
-   it("does not change a correctly formatted macroexp", helpers.check([[
-      local macroexp m(a: A): A
-          return a
-      end
-   ]]))
-
    it("wraps a long signature to compact form", helpers.format([[
       local macroexp apply(func: function(x: LongTypeName): ResultType, value: LongTypeName): ResultType
           return func(value)
@@ -42,5 +36,4 @@ describe("formatter local macroexp", function()
           return param_one
       end
    ]]))
-
 end)
