@@ -206,5 +206,15 @@ describe("formatter signature wrapping", function()
       ]], [[
          local a = function<A, B>(a: A, b: B): {string} end
       ]]))
+
+      it("comments in anonymous function blocks", helpers.format([[
+         local a = function(a: A)
+            -- Good to have
+         end
+      ]], [[
+         local a = function(a: A)
+             -- Good to have
+         end
+      ]]))
    end)
 end)
