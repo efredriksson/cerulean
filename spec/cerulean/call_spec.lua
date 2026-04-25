@@ -94,6 +94,12 @@ describe("formatter function call wrapping", function()
       local result = function(ctx: A, ...: boolean) end
    ]]))
 
+   it("preserves variadic return type for anonymous function", helpers.format([[
+      local f = function():  ((string | number)...) end
+   ]], [[
+      local f = function(): ((string | number)...) end
+   ]]))
+
    it("formats anonymous function arguments with a local declaration body", helpers.format([[
       local result = process.deep_call(function() local current_value: ResultType = compute_result() end, trailing_argument_with_a_very_long_name)
    ]], [[
