@@ -40,6 +40,16 @@ describe("formatter global declarations", function()
       ]]))
    end)
 
+   describe("global function", function()
+      it("is fomratted with global keyword", helpers.format([[
+         global function f ( )
+         end
+      ]], [[
+         global function f()
+         end
+      ]]))
+   end)
+
    describe("global interface (shorthand)", function()
       it("formats global interface shorthand", helpers.format([[
          global interface Foo

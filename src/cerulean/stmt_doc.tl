@@ -367,8 +367,10 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
     elseif node.kind == "global_function"
         and node.name ~= nil
         and not node.is_method then
+        local prefix = node.implicit_global_function and "function "
+            or "global function "
         return doc.concat(
-            {doc.text("function " .. node.name.tk), render_function_typeargs(node)}
+            {doc.text(prefix .. node.name.tk), render_function_typeargs(node)}
         )
     elseif node.kind == "record_function"
         and node.fn_owner ~= nil
