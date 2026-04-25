@@ -39,12 +39,12 @@ rock:
 
 rock-artifacts: compile
 	@test -n "$(VERSION)" || (echo "Usage: make rock-artifacts VERSION=x.y.z" && exit 1)
-	sed 's/version = "dev-1"/version = "$(VERSION)-1"/; s|url = "git+https://github.com/efredriksson/cerulean"|url = "https://github.com/efredriksson/cerulean/releases/download/v$(VERSION)/cerulean-$(VERSION).tar.gz"|; s/branch = "main"/sha256 = "__HASH__"/' \
+	sed 's/version = "dev-1"/version = "$(VERSION)-1"/; s|url = "git+https://github.com/efredriksson/cerulean"|url = "https://github.com/efredriksson/cerulean/releases/download/v$(VERSION)/cerulean-$(VERSION).tar.gz"|; s/branch = "main"/md5 = "__HASH__"/' \
 		cerulean-dev-1.rockspec > cerulean-$(VERSION)-1.rockspec
 	tar czf cerulean-$(VERSION).tar.gz \
 		--transform 's|^|cerulean-$(VERSION)/|' \
 		bin/ dist/ LICENSE LICENSES/ README.MD
-	sed -i "s/__HASH__/$$(sha256sum cerulean-$(VERSION).tar.gz | cut -d' ' -f1)/" cerulean-$(VERSION)-1.rockspec
+	sed -i "s/__HASH__/$$(md5sum cerulean-$(VERSION).tar.gz | cut -d' ' -f1)/" cerulean-$(VERSION)-1.rockspec
 
 release-upload:
 	@test -n "$(VERSION)" || (echo "Usage: make release-upload VERSION=x.y.z" && exit 1)
