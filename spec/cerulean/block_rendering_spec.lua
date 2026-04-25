@@ -641,6 +641,18 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("no extra lines before generic function types in records", helpers.format([[
+         local record A
+            f: function()
+            generic_f: function<A>(A): A
+         end
+      ]], [[
+         local record A
+             f: function()
+             generic_f: function<A>(A): A
+         end
+      ]]))
+
       it("reindents a generic local record while preserving its type parameter", helpers.format([[
          local record Box<T>
            value: T
