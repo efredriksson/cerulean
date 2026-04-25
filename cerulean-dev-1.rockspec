@@ -1,4 +1,4 @@
-rockspec_format = "1.0"
+rockspec_format = "3.0"
 package = "cerulean"
 version = "dev-1"
 
