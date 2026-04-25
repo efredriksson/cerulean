@@ -1,5 +1,9 @@
 # Formatting Directives
 
+> *"Only in silence the word, only in dark the light, only in dying life: bright the hawk's flight on the empty sky."*
+>
+> — Ursula K. Le Guin, **A Wizard of Earthsea**
+
 Wrap regions you want left untouched in formatter directives:
 
 ```teal

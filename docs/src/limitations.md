@@ -1,5 +1,9 @@
 # Limitations
 
+> *“You can never know everything, and part of what you know is always wrong. Perhaps even the most important part. A portion of wisdom lies in knowing that. A portion of courage lies in going on anyway.”*
+>
+> ― Robert Jordan, **Winter's Heart**
+
 Cerulean is experimental. The output format may change between versions. Use it at your own risk — always review diffs before committing formatted code.
 
 ## Known issues

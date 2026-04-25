@@ -1,5 +1,9 @@
 # Usage
 
+> *"Once you've got a task to do, it's better to do it than live with the fear of it."*
+>
+> — Joe Abercrombie, **The Blade Itself**
+
 Format files in place:
 
 ```sh
