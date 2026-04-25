@@ -64,10 +64,14 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
     if type_def is parser.NominalType then
         local parts: {doc.Doc} = {doc.text(table.concat(type_def.names, "."))}
         if type_def.typevals ~= nil and #type_def.typevals > 0 then
-            table.insert(parts, doc.text("<"))
+            local typeval_docs: {doc.Doc} = {}
             for _, typeval in ipairs(type_def.typevals) do
-                table.insert(parts, type_doc_render(typeval))
+                table.insert(typeval_docs, type_doc_render(typeval))
             end
+            table.insert(parts, doc.text("<"))
+            table.insert(
+                parts, render_builders.build_separated_docs(typeval_docs, ", ")
+            )
             table.insert(parts, doc.text(">"))
         end
         return doc.concat(parts)
