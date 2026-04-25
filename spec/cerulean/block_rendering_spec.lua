@@ -682,6 +682,18 @@ describe("formatter structural block rendering", function()
              map: function(self, T): U
          end
       ]]))
+
+      it("records where condition are perserved", helpers.format([[
+         local record Node
+            is {Node}, types.Node, Where
+            where self.kind ~= nil
+            data: string
+         end
+      ]], [[
+         local record Node is {Node}, types.Node, Where where self.kind ~= nil
+             data: string
+         end
+      ]]))
    end)
 
    describe("local require type aliases", function()
