@@ -694,6 +694,16 @@ describe("formatter structural block rendering", function()
              data: string
          end
       ]]))
+
+      it("type declarations in records are perserved and formatterd", helpers.format([[
+         local record ast
+            type Attribute = Attribute
+         end
+      ]], [[
+         local record ast
+             type Attribute = Attribute
+         end
+      ]]))
    end)
 
    describe("local require type aliases", function()
