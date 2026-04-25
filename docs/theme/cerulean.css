@@ -65,6 +65,11 @@ code, pre, .hljs, kbd {
     font-family: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
+blockquote {
+    font-style: italic;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
 h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
     color: #0d5c5c;

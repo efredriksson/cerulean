@@ -1,5 +1,9 @@
 # Configuration
 
+> *"Nobody's mind ever remains a blank page, however carefully they are locked away from the world."*
+>
+> — Frances Hardinge, **A Face Like Glass**
+
 Options can be set project-wide in `tlconfig.lua` under a `cerulean` key. CLI flags override config file values.
 
 ```lua
