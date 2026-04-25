@@ -6,5 +6,6 @@ src = "src"
 
 [output.html]
 site-url = "/cerulean/"
+git-repository-url = "https://github.com/efredriksson/cerulean"
 additional-css = ["theme/cerulean.css"]
 additional-js = ["theme/logo.js"]
