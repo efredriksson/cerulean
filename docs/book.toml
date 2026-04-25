@@ -1,0 +1,8 @@
+[book]
+title = "Cerulean"
+authors = ["Emil Fredriksson"]
+language = "en"
+src = "src"
+
+[output.html]
+site-url = "/cerulean/"
