@@ -9,8 +9,7 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "sed 's/version = \"dev-1\"/version = \"${nextRelease.version}-1\"/; s/branch = \"main\"/tag = \"v${nextRelease.version}\"/' cerulean-dev-1.rockspec > cerulean-${nextRelease.version}-1.rockspec && make compile",
-        "publishCmd": "echo '${nextRelease.version}' | grep -qv '\\-' && luarocks upload cerulean-${nextRelease.version}-1.rockspec --api-key=$LUAROCKS_API_KEY"
+        "prepareCmd": "make rock-artifacts VERSION=${nextRelease.version}"
       }
     ],
     [
@@ -20,8 +19,18 @@
           {
             "path": "cerulean-*-1.rockspec",
             "label": "cerulean rockspec"
+          },
+          {
+            "path": "cerulean-*.tar.gz",
+            "label": "cerulean source tarball"
           }
         ]
+      }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "publishCmd": "echo '${nextRelease.version}' | grep -qv '\\-' && luarocks upload cerulean-${nextRelease.version}-1.rockspec --api-key=$LUAROCKS_API_KEY"
       }
     ]
   ]
