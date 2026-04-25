@@ -1,16 +1,9 @@
-# cerulean
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/src/assets/lockup-dark.svg">
+  <img src="docs/src/assets/lockup.svg" alt="Cerulean" width="250">
+</picture>
 
-An opinionated code formatter for the [Teal](https://teal-language.org/) programming language.
-
-Full documentation at **[efredriksson.github.io/cerulean](https://efredriksson.github.io/cerulean)**.
-
-## Installation
-
-```sh
-luarocks install cerulean
-```
-
-**Dependencies:** Lua 5.1+, [luafilesystem](https://lunarmodules.github.io/luafilesystem/), [tl](https://luarocks.org/modules/hisham/tl)
+Full user documentation at **[efredriksson.github.io/cerulean](https://efredriksson.github.io/cerulean)**.
 
 ## Development
 
