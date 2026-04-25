@@ -39,4 +39,10 @@ describe("formatter function expressions", function()
    ]], [[
       local x = not (formatter is table)
    ]]))
+
+   it("expression with generic multi-type", helpers.format([[
+      local data:  Data<string, boolean>
+   ]], [[
+      local data: Data<string, boolean>
+   ]]))
 end)
