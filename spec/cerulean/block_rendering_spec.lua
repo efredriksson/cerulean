@@ -1305,6 +1305,16 @@ describe("formatter structural block rendering", function()
          local type A<T> = B<T>
       ]]))
 
+      it("preserves generic type parameter in type alias declaration inside record body", helpers.format([[
+         local record R
+             type A< T> = B< T>
+         end
+      ]], [[
+         local record R
+             type A<T> = B<T>
+         end
+      ]]))
+
       it("formats interface with where clause nested in local record", helpers.format([[
          local record A
             interface B where self.x == 1
