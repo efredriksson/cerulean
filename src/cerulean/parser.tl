@@ -1522,6 +1522,7 @@ local function parse_function_args_rets_body(
    i, node.typeargs = parse_typeargs_if_any(ps, i)
    i, node.args, node.min_arity = parse_argument_list(ps, i)
    i, node.rets = parse_return_types(ps, i)
+   node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
    end_at(node, ps.tokens[i])
    i = verify_end(ps, i, istart, node)
