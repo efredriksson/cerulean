@@ -1,20 +1,86 @@
 local helpers = require("spec.cerulean.helpers")
 
 describe("formatter function expressions", function()
-
-   -- Supporting mid-expression comments (e.g. `5 * --hmm\n  7`) requires:
-   -- 1. Extracting comments in the Pratt E() function for binary op RHS tokens
-   --    and attaching them to the RHS node (parser.tl).
-   -- 2. Rendering those comments inline after the operator with a forced
-   --    indented line break in render_op (expr_doc.tl).
-   -- This also interacts with the generic trailing_comment rendering design
-   -- question in render_expr (call_doc double-render conflict).
-   pending("perserves comments in wrapped expressions", helpers.format([[
+   it("perserves comments in wrapped expressions", helpers.format([[
       local a = 5 * --hmm
             7
    ]], [[
       local a = 5 * --hmm
           7
+   ]]))
+
+   it("perserves comments in wrapped expressions before op", helpers.format([[
+      local a = 5 --hmm
+            * 7
+   ]], [[
+      local a = 5 --hmm
+          * 7
+   ]]))
+
+   it("perserves comments both befoer and after operator in expression", helpers.format([[
+      local a = 5 --hmm 1
+            * -- hmm 2
+            7
+   ]], [[
+      local a = 5 --hmm 1
+          * -- hmm 2
+          7
+   ]]))
+
+   it("perserves comments after unary not", helpers.format([[
+      local x = not --hmm
+            y
+   ]], [[
+      local x = not --hmm
+          y
+   ]]))
+
+   it("perserves comments after unary minus", helpers.format([[
+      local x = - --hmm
+            5
+   ]], [[
+      local x = - --hmm
+          5
+   ]]))
+
+   -- comment before the top-level expression (between keyword/punctuation and value).
+   -- Requires leading_inline_comment on Node + stmt_doc changes to render it inline.
+   pending("preserves comment between assignment = and value", helpers.format([[
+      local x = --hmm
+            5
+   ]], [[
+      local x = --hmm
+          5
+   ]]))
+
+   pending("preserves comment between return and value", helpers.format([[
+      local function f()
+          return --hmm
+                x
+      end
+   ]], [[
+      local function f()
+          return --hmm
+              x
+      end
+   ]]))
+
+   pending("preserves comment between if and condition", helpers.format([[
+      if --hmm
+            x then
+      end
+   ]], [[
+      if --hmm
+          x then
+      end
+   ]]))
+
+   pending("preserves comment inline with call opening paren", helpers.format([[
+      f(--hmm
+            5)
+   ]], [[
+      f(--hmm
+          5)
    ]]))
 
    it("perserves comments in return statements", helpers.check([[
