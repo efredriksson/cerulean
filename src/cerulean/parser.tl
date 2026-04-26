@@ -1916,7 +1916,7 @@ do
             end
             lookahead = ps.tokens[i].tk
          end
-         lhs = { f = ps.filename, y = t1.y, x = t1.x, kind = "op", op = op, e1 = lhs, e2 = rhs, }
+         lhs = { f = ps.filename, y = t1.y, x = t1.x, kind = "op", op = op, e1 = lhs, e2 = rhs, yend = rhs.yend or rhs.y }
       end
       return i, lhs
    end

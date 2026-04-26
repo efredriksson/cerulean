@@ -515,4 +515,13 @@ describe("formatter function call wrapping", function()
           ) .. "some very very very very long string that comes after this hello"
       )
    ]]))
+
+   it("does not insert blank lines between args when a nested call goes over many lines", helpers.check([[
+      f2(
+          "a very long long long long long long long long long long long long string " .. f3(
+              arg1
+          ),
+          other
+      )
+   ]]))
 end)
