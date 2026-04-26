@@ -163,13 +163,42 @@ local function call_doc_build_call_expr_doc(
     return doc.concat({callee_doc, call_args_doc, args_tc})
 end
 
-local function render_op(
-    ctx: RenderContext,
-    operator: parser.Operator,
-    left: parser.Node,
-    right: parser.Node,
-    parent_prec: integer
+local function force_on_new_line(
+    expression: doc.Doc
 ): doc.Doc
+    return doc.indent(doc.concat({doc.hardline(), expression}))
+end
+
+local function trail_comment_on(
+    expression: doc.Doc, comment: parser.Comment
+): doc.Doc
+    return doc.concat(
+        {
+            expression,
+            doc.text(" " .. comment.text)
+        }
+    )
+end
+
+local function operator_doc_with_spacing(node: parser.Node): doc.Doc
+    local op_text = node.op.op
+    if node.before_op_comment and node.after_op_comment then
+        return doc.text(op_text)
+    elseif node.before_op_comment then
+        return doc.text(op_text .. " ")
+    elseif node.after_op_comment then
+        return doc.text(" " .. op_text)
+    else
+        return doc.text(" " .. op_text .. " ")
+    end
+end
+
+local function render_op(
+    ctx: RenderContext, node: parser.Node, parent_prec: integer
+): doc.Doc
+    local operator = node.op
+    local left = node.e1
+    local right = node.e2
     local op = operator.op
     if op == "." or op == ":" then
         return doc.concat(
@@ -203,8 +232,16 @@ local function render_op(
         local child = parenthesize_unary_operand(
             render_expr(ctx, left, op_prec), left, op_prec
         )
-        local rendered = doc.concat({doc.text(op == "not" and "not " or op), child})
-        return parenthesize_if_lower_prec(rendered, op_prec, parent_prec)
+        local op_doc = doc.text(op)
+        if node.after_op_comment then
+            op_doc = trail_comment_on(op_doc, node.after_op_comment)
+            child = force_on_new_line(child)
+        end
+
+        if op == "not" then
+            op_doc = doc.concat({op_doc, doc.text(" ")})
+        end
+        return parenthesize_if_lower_prec(doc.concat({op_doc, child}), op_prec, parent_prec)
     else
         local op_prec = operator.prec
         if is_logical_binary_op(operator) then
@@ -214,8 +251,18 @@ local function render_op(
         end
         local left_doc = render_expr(ctx, left, op_prec)
         local right_doc = render_expr(ctx, right, op_prec)
+        local op_doc = operator_doc_with_spacing(node)
+
+        if node.before_op_comment then
+            left_doc = trail_comment_on(left_doc, node.before_op_comment)
+            op_doc = force_on_new_line(op_doc)
+        end
+        if node.after_op_comment then
+            op_doc = trail_comment_on(op_doc, node.after_op_comment)
+            right_doc = force_on_new_line(right_doc)
+        end
         return parenthesize_if_lower_prec(
-            doc.concat({left_doc, doc.text(" " .. op .. " "), right_doc}),
+            doc.concat({left_doc, op_doc, right_doc}),
             op_prec,
             parent_prec
         )
@@ -248,7 +295,7 @@ render_expr = function(
     elseif node.kind == "function" then
         return function_doc.render_anonymous(ctx, node, doc.text("function"))
     elseif node.kind == "op" then
-        return render_op(ctx, node.op, node.e1, node.e2, parent_prec)
+        return render_op(ctx, node, parent_prec)
     end
     error("unsupported expression kind: " .. node.kind)
 end
