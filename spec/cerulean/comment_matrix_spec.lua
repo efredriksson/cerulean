@@ -902,6 +902,96 @@ describe("formatter comment matrix (single-line)", function()
       ]]))
    end)
 
+   describe("trailing comments on control flow keywords", function()
+      it("[if|then_trailing|single_stmt_body]", helpers.check([[
+         if condition then -- why this branch
+             stmt()
+         end
+      ]]))
+
+      it("[elseif|then_trailing|single_stmt_body]", helpers.check([[
+         if first then
+             stmt()
+         elseif condition then -- why this elseif
+             other()
+         end
+      ]]))
+
+      it("[else|trailing|single_stmt_body]", helpers.check([[
+         if first then
+             stmt()
+         else -- fallback case
+             other()
+         end
+      ]]))
+
+      it("[if_else|both_then_and_else_trailing|two_branches]", helpers.check([[
+         if x == "a" then -- first branch
+             handle_a(x)
+         else -- fallback branch
+             handle_b(x)
+         end
+      ]]))
+
+      it("[while|do_trailing|single_stmt_body]", helpers.check([[
+         while running do -- check each iteration
+             step()
+         end
+      ]]))
+
+      it("[fornum|do_trailing|single_stmt_body]", helpers.check([[
+         for i = 1, 10 do -- iterate in order
+             process(i)
+         end
+      ]]))
+
+      it("[forin|do_trailing|single_stmt_body]", helpers.check([[
+         for k, v in pairs(t) do -- all entries
+             use(k, v)
+         end
+      ]]))
+
+      it("[repeat|keyword_trailing|single_stmt_body]", helpers.check([[
+         repeat -- setup pass
+             step()
+         until done
+      ]]))
+
+      it("[if|then_trailing|empty_body]", helpers.check([[
+         if cond then -- branch reason
+         end
+      ]]))
+
+      it("[if|then_trailing|nested_in_forin]", helpers.check([[
+         for _, item in ipairs(items) do
+             local kind, value = classify(item)
+             if kind == "special" then -- must handle before default
+                 assert(value)
+                 handle(value)
+             end
+         end
+      ]]))
+
+      it("[if|then_trailing|nested_in_function]", helpers.check([[
+         local function check(x: integer): boolean
+             if x == 0 or x == 1 then -- check common cases first
+                 return true
+             end
+             return false
+         end
+      ]]))
+
+      it("[elseif|then_trailing|comment_is_commented_out_code]", helpers.check([[
+         local function classify(item: Item)
+             if item.kind == "a" then
+                 handle_a(item)
+             elseif item.kind == "b" then -- handle_b(item)
+                 dispatch(item)
+             end
+         end
+      ]]))
+   end)
+
    describe("known comment regressions", function()
       it("preserves multiline table shape and trailing comma when call closing line has a trailing comment", helpers.format([[
          local function f()

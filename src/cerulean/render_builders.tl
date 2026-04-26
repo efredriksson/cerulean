@@ -114,6 +114,13 @@ function render_builders.trailing_comment_doc(node: parser.Node): doc.Doc
     return doc.text("")
 end
 
+function render_builders.head_trailing_comment_doc(node: parser.Node): doc.Doc
+    if node.head_trailing_comment then
+        return doc.text(" " .. node.head_trailing_comment.text)
+    end
+    return doc.text("")
+end
+
 function render_builders.any_items_have_comments(items: parser.Node): boolean
     for _, item in ipairs(items) do
         if #(item.comments or {}) > 0 or item.trailing_comment then

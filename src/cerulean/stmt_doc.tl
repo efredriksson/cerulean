@@ -477,6 +477,7 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
             table.insert(parts, doc.line())
         end
         table.insert(parts, get_head_text())
+        table.insert(parts, render_builders.trailing_comment_doc(if_block))
         table.insert(parts, doc.indent_line(body_doc))
     end
 
@@ -494,7 +495,12 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
-    local header = build_control_flow_head_doc(ctx, "while", node.exp, " do")
+    local header = doc.concat(
+        {
+            build_control_flow_head_doc(ctx, "while", node.exp, " do"),
+            render_builders.head_trailing_comment_doc(node),
+        }
+    )
     return block_with_close(header, body_doc, "end")
 end
 
@@ -521,7 +527,13 @@ local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc
         header = doc.concat({header, doc.text(", "), ctx.render_expr(node.step)})
     end
 
-    return block_with_close(doc.concat({header, doc.text(" do")}), body_doc, "end")
+    return block_with_close(
+        doc.concat(
+            {header, doc.text(" do"), render_builders.head_trailing_comment_doc(node)}
+        ),
+        body_doc,
+        "end"
+    )
 end
 
 local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
@@ -548,6 +560,7 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
                 node.exps, ctx.render_expr
             ),
             doc.text(" do"),
+            render_builders.head_trailing_comment_doc(node),
         }
     )
     return block_with_close(header, body_doc, "end")
@@ -564,7 +577,9 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
     end
 
     return block_with_indent(
-        doc.text("repeat"),
+        doc.concat(
+            {doc.text("repeat"), render_builders.head_trailing_comment_doc(node)}
+        ),
         body_doc,
         doc.concat({doc.text("until "), expr_doc.render(ctx, node.exp)})
     )

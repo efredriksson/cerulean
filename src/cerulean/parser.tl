@@ -515,6 +515,7 @@ local record parser
         trailing_comma:                 boolean
         end_comments:                   {Comment}
         trailing_comment:               Comment
+        head_trailing_comment:          Comment
         blank_line_before:              boolean
         debug_type:                     Type
         is_self:                        boolean
@@ -2237,6 +2238,7 @@ local function parse_if_block(
          return i
       end
    end
+   block.trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, block.body = parse_statements(ps, i)
    if not block.body then
       return i
@@ -2282,6 +2284,7 @@ local function parse_while(ps: ParseState, i: integer): integer, Node
    local node = new_node(ps, i, "while")
    i = verify_tk(ps, i, "while")
    i, node.exp = parse_expression_and_tk(ps, i, "do")
+   node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
    if node then
@@ -2305,6 +2308,7 @@ local function parse_fornum(ps: ParseState, i: integer): integer, Node
    else
       i = verify_tk(ps, i, "do")
    end
+   node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
    if node then
@@ -2336,6 +2340,7 @@ local function parse_forin(ps: ParseState, i: integer): integer, Node
       return fail(ps, i, "too many expressions in generic for")
    end
    i = verify_tk(ps, i, "do")
+   node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
    if node then
@@ -2356,6 +2361,7 @@ local function parse_repeat(ps: ParseState, i: integer): integer, Node
    local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local node = new_node(ps, i, "repeat")
    i = verify_tk(ps, i, "repeat")
+   node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
    node.body.is_repeat = true
    i = verify_tk(ps, i, "until")
