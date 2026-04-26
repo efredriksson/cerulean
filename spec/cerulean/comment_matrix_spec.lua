@@ -992,6 +992,32 @@ describe("formatter comment matrix (single-line)", function()
       ]]))
    end)
 
+   describe("trailing comments on function headers", function()
+      it("[local_function|no_return_type|single_stmt_body]", helpers.check([[
+         local function foo() -- why this function
+             stmt()
+         end
+      ]]))
+
+      it("[local_function|with_return_type|single_stmt_body]", helpers.check([[
+         local function foo(): boolean -- why this function
+             return true
+         end
+      ]]))
+
+      it("[anonymous_function|no_return_type|single_stmt_body]", helpers.check([[
+         local foo = function() -- why this function
+             stmt()
+         end
+      ]]))
+
+      it("[anonymous_function|with_return_type|single_stmt_body]", helpers.check([[
+         local foo = function(): boolean -- why this function
+             return true
+         end
+      ]]))
+   end)
+
    describe("known comment regressions", function()
       it("preserves multiline table shape and trailing comma when call closing line has a trailing comment", helpers.format([[
          local function f()
