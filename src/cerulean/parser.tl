@@ -518,6 +518,7 @@ local record parser
         end_comments:                   {Comment}
         trailing_comment:               Comment
         head_trailing_comment:          Comment
+        leading_inline_comment:         Comment
         blank_line_before:              boolean
         debug_type:                     Type
         is_self:                        boolean
@@ -1776,7 +1777,11 @@ do
             local prev_i = i
 
             local args = new_node(ps, i, "expression_list")
+            local open_paren_leading_comment = get_same_line_comment(ps.tokens[i + 1], ps.tokens[i].y)
             i, args = parse_bracket_list(ps, i, args, "(", ")", "sep", parse_expression)
+            if open_paren_leading_comment then
+               args.leading_inline_comment = open_paren_leading_comment
+            end
 
             local function leftmost_y(node: Node): integer
                if node.kind == "op" and node.e1 then
@@ -2242,6 +2247,7 @@ local function parse_if_block(
    block.if_parent = node
    block.if_block_n = n
    if not is_else then
+      block.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
       i, block.exp = parse_expression_and_tk(ps, i, "then")
       if not block.exp then
          return i
@@ -2442,6 +2448,9 @@ local function parse_return(ps: ParseState, i: integer): integer, Node
    local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local node = new_node(ps, i, "return")
    i = verify_tk(ps, i, "return")
+   if not stop_return_list[ps.tokens[i].tk] then
+      node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+   end
    node.exps = new_node(ps, i, "expression_list")
    i = parse_list(ps, i, node.exps, stop_return_list, "sep", parse_expression)
    if ps.tokens[i].kind == ";" then
@@ -3070,8 +3079,12 @@ local function parse_assignment_expression_list(
     asgn: Node
 ): integer, Node
    asgn.exps = new_node(ps, i, "expression_list")
+   local eq_line = ps.tokens[i].y
    repeat
       i = i + 1
+      if #asgn.exps == 0 then
+         asgn.leading_inline_comment = get_same_line_comment(ps.tokens[i], eq_line)
+      end
       local val: Node
       i, val = parse_expression(ps, i)
       if not val then

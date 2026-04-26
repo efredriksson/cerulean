@@ -45,7 +45,7 @@ describe("formatter function expressions", function()
 
    -- comment before the top-level expression (between keyword/punctuation and value).
    -- Requires leading_inline_comment on Node + stmt_doc changes to render it inline.
-   pending("preserves comment between assignment = and value", helpers.format([[
+   it("preserves comment between assignment = and value", helpers.format([[
       local x = --hmm
             5
    ]], [[
@@ -53,7 +53,7 @@ describe("formatter function expressions", function()
           5
    ]]))
 
-   pending("preserves comment between return and value", helpers.format([[
+   it("preserves comment between return and value", helpers.format([[
       local function f()
           return --hmm
                 x
@@ -65,7 +65,7 @@ describe("formatter function expressions", function()
       end
    ]]))
 
-   pending("preserves comment between if and condition", helpers.format([[
+   it("preserves comment between if and condition", helpers.format([[
       if --hmm
             x then
       end
@@ -75,12 +75,13 @@ describe("formatter function expressions", function()
       end
    ]]))
 
-   pending("preserves comment inline with call opening paren", helpers.format([[
+   it("preserves comment inline with call opening paren", helpers.format([[
       f(--hmm
             5)
    ]], [[
       f(--hmm
-          5)
+          5
+      )
    ]]))
 
    it("perserves comments in return statements", helpers.check([[
