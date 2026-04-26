@@ -189,6 +189,10 @@ function doc.indent_softline(child: Doc): Doc
     return doc.indent(doc.concat({doc.softline(), child}))
 end
 
+function doc.indent_hardline(child: Doc): Doc
+    return doc.indent(doc.concat({doc.hardline(), child}))
+end
+
 local function build_group_doc(child: Doc, group_id?: integer): Doc
     local result = new_doc("group")
     result.child = child

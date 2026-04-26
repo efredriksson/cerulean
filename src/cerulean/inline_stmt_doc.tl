@@ -20,23 +20,34 @@ function inline_stmt_doc.render_return_doc(
     )
     local last_exp = stmt.exps[#stmt.exps]
     local last_tc = render_builders.trailing_comment_doc(last_exp)
-    return doc.concat({doc.text("return "), return_exp_doc, last_tc})
+    local parts: {doc.Doc} = {doc.text("return ")}
+    if stmt.leading_inline_comment then
+        table.insert(parts, doc.text(stmt.leading_inline_comment.text))
+        table.insert(parts, doc.indent_hardline(return_exp_doc))
+    else
+        table.insert(parts, return_exp_doc)
+    end
+    table.insert(parts, last_tc)
+    return doc.concat(parts)
 end
 
 function inline_stmt_doc.render_assignment_doc(
     ctx: RenderContext, stmt: parser.Node
 ): doc.Doc
-    return doc.concat(
-        {
-            render_builders.build_mapped_comma_separated_docs(
-                stmt.vars, ctx.render_expr
-            ),
-            doc.text(" = "),
-            render_builders.build_mapped_comma_separated_docs(
-                stmt.exps, ctx.render_expr
-            ),
-        }
+    local vars_doc = render_builders.build_mapped_comma_separated_docs(
+        stmt.vars, ctx.render_expr
     )
+    local exps_doc = render_builders.build_mapped_comma_separated_docs(
+        stmt.exps, ctx.render_expr
+    )
+    local parts: {doc.Doc} = {vars_doc, doc.text(" = ")}
+    if stmt.leading_inline_comment then
+        table.insert(parts, doc.text(stmt.leading_inline_comment.text))
+        table.insert(parts, doc.indent_hardline(exps_doc))
+    else
+        table.insert(parts, exps_doc)
+    end
+    return doc.concat(parts)
 end
 
 local function build_prefix_doc(vars_text: string, stmt: parser.Node): doc.Doc
@@ -68,18 +79,23 @@ function inline_stmt_doc.render_declaration_doc(
         return prefix_doc
     end
 
-    if #stmt.exps == 1 then
-        return doc.concat({prefix_doc, doc.text(" = "), ctx.render_expr(stmt.exps[1])})
+    local function build_init_doc(exp_doc: doc.Doc): doc.Doc
+        local parts: {doc.Doc} = {prefix_doc, doc.text(" = ")}
+        if stmt.leading_inline_comment then
+            table.insert(parts, doc.text(stmt.leading_inline_comment.text))
+            table.insert(parts, doc.indent_hardline(exp_doc))
+        else
+            table.insert(parts, exp_doc)
+        end
+        return doc.concat(parts)
     end
 
-    return doc.concat(
-        {
-            prefix_doc,
-            doc.text(" = "),
-            render_builders.build_mapped_comma_separated_docs(
-                stmt.exps, ctx.render_expr
-            ),
-        }
+    if #stmt.exps == 1 then
+        return build_init_doc(ctx.render_expr(stmt.exps[1]))
+    end
+
+    return build_init_doc(
+        render_builders.build_mapped_comma_separated_docs(stmt.exps, ctx.render_expr)
     )
 end
 

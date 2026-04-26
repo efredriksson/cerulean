@@ -122,6 +122,7 @@ local function call_doc_build_call_expr_doc(
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee)
     local force_wrap = render_builders.any_items_have_comments(args)
+        or args.leading_inline_comment ~= nil
     local parts: {doc.Doc} = {}
     local line_before = false
 
@@ -146,10 +147,29 @@ local function call_doc_build_call_expr_doc(
     if not force_wrap then
         args_items_doc = doc.group(args_items_doc)
     end
+
+    local function build_args_doc(): doc.Doc
+        local arg_items_trimed = doc.trim_lines(args_items_doc)
+        if args.leading_inline_comment then
+            return doc.concat(
+                {
+                    doc.text(args.leading_inline_comment.text),
+                    doc.indent_hardline(arg_items_trimed),
+                }
+            )
+        else
+            return doc.concat(
+                {
+                    doc.indent_softline(arg_items_trimed),
+                }
+            )
+        end
+    end
+
     local call_args_doc = doc.concat(
         {
             doc.text("("),
-            doc.indent_softline(doc.trim_lines(args_items_doc)),
+            build_args_doc(),
             doc.softclose(")"),
         }
     )
@@ -163,21 +183,8 @@ local function call_doc_build_call_expr_doc(
     return doc.concat({callee_doc, call_args_doc, args_tc})
 end
 
-local function force_on_new_line(
-    expression: doc.Doc
-): doc.Doc
-    return doc.indent(doc.concat({doc.hardline(), expression}))
-end
-
-local function trail_comment_on(
-    expression: doc.Doc, comment: parser.Comment
-): doc.Doc
-    return doc.concat(
-        {
-            expression,
-            doc.text(" " .. comment.text)
-        }
-    )
+local function trail_comment_on(expression: doc.Doc, comment: parser.Comment): doc.Doc
+    return doc.concat({expression, doc.text(" " .. comment.text)})
 end
 
 local function operator_doc_with_spacing(node: parser.Node): doc.Doc
@@ -235,13 +242,15 @@ local function render_op(
         local op_doc = doc.text(op)
         if node.after_op_comment then
             op_doc = trail_comment_on(op_doc, node.after_op_comment)
-            child = force_on_new_line(child)
+            child = doc.indent_hardline(child)
         end
 
         if op == "not" then
             op_doc = doc.concat({op_doc, doc.text(" ")})
         end
-        return parenthesize_if_lower_prec(doc.concat({op_doc, child}), op_prec, parent_prec)
+        return parenthesize_if_lower_prec(
+            doc.concat({op_doc, child}), op_prec, parent_prec
+        )
     else
         local op_prec = operator.prec
         if is_logical_binary_op(operator) then
@@ -255,16 +264,14 @@ local function render_op(
 
         if node.before_op_comment then
             left_doc = trail_comment_on(left_doc, node.before_op_comment)
-            op_doc = force_on_new_line(op_doc)
+            op_doc = doc.indent_hardline(op_doc)
         end
         if node.after_op_comment then
             op_doc = trail_comment_on(op_doc, node.after_op_comment)
-            right_doc = force_on_new_line(right_doc)
+            right_doc = doc.indent_hardline(right_doc)
         end
         return parenthesize_if_lower_prec(
-            doc.concat({left_doc, op_doc, right_doc}),
-            op_prec,
-            parent_prec
+            doc.concat({left_doc, op_doc, right_doc}), op_prec, parent_prec
         )
     end
 end

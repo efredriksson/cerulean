@@ -460,17 +460,21 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
         end
 
         local function get_head_text(): doc.Doc
-            if if_block.exp ~= nil then
-                if index == 1 then
-                    return build_control_flow_head_doc(ctx, "if", if_block.exp, " then")
-                else
-                    return build_control_flow_head_doc(
-                        ctx, "elseif", if_block.exp, " then"
-                    )
-                end
-            else
+            if if_block.exp == nil then
                 return doc.text("else")
             end
+            local keyword = index == 1 and "if" or "elseif"
+            local head_parts: {doc.Doc} = {doc.text(keyword .. " ")}
+            if if_block.leading_inline_comment then
+                table.insert(head_parts, doc.text(if_block.leading_inline_comment.text))
+                table.insert(
+                    head_parts, doc.indent_hardline(expr_doc.render(ctx, if_block.exp))
+                )
+            else
+                table.insert(head_parts, expr_doc.render(ctx, if_block.exp))
+            end
+            table.insert(head_parts, doc.text(" then"))
+            return doc.group(doc.concat(head_parts))
         end
 
         if index > 1 then
