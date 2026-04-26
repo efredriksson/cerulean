@@ -13,6 +13,38 @@ local type RenderContext = render_context.RenderContext
 
 local stmt_doc = {}
 
+local function render_type_alias_doc(
+    name: string,
+    typeargs: {parser.TypeArgType},
+    def: parser.Type,
+    type_keyword?: string
+): doc.Doc
+    local function render_typeargs_doc(): doc.Doc
+        if typeargs == nil then
+            return doc.text("")
+        end
+        return type_doc.render_typeargs(typeargs)
+    end
+
+    local function type_decl_parts(): {string}
+        if type_keyword then
+            return {type_keyword, "type", name}
+        else
+            return {"type", name}
+        end
+    end
+
+    local declaration = table.concat(type_decl_parts(), " ")
+    return doc.concat(
+        {
+            doc.text(declaration),
+            render_typeargs_doc(),
+            doc.text(" = "),
+            type_doc.render(def),
+        }
+    )
+end
+
 local function with_indented_body(
     header: doc.Doc, body: doc.Doc, tail: doc.Doc
 ): doc.Doc
@@ -154,9 +186,7 @@ local function render_field_entry(
         if def == nil then
             return nil
         end
-        return doc.concat(
-            {doc.text("type " .. entry.name .. " = "), type_doc.render(def)}
-        )
+        return render_type_alias_doc(entry.name, entry.node.typeargs, def)
     end
 
     local function prefix(): string
@@ -313,20 +343,7 @@ local function render_type_doc(
             return result
         end
     end
-    local function render_stmt_typeargs(): doc.Doc
-        if stmt.typeargs == nil then
-            return doc.text("")
-        end
-        return type_doc.render_typeargs(stmt.typeargs)
-    end
-    return doc.concat(
-        {
-            doc.text(keyword .. " type " .. stmt.var.tk),
-            render_stmt_typeargs(),
-            doc.text(" = "),
-            type_doc.render(def),
-        }
-    )
+    return render_type_alias_doc(stmt.var.tk, stmt.typeargs, def, keyword)
 end
 
 local function render_function_name(node: parser.Node): doc.Doc | nil
