@@ -3,7 +3,7 @@ local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 
 local render_return: function(parser.TupleType): doc.Doc
-local render_type: function(parser.Type): doc.Doc
+local render_type: function(parser.Type, generic_doc?: doc.Doc): doc.Doc
 
 local function arg_name_doc(
     arg_name: string, is_optional: boolean, is_variadic: boolean
@@ -160,16 +160,16 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
     assert(false, "unhandled type: " .. tostring(type_def.typename))
 end
 
-render_type = function(type_def: parser.Type): doc.Doc
-    local result = type_doc_render(type_def)
+render_type = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
+    local result = type_doc_render(type_def, generic_doc)
     if type_def.paren then
         result = doc.concat({doc.text("("), result, doc.text(")")})
     end
     return result
 end
 
-function type_doc.render(type_def: parser.Type): doc.Doc
-    return render_type(type_def)
+function type_doc.render(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
+    return render_type(type_def, generic_doc)
 end
 
 render_return = function(type_def: parser.TupleType): doc.Doc
