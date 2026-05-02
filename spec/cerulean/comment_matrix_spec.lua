@@ -1189,4 +1189,75 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]]))
    end)
+
+   describe("inline comment after logical operator", function()
+      it("preserves comment before 'and' operator", helpers.check([[
+         local x = a --hmm
+             and b
+      ]]))
+
+      it("preserves comment after 'and' operator", helpers.check([[
+         local x = a and --hmm
+             b
+      ]]))
+
+      it("preserves comment before 'or' operator", helpers.check([[
+         local x = a --hmm
+             or b
+      ]]))
+
+      it("preserves comment after 'or' operator", helpers.check([[
+         local x = a or --hmm
+             b
+      ]]))
+   end)
+
+   describe("inline comment after control flow keyword", function()
+      it("preserves comment between 'while' and condition", helpers.check([[
+         while --hmm
+             cond do
+         end
+      ]]))
+
+      it("preserves comment between 'for =' and range", helpers.check([[
+         for i = --hmm
+             1, 10 do
+         end
+      ]]))
+
+      it("preserves comment between 'in' and iterator", helpers.check([[
+         for k in --hmm
+             iter do
+         end
+      ]]))
+
+      it("preserves comment between 'until' and condition", helpers.check([[
+         repeat
+         until --hmm
+             cond
+      ]]))
+   end)
+
+   describe("inline comment in table initializer", function()
+      it("preserves comment between table key '=' and value", helpers.check([[
+         local t = {
+             key = --hmm
+                 value,
+         }
+      ]]))
+   end)
+
+   describe("trailing comment in comma-separated expression list", function()
+      it("preserves trailing comment after first exp in assignment list", helpers.check([[
+         a, b = 1, --hmm
+             2
+      ]]))
+
+      it("preserves trailing comment after first exp in return list", helpers.check([[
+         local function f()
+             return a, --hmm
+                 b
+         end
+      ]]))
+   end)
 end)

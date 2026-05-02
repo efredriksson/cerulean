@@ -130,6 +130,36 @@ function render_builders.any_items_have_comments(items: parser.Node): boolean
     return false
 end
 
+function render_builders.build_exp_list_doc(
+    exps: {parser.Node}, render_node: function(parser.Node): doc.Doc
+): doc.Doc
+    if not render_builders.any_items_have_comments(exps) then
+        return render_builders.build_mapped_comma_separated_docs(exps, render_node)
+    end
+    local parts: {doc.Doc} = {}
+    local force_next_indent = false
+    for index, exp in ipairs(exps) do
+        local is_last = index == #exps
+        local exp_doc = render_node(exp)
+        if force_next_indent then
+            exp_doc = doc.indent_hardline(exp_doc)
+            force_next_indent = false
+        end
+        if not is_last then
+            if exp.trailing_comment then
+                exp_doc = doc.concat(
+                    {exp_doc, doc.text(","), doc.text(" " .. exp.trailing_comment.text)}
+                )
+                force_next_indent = true
+            else
+                exp_doc = doc.concat({exp_doc, doc.text(", ")})
+            end
+        end
+        table.insert(parts, exp_doc)
+    end
+    return doc.concat(parts)
+end
+
 function render_builders.block_has_any_comments(block: parser.Node): boolean
     return render_builders.any_items_have_comments(block)
         or #(block.end_comments or {}) > 0
@@ -157,6 +187,21 @@ function render_builders.append_lines_pre_node(
     end
 
     return doc.concat(parts)
+end
+
+function render_builders.with_leading_inline_comment(
+    node: parser.Node, prefix: doc.Doc, content: doc.Doc
+): doc.Doc
+    if node.leading_inline_comment then
+        return doc.concat(
+            {
+                prefix,
+                doc.text(node.leading_inline_comment.text),
+                doc.indent_hardline(content),
+            }
+        )
+    end
+    return doc.concat({prefix, content})
 end
 
 function render_builders.append_comment_docs(

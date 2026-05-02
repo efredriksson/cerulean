@@ -253,7 +253,9 @@ local function render_op(
         )
     else
         local op_prec = operator.prec
-        if is_logical_binary_op(operator) then
+        if is_logical_binary_op(operator)
+            and not node.before_op_comment
+            and not node.after_op_comment then
             return parenthesize_if_lower_prec(
                 render_logical_chain(ctx, operator, left, right), op_prec, parent_prec
             )
