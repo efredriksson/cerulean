@@ -24,7 +24,9 @@ local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc
                 }
             )
         end
-        return doc.concat({doc.text(key_text .. " = "), ctx.render_expr(item.value)})
+        return render_builders.with_leading_inline_comment(
+            item, doc.text(key_text .. " = "), ctx.render_expr(item.value)
+        )
     end
 
     return doc.concat(

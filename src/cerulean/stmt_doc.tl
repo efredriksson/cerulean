@@ -63,20 +63,6 @@ local function block_with_close(
     return with_indented_body(header, body, doc.close(close_text))
 end
 
-local function build_control_flow_head_doc(
-    ctx: RenderContext, head_keyword: string, exp: parser.Node, tail_text: string
-): doc.Doc
-    return doc.group(
-        doc.concat(
-            {
-                doc.text(head_keyword .. " "),
-                expr_doc.render(ctx, exp),
-                doc.text(tail_text),
-            }
-        )
-    )
-end
-
 local function render_return_doc(ctx: RenderContext, stmt: parser.Node): doc.Doc
     return inline_stmt_doc.render_return_doc(ctx, stmt)
 end
@@ -464,17 +450,10 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
                 return doc.text("else")
             end
             local keyword = index == 1 and "if" or "elseif"
-            local head_parts: {doc.Doc} = {doc.text(keyword .. " ")}
-            if if_block.leading_inline_comment then
-                table.insert(head_parts, doc.text(if_block.leading_inline_comment.text))
-                table.insert(
-                    head_parts, doc.indent_hardline(expr_doc.render(ctx, if_block.exp))
-                )
-            else
-                table.insert(head_parts, expr_doc.render(ctx, if_block.exp))
-            end
-            table.insert(head_parts, doc.text(" then"))
-            return doc.group(doc.concat(head_parts))
+            local with_comment = render_builders.with_leading_inline_comment(
+                if_block, doc.text(keyword .. " "), expr_doc.render(ctx, if_block.exp)
+            )
+            return doc.group(doc.concat({with_comment, doc.text(" then")}))
         end
 
         if index > 1 then
@@ -499,13 +478,29 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
+    local while_and_exp_doc = render_builders.with_leading_inline_comment(
+        node, doc.text("while "), expr_doc.render(ctx, node.exp)
+    )
     local header = doc.concat(
         {
-            build_control_flow_head_doc(ctx, "while", node.exp, " do"),
+            doc.group(doc.concat({while_and_exp_doc, doc.text(" do")})),
             render_builders.head_trailing_comment_doc(node),
         }
     )
     return block_with_close(header, body_doc, "end")
+end
+
+local function build_fornum_range_doc(node: parser.Node, ctx: RenderContext): doc.Doc
+    local range_parts: {doc.Doc} = {
+        ctx.render_expr(node.from),
+        doc.text(", "),
+        ctx.render_expr(node.to),
+    }
+    if node.step ~= nil then
+        table.insert(range_parts, doc.text(", "))
+        table.insert(range_parts, ctx.render_expr(node.step))
+    end
+    return doc.concat(range_parts)
 end
 
 local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
@@ -518,22 +513,16 @@ local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc
         return nil
     end
 
-    local pre_header = doc.text("for " .. node.var.tk .. " = ")
-    local header = doc.concat(
+    local tail = doc.concat(
         {
-            pre_header,
-            ctx.render_expr(node.from),
-            doc.text(", "),
-            ctx.render_expr(node.to),
+            build_fornum_range_doc(node, ctx),
+            doc.text(" do"),
+            render_builders.head_trailing_comment_doc(node),
         }
     )
-    if node.step ~= nil then
-        header = doc.concat({header, doc.text(", "), ctx.render_expr(node.step)})
-    end
-
     return block_with_close(
-        doc.concat(
-            {header, doc.text(" do"), render_builders.head_trailing_comment_doc(node)}
+        render_builders.with_leading_inline_comment(
+            node, doc.text("for " .. node.var.tk .. " = "), tail
         ),
         body_doc,
         "end"
@@ -555,17 +544,21 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
-    local header = doc.concat(
+    local exps_doc = render_builders.build_mapped_comma_separated_docs(
+        node.exps, ctx.render_expr
+    )
+    local tail_doc = doc.concat(
+        {doc.text(" do"), render_builders.head_trailing_comment_doc(node)}
+    )
+    local for_in_doc = doc.concat(
         {
             doc.text("for "),
             render_builders.build_comma_separated_docs(var_docs),
             doc.text(" in "),
-            render_builders.build_mapped_comma_separated_docs(
-                node.exps, ctx.render_expr
-            ),
-            doc.text(" do"),
-            render_builders.head_trailing_comment_doc(node),
         }
+    )
+    local header = render_builders.with_leading_inline_comment(
+        node, for_in_doc, doc.concat({exps_doc, tail_doc})
     )
     return block_with_close(header, body_doc, "end")
 end
@@ -580,13 +573,20 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
         return nil
     end
 
-    return block_with_indent(
-        doc.concat(
-            {doc.text("repeat"), render_builders.head_trailing_comment_doc(node)}
-        ),
-        body_doc,
-        doc.concat({doc.text("until "), expr_doc.render(ctx, node.exp)})
+    local header = doc.concat(
+        {doc.text("repeat"), render_builders.head_trailing_comment_doc(node)}
     )
+
+    -- block_with_indent always emits a newline into the body, which produces a
+    -- spurious blank line when the body is empty. Skip it in that case.
+    local is_empty_body = #node.body == 0 and #(node.body.end_comments or {}) == 0
+    local until_doc = render_builders.with_leading_inline_comment(
+        node, doc.text("until "), expr_doc.render(ctx, node.exp)
+    )
+    if is_empty_body then
+        return doc.concat({header, doc.line(), until_doc})
+    end
+    return block_with_indent(header, body_doc, until_doc)
 end
 
 local function render_do_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil

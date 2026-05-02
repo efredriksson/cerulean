@@ -1078,6 +1078,7 @@ local function parse_table_item(
          node.key.conststr = node.key.tk
          node.key.tk = '"' .. node.key.tk .. '"'
          i = verify_tk(ps, i, "=")
+         node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
          i, node.value = parse_table_value(ps, i)
          node.yend = ps.tokens[i - 1].y
          return i, node, n
@@ -2298,6 +2299,7 @@ local function parse_while(ps: ParseState, i: integer): integer, Node
    local istart = i
    local node = new_node(ps, i, "while")
    i = verify_tk(ps, i, "while")
+   node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.exp = parse_expression_and_tk(ps, i, "do")
    node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
@@ -2315,6 +2317,7 @@ local function parse_fornum(ps: ParseState, i: integer): integer, Node
    i = i + 1
    i, node.var = parse_identifier(ps, i)
    i = verify_tk(ps, i, "=")
+   node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.from = parse_expression_and_tk(ps, i, ",")
    i, node.to = parse_expression(ps, i)
    if ps.tokens[i].tk == "," then
@@ -2347,6 +2350,7 @@ local function parse_forin(ps: ParseState, i: integer): integer, Node
        parse_identifier
    )
    i = verify_tk(ps, i, "in")
+   node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    node.exps = new_node(ps, i, "expression_list")
    i = parse_list(ps, i, node.exps, { ["do"] = true }, "sep", parse_expression)
    if #node.exps < 1 then
@@ -2380,6 +2384,7 @@ local function parse_repeat(ps: ParseState, i: integer): integer, Node
    i, node.body = parse_statements(ps, i)
    node.body.is_repeat = true
    i = verify_tk(ps, i, "until")
+   node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.exp = parse_expression(ps, i)
    end_at(node, ps.tokens[i - 1])
    if node then
@@ -3092,6 +3097,9 @@ local function parse_assignment_expression_list(
             asgn.exps = nil
          end
          return i
+      end
+      if ps.tokens[i].tk == "," then
+         val.trailing_comment = get_same_line_comment(ps.tokens[i + 1], val.yend or val.y)
       end
       table.insert(asgn.exps, val)
    until ps.tokens[i].tk ~= ","
