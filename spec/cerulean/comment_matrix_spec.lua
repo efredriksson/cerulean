@@ -1260,4 +1260,37 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]]))
    end)
+
+   describe("dropped comments in multi-line expressions (regression)", function()
+      pending("preserves trailing comment on is-narrowing line in multi-line and/or assignment", helpers.check([[
+         local x = a is integer -- only ints
+             and 1
+             or 0
+      ]]))
+
+      pending("preserves comments interleaved between and/or parts in if condition", helpers.check([[
+         if (not a) and
+            -- try first
+            ((b == 1)
+            -- then second
+            or (b == 2))
+         then
+             f()
+         end
+      ]]))
+
+      pending("preserves block comment between multi-assignment lhs and equals", helpers.check([=[
+         i, t --[[what is t for?]] = f(i)
+      ]=]))
+
+      pending("preserves trailing comment on nested logical expressions", helpers.format([[
+         local x = expression_1 -- Keep me
+            or expression_2
+            or expression_3
+      ]], [[
+         local x = expression_1 -- Keep me
+             or expression_2
+             or expression_3
+      ]]))
+   end)
 end)
