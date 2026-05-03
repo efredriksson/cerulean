@@ -494,6 +494,8 @@ local record parser
         e2:                             Node
         before_op_comment:              Comment
         after_op_comment:               Comment
+        op_leading_trivia:              {Comment}
+        op_trailing_trivia:             {Comment}
         constnum:                       number
         conststr:                       string
         failstore:                      boolean
@@ -1052,6 +1054,7 @@ end
 
 local get_attached_comments: function(token: Token, previous_token?: Token): {Comment}
 local get_same_line_comment: function(token: Token, line: integer): Comment
+local take_all_token_comments: function(token: Token): {Comment}
 
 local function parse_table_item(
     ps: ParseState,
@@ -1917,10 +1920,11 @@ do
       local lookahead = ps.tokens[i].tk
       while precedences[2][lookahead] and precedences[2][lookahead] >= min_precedence do
          local t1 = ps.tokens[i]
-         local before_op = get_same_line_comment(ps.tokens[i], lhs.yend or lhs.y)
+         local lhs_line = lhs.yend or lhs.y
+         local op_leading_trivia = take_all_token_comments(ps.tokens[i])
          local op: Operator = new_operator(t1, 2, t1.tk)
          i = i + 1
-         local after_op = get_same_line_comment(ps.tokens[i], t1.y)
+         local op_trailing_trivia = take_all_token_comments(ps.tokens[i])
          local rhs: Node
          i, rhs = P(ps, i)
          if not rhs then
@@ -1938,8 +1942,20 @@ do
             lookahead = ps.tokens[i].tk
          end
          lhs = { f = ps.filename, y = t1.y, x = t1.x, kind = "op", op = op, e1 = lhs, e2 = rhs, yend = rhs.yend or rhs.y }
-         lhs.before_op_comment = before_op
-         lhs.after_op_comment = after_op
+         lhs.op_leading_trivia = op_leading_trivia
+         lhs.op_trailing_trivia = op_trailing_trivia
+         for _, c in ipairs(op_leading_trivia) do
+            if c.y == lhs_line then
+               lhs.before_op_comment = c
+               break
+            end
+         end
+         for _, c in ipairs(op_trailing_trivia) do
+            if c.y == t1.y then
+               lhs.after_op_comment = c
+               break
+            end
+         end
       end
       return i, lhs
    end
@@ -2629,6 +2645,25 @@ get_same_line_comment = function(token: Token, line: integer): Comment
       end
    end
    return nil
+end
+
+-- Trivia helpers: drain comments off a token and return them as Comment lists.
+-- Mutating token.comments is deliberate — it ensures comments cannot be
+-- re-attached to a downstream node via get_attached_comments.
+
+take_all_token_comments = function(token: Token): {Comment}
+   local lc_list = token.comments
+   if lc_list == nil or #lc_list == 0 then
+      return {}
+   end
+   local result: {Comment} = {}
+   for j = 1, #lc_list do
+      table.insert(result, make_comment(lc_list[j]))
+   end
+   for j = #lc_list, 1, -1 do
+      table.remove(lc_list, j)
+   end
+   return result
 end
 
 local function parse_nested_type(
