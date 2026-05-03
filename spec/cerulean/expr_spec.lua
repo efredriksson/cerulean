@@ -96,9 +96,20 @@ describe("formatter function expressions", function()
       }
    ]], [[
       return a
-          or function() end and {
-          x = 1,
-      }
+          or function() end
+              and {
+                  x = 1,
+              }
+   ]]))
+
+   it("only first chain skips indention in expression chains", helpers.format([[
+      local x = (some_very_very_very_long_middle_expression_identifier_that_forces_wrapping or some_very_very_very_long_middle_expression_identifier_that_forces_wrapping and some_very_very_very_long_middle_expression_identifier_that_forces_wrapping)
+   ]], [[
+      local x = (
+          some_very_very_very_long_middle_expression_identifier_that_forces_wrapping
+          or some_very_very_very_long_middle_expression_identifier_that_forces_wrapping
+              and some_very_very_very_long_middle_expression_identifier_that_forces_wrapping
+      )
    ]]))
 
    pending("expression with table type is kept", helpers.format([[
@@ -111,6 +122,34 @@ describe("formatter function expressions", function()
       local data:  Data<string, boolean>
    ]], [[
       local data: Data<string, boolean>
+   ]]))
+
+   it("wraps long concatenation chain", helpers.format([[
+      local x = very_long_prefix_string .. very_long_middle_value .. very_long_suffix_string_here
+   ]], [[
+      local x = very_long_prefix_string
+          .. very_long_middle_value
+          .. very_long_suffix_string_here
+   ]]))
+
+   it("wraps concatenation chain with a long middle term", helpers.format([[
+      local x = a_prefix .. some_very_very_very_long_middle_expression_identifier_that_forces_wrapping .. c_suffix
+   ]], [[
+      local x = a_prefix
+          .. some_very_very_very_long_middle_expression_identifier_that_forces_wrapping
+          .. c_suffix
+   ]]))
+
+   it("keeps short concatenation chain flat", helpers.check([[
+      local x = a .. b .. c
+   ]]))
+
+   it("inner and chain stays flat when it fits after or separator", helpers.format([[
+      local ok = first or very_long_condition_alpha_name and very_long_condition_beta_name or last
+   ]], [[
+      local ok = first
+          or very_long_condition_alpha_name and very_long_condition_beta_name
+          or last
    ]]))
 
 end)

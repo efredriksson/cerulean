@@ -49,9 +49,11 @@ describe("formatter function call wrapping", function()
    ]], [[
       table.insert(
           parts,
-          indentation .. self.name .. ": " .. string.format(
-              "%.1f", self.elapsed * 1000
-          ) .. "ms"
+          indentation
+              .. self.name
+              .. ": "
+              .. string.format("%.1f", self.elapsed * 1000)
+              .. "ms"
       )
    ]]))
 
@@ -324,8 +326,8 @@ describe("formatter function call wrapping", function()
       function Rectangle:overlap(other: Rectangle): boolean
           return interval_overlap(self.x, self.x + self.width, other.x, other.x + other.width)
               and interval_overlap(
-              self.y, self.y + self.height, other.y, other.y + other.height
-          )
+                  self.y, self.y + self.height, other.y, other.y + other.height
+              )
       end
    ]]))
 
@@ -501,8 +503,10 @@ describe("formatter function call wrapping", function()
    it("do not add blank line before function call on multi-line expression", helpers.check([[
       if stmt then
       end
-      (some_very_long_long_long_variable_that_exists
-          or some_very_long_long_long_variable_that_exists):MIZ()
+      (
+          some_very_long_long_long_variable_that_exists
+          or some_very_long_long_long_variable_that_exists
+      ):MIZ()
    ]]))
 
    it("function call with logical or and function calls formats correctly and is idempotent", helpers.format([[
@@ -511,16 +515,23 @@ describe("formatter function call wrapping", function()
       f1(
           arg1,
           val1
-              or val2 .. f2(
-          ) .. "some very very very very long string that comes after this hello"
+              or val2
+                  .. f2()
+                  .. "some very very very very long string that comes after this hello"
       )
    ]]))
 
-   it("does not insert blank lines between args when a nested call goes over many lines", helpers.check([[
+   it("does not insert blank lines between args when a nested call goes over many lines", helpers.format([[
       f2(
           "a very long long long long long long long long long long long long string " .. f3(
               arg1
           ),
+          other
+      )
+   ]], [[
+      f2(
+          "a very long long long long long long long long long long long long string "
+              .. f3(arg1),
           other
       )
    ]]))
