@@ -15,9 +15,7 @@ function inline_stmt_doc.render_return_doc(
         return doc.text("return")
     end
 
-    local return_exp_doc = render_builders.build_exp_list_doc(
-        stmt.exps, ctx.render_expr
-    )
+    local return_exp_doc = render_builders.build_exp_list_doc(ctx, stmt.exps)
     local last_exp = stmt.exps[#stmt.exps]
     local last_tc = render_builders.trailing_comment_doc(last_exp)
     local stmt_doc = render_builders.with_leading_inline_comment(
@@ -29,10 +27,8 @@ end
 function inline_stmt_doc.render_assignment_doc(
     ctx: RenderContext, stmt: parser.Node
 ): doc.Doc
-    local vars_doc = render_builders.build_mapped_comma_separated_docs(
-        stmt.vars, ctx.render_expr
-    )
-    local exps_doc = render_builders.build_exp_list_doc(stmt.exps, ctx.render_expr)
+    local vars_doc = render_builders.build_mapped_comma_separated_docs(ctx, stmt.vars)
+    local exps_doc = render_builders.build_exp_list_doc(ctx, stmt.exps)
     return render_builders.with_leading_inline_comment(
         stmt, doc.concat({vars_doc, doc.text(" = ")}), exps_doc
     )
@@ -78,7 +74,7 @@ function inline_stmt_doc.render_declaration_doc(
     end
 
     return build_init_doc(
-        render_builders.build_mapped_comma_separated_docs(stmt.exps, ctx.render_expr)
+        render_builders.build_mapped_comma_separated_docs(ctx, stmt.exps)
     )
 end
 

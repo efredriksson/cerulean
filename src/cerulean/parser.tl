@@ -654,9 +654,13 @@ local function clear_redundant_errors(errors: {Error})
             local af = assert(a.filename)
             local bf = assert(b.filename)
             return af < bf
-                or (af == bf
-                and (a.y < b.y
-                or (a.y == b.y and (a.x < b.x or (a.x == b.x and (a.i < b.i))))))
+                or (
+                    af == bf
+                    and (
+                        a.y < b.y
+                        or (a.y == b.y and (a.x < b.x or (a.x == b.x and (a.i < b.i))))
+                    )
+                )
         end
     )
     for i, err in ipairs(errors) do
