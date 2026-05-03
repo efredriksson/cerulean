@@ -27,7 +27,19 @@ end
 function inline_stmt_doc.render_assignment_doc(
     ctx: RenderContext, stmt: parser.Node
 ): doc.Doc
-    local vars_doc = render_builders.build_mapped_comma_separated_docs(ctx, stmt.vars)
+    local function build_var_doc(var: parser.Node): doc.Doc
+        if var.trailing_comment then
+            return doc.concat(
+                {ctx.render_expr(var), doc.text(" " .. var.trailing_comment.text)}
+            )
+        end
+        return ctx.render_expr(var)
+    end
+    local var_docs: {doc.Doc} = {}
+    for _, var in ipairs(stmt.vars) do
+        table.insert(var_docs, build_var_doc(var))
+    end
+    local vars_doc = render_builders.build_comma_separated_docs(var_docs)
     local exps_doc = render_builders.build_exp_list_doc(ctx, stmt.exps)
     return render_builders.with_leading_inline_comment(
         stmt, doc.concat({vars_doc, doc.text(" = ")}), exps_doc
