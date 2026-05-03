@@ -1257,6 +1257,9 @@ local function parse_trying_list<T>(
         or (not (ps.tokens[i + 1].kind == "identifier"
                  and ps.tokens[i + 2] and ps.tokens[i + 2].tk == ":")))
    do
+      if item is Node then
+         item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend or item.y)
+      end
       i = i + 1
       i, item = parse_item(ps, i)
       table.insert(list, item)
@@ -3152,6 +3155,7 @@ do
       asgn.vars = new_node(ps, istart, "variable_list")
       asgn.vars[1] = exp
       if ps.tokens[i].tk == "," then
+         asgn.vars[1].trailing_comment = get_same_line_comment(ps.tokens[i], asgn.vars[1].yend or asgn.vars[1].y)
          i = i + 1
          i = parse_trying_list(ps, i, asgn.vars, parse_variable)
          if #asgn.vars < 2 then
@@ -3159,6 +3163,8 @@ do
          end
       end
 
+      local last_var = asgn.vars[#asgn.vars]
+      last_var.trailing_comment = get_same_line_comment(ps.tokens[i], last_var.yend or last_var.y)
       if ps.tokens[i].tk ~= "=" then
          verify_tk(ps, i, "=")
          return i

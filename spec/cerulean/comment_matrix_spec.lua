@@ -1279,8 +1279,16 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]]))
 
-      pending("preserves block comment between multi-assignment lhs and equals", helpers.check([=[
+      it("preserves block comment between multi-assignment lhs and equals", helpers.check([=[
          i, t --[[what is t for?]] = f(i)
+      ]=]))
+
+      it("preserves block comment in middle of multi-assignment lhs and equals", helpers.check([=[
+         i, t --[[what is t for?]], k = f(i)
+      ]=]))
+
+      it("preserves block comment after first var in multi-assignment lhs", helpers.check([=[
+         i --[[what is i?]], t = f(i)
       ]=]))
 
       it("preserves trailing comment on nested logical expressions", helpers.format([[
