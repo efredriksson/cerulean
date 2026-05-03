@@ -1283,7 +1283,7 @@ describe("formatter comment matrix (single-line)", function()
          i, t --[[what is t for?]] = f(i)
       ]=]))
 
-      pending("preserves trailing comment on nested logical expressions", helpers.format([[
+      it("preserves trailing comment on nested logical expressions", helpers.format([[
          local x = expression_1 -- Keep me
             or expression_2
             or expression_3

@@ -46,6 +46,16 @@ local function parenthesize_if_lower_prec(
     return rendered
 end
 
+local function trail_comment_on(
+    expression: doc.Doc, comment: parser.Comment | nil
+): doc.Doc
+    if comment is nil then
+        return expression
+    end
+
+    return doc.concat({expression, doc.text(" " .. comment.text)})
+end
+
 local CHAINABLE_OPS: {string: boolean} = {
     ["or"] = true,
     ["and"] = true,
@@ -62,11 +72,17 @@ local function is_chainable_binary_op(operator: parser.Operator): boolean
 end
 
 local function collect_chain_terms(
-    node: parser.Node, operator: parser.Operator, terms: {parser.Node}
+    node: parser.Node,
+    operator: parser.Operator,
+    terms: {parser.Node},
+    gap_before_comments: {integer: parser.Comment}
 )
     if node.kind == "op" and node.op.prec == operator.prec then
-        collect_chain_terms(node.e1, operator, terms)
-        collect_chain_terms(node.e2, operator, terms)
+        collect_chain_terms(node.e1, operator, terms, gap_before_comments)
+        if node.before_op_comment then
+            gap_before_comments[#terms] = node.before_op_comment
+        end
+        collect_chain_terms(node.e2, operator, terms, gap_before_comments)
         return
     end
     table.insert(terms, node)
@@ -97,19 +113,28 @@ local function render_binary_chain(
 ): doc.Doc
     local operator_prec = operator.prec
     local terms: {parser.Node} = {}
-    collect_chain_terms(left, operator, terms)
-    collect_chain_terms(right, operator, terms)
+    local gap_before_comments: {integer: parser.Comment} = {}
+    collect_chain_terms(left, operator, terms, gap_before_comments)
+    collect_chain_terms(right, operator, terms, gap_before_comments)
+
+    local forced_breaks = false
+    for _, gap_comment in pairs(gap_before_comments) do
+        if gap_comment then
+            forced_breaks = true
+        end
+    end
 
     local parts: {doc.Doc} = {}
     local first_group_ref = doc.group_ref()
     local first_term_doc = render_expr(
         ctx, terms[1], operator_prec, same_indent_on_line
     )
+    first_term_doc = trail_comment_on(first_term_doc, gap_before_comments[1])
     table.insert(parts, first_group_ref:group(first_term_doc))
 
-    local function op_on_indented_line(term_group: doc.Doc): doc.Doc
+    local function op_on_line(term_group: doc.Doc, line: doc.Doc): doc.Doc
         local op_and_term_doc = doc.concat(
-            {doc.line(), doc.text(operator.op .. " "), term_group}
+            {line, doc.text(operator.op .. " "), term_group}
         )
 
         if same_indent_on_line then
@@ -123,10 +148,15 @@ local function render_binary_chain(
     for index = 2, #terms do
         local term = terms[index]
         local term_group_ref = doc.group_ref()
-        if term.kind == "paren" then
+        if forced_breaks then
+            local term_doc = render_expr(ctx, term, operator_prec, false)
+            term_doc = trail_comment_on(term_doc, gap_before_comments[index])
+            local term_group = term_group_ref:group(term_doc)
+            table.insert(parts, op_on_line(term_group, doc.hardline()))
+        elseif term.kind == "paren" then
             local term_doc = render_paren_in_chain(ctx, term, true)
             local term_group = term_group_ref:group(term_doc)
-            table.insert(parts, op_on_indented_line(term_group))
+            table.insert(parts, op_on_line(term_group, doc.line()))
         else
             local term_doc = render_expr(ctx, term, operator_prec, false)
             local term_group = term_group_ref:group(term_doc)
@@ -135,7 +165,7 @@ local function render_binary_chain(
             )
             table.insert(
                 parts,
-                prev_group_ref:if_break(op_and_term, op_on_indented_line(term_group))
+                prev_group_ref:if_break(op_and_term, op_on_line(term_group, doc.line()))
             )
         end
         prev_group_ref = term_group_ref
@@ -219,10 +249,6 @@ local function call_doc_build_call_expr_doc(
 
     local args_tc = render_builders.trailing_comment_doc(args)
     return doc.concat({callee_doc, call_args_doc, args_tc})
-end
-
-local function trail_comment_on(expression: doc.Doc, comment: parser.Comment): doc.Doc
-    return doc.concat({expression, doc.text(" " .. comment.text)})
 end
 
 local function operator_doc_with_spacing(node: parser.Node): doc.Doc
