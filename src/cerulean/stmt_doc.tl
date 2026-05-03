@@ -1,6 +1,5 @@
 -- Single AST statement → doc.Doc. Returns nil for unsupported statement shapes.
 local doc = require("cerulean.doc")
-local expr_doc = require("cerulean.expr_doc")
 local function_doc = require("cerulean.function_doc")
 local inline_stmt_doc = require("cerulean.inline_stmt_doc")
 local parser = require("cerulean.parser")
@@ -368,7 +367,7 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
             end
             local keyword = index == 1 and "if" or "elseif"
             local with_comment = render_builders.with_leading_inline_comment(
-                if_block, doc.text(keyword .. " "), expr_doc.render(ctx, if_block.exp)
+                if_block, doc.text(keyword .. " "), ctx.render_expr(if_block.exp)
             )
             return doc.group(doc.concat({with_comment, doc.text(" then")}))
         end
@@ -396,7 +395,7 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
     end
 
     local while_and_exp_doc = render_builders.with_leading_inline_comment(
-        node, doc.text("while "), expr_doc.render(ctx, node.exp)
+        node, doc.text("while "), ctx.render_expr(node.exp)
     )
     local header = doc.concat(
         {
@@ -461,9 +460,7 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
-    local exps_doc = render_builders.build_mapped_comma_separated_docs(
-        node.exps, ctx.render_expr
-    )
+    local exps_doc = render_builders.build_mapped_comma_separated_docs(ctx, node.exps)
     local tail_doc = doc.concat(
         {doc.text(" do"), render_builders.head_trailing_comment_doc(node)}
     )
@@ -498,7 +495,7 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
     -- spurious blank line when the body is empty. Skip it in that case.
     local is_empty_body = #node.body == 0 and #(node.body.end_comments or {}) == 0
     local until_doc = render_builders.with_leading_inline_comment(
-        node, doc.text("until "), expr_doc.render(ctx, node.exp)
+        node, doc.text("until "), ctx.render_expr(node.exp)
     )
     if is_empty_body then
         return doc.concat({header, doc.line(), until_doc})
@@ -534,9 +531,11 @@ function stmt_doc.render_statement_doc(
         return render_type_doc(ctx, node, "local")
     elseif node.kind == "global_type" then
         return render_type_doc(ctx, node, "global")
-    elseif (node.kind == "local_function"
+    elseif (
+        node.kind == "local_function"
         or node.kind == "global_function"
-        or node.kind == "record_function") then
+        or node.kind == "record_function"
+    ) then
         return render_function_definition_doc(ctx, node)
     elseif node.kind == "local_macroexp" then
         return render_local_macroexp_doc(ctx, node)
@@ -559,7 +558,7 @@ function stmt_doc.render_statement_doc(
     elseif node.kind == "label" then
         return doc.text("::" .. node.label .. "::")
     elseif node.kind == "op" then
-        return ctx.render_expr(node)
+        return ctx.render_expr(node, true)
     end
 
     return nil

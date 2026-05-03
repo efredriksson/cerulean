@@ -172,9 +172,11 @@ describe("formatter table constructor wrapping", function()
           return doc.concat(
               {
                   doc.text(
-                      label_text .. ": " .. assert(
-                          entry.meta.value_text, "missing value text for table field"
-                      ) .. " = "
+                      label_text
+                          .. ": "
+                          .. assert(
+                              entry.meta.value_text, "missing value text for table field"
+                          ) .. " = "
                   ),
                   render_value(entry.value),
               }
@@ -198,9 +200,11 @@ describe("formatter table constructor wrapping", function()
           return doc.concat(
               {
                   doc.text(
-                      name_text .. ": " .. assert(
-                          item.itemtype.source_text, "missing item type source text"
-                      ) .. " = "
+                      name_text
+                          .. ": "
+                          .. assert(
+                              item.itemtype.source_text, "missing item type source text"
+                          ) .. " = "
                   ),
                   render_value(item.value),
               }

@@ -13,10 +13,12 @@ local type RenderContext = render_context.RenderContext
 local expr_doc = {}
 
 -- render_expr is mutually recursive with render_op, so it needs a forward declaration.
-local render_expr: function(RenderContext, parser.Node, integer): doc.Doc
+local render_expr: function(RenderContext, parser.Node, integer, boolean): doc.Doc
 
-local function render_root_expr(ctx: RenderContext, node: parser.Node): doc.Doc
-    return render_expr(ctx, node, 0)
+local function render_root_expr(
+    ctx: RenderContext, node: parser.Node, same_indent_on_line: boolean
+): doc.Doc
+    return render_expr(ctx, node, 0, same_indent_on_line)
 end
 
 -- For unary parents only the strict-less-than rule applies; equal-precedence
@@ -44,63 +46,99 @@ local function parenthesize_if_lower_prec(
     return rendered
 end
 
-local function collect_top_level_logical_terms(
+local CHAINABLE_OPS: {string: boolean} = {
+    ["or"] = true,
+    ["and"] = true,
+    [".."] = true,
+    ["|"] = true,
+    ["~"] = true,
+    ["&"] = true,
+    ["<<"] = true,
+    [">>"] = true,
+}
+
+local function is_chainable_binary_op(operator: parser.Operator): boolean
+    return CHAINABLE_OPS[operator.op] == true
+end
+
+local function collect_chain_terms(
     node: parser.Node, operator: parser.Operator, terms: {parser.Node}
 )
-    if node.kind == "op" and node.op.op == operator.op then
-        collect_top_level_logical_terms(node.e1, operator, terms)
-        collect_top_level_logical_terms(node.e2, operator, terms)
+    if node.kind == "op" and node.op.prec == operator.prec then
+        collect_chain_terms(node.e1, operator, terms)
+        collect_chain_terms(node.e2, operator, terms)
         return
     end
-
     table.insert(terms, node)
 end
 
-local function is_logical_binary_op(operator: parser.Operator): boolean
-    return operator.op == "and" or operator.op == "or"
-end
-
--- Used when a logical sub-expression appears as a term inside a different-operator
--- logical chain. Without this, the sub-chain group would introduce spurious line-break
--- opportunities that corrupt the outer chain's separator decisions.
-local function render_logical_expr_flat(
-    ctx: RenderContext, node: parser.Node, parent_prec: integer
+local function render_paren_in_chain(
+    ctx: RenderContext, paren_node: parser.Node, same_indent_on_line: boolean
 ): doc.Doc
-    if node.kind ~= "op" or not is_logical_binary_op(node.op) then
-        return render_expr(ctx, node, parent_prec)
-    end
-    local op_prec = node.op.prec
-    local left_doc = render_logical_expr_flat(ctx, node.e1, op_prec)
-    local right_doc = render_logical_expr_flat(ctx, node.e2, op_prec)
-    return parenthesize_if_lower_prec(
-        doc.concat({left_doc, doc.text(" " .. node.op.op .. " "), right_doc}),
-        op_prec,
-        parent_prec
+    return doc.group(
+        doc.concat(
+            {
+                doc.text("("),
+                doc.indent_softline(
+                    render_expr(ctx, paren_node.e1, 0, same_indent_on_line)
+                ),
+                doc.softclose(")"),
+            }
+        )
     )
 end
 
-local function render_logical_chain(
-    ctx: RenderContext, operator: parser.Operator, left: parser.Node, right: parser.Node
+local function render_binary_chain(
+    ctx: RenderContext,
+    operator: parser.Operator,
+    left: parser.Node,
+    right: parser.Node,
+    same_indent_on_line: boolean
 ): doc.Doc
     local operator_prec = operator.prec
     local terms: {parser.Node} = {}
-    collect_top_level_logical_terms(left, operator, terms)
-    collect_top_level_logical_terms(right, operator, terms)
+    collect_chain_terms(left, operator, terms)
+    collect_chain_terms(right, operator, terms)
 
     local parts: {doc.Doc} = {}
-    for index, term in ipairs(terms) do
+    local first_group_ref = doc.group_ref()
+    local first_term_doc = render_expr(
+        ctx, terms[1], operator_prec, same_indent_on_line
+    )
+    table.insert(parts, first_group_ref:group(first_term_doc))
+
+    local function op_on_indented_line(term_group: doc.Doc): doc.Doc
+        local todo_name = doc.concat(
+            {doc.line(), doc.text(operator.op .. " "), term_group}
+        )
+
+        if same_indent_on_line then
+            return todo_name
+        else
+            return doc.indent(todo_name)
+        end
+    end
+
+    local prev_group_ref = first_group_ref
+    for index = 2, #terms do
+        local term = terms[index]
         local term_group_ref = doc.group_ref()
-        local term_doc = render_logical_expr_flat(ctx, term, operator_prec)
-        table.insert(parts, term_group_ref:group(term_doc))
-        if index < #terms then
+        if term.kind == "paren" then
+            local term_doc = render_paren_in_chain(ctx, term, true)
+            local term_group = term_group_ref:group(term_doc)
+            table.insert(parts, op_on_indented_line(term_group))
+        else
+            local term_doc = render_expr(ctx, term, operator_prec, false)
+            local term_group = term_group_ref:group(term_doc)
+            local op_and_term = doc.concat(
+                {doc.text(" " .. operator.op .. " "), term_group}
+            )
             table.insert(
                 parts,
-                term_group_ref:if_break(
-                    doc.text(" " .. operator.op .. " "),
-                    doc.indent_line(doc.text(operator.op .. " "))
-                )
+                prev_group_ref:if_break(op_and_term, op_on_indented_line(term_group))
             )
         end
+        prev_group_ref = term_group_ref
     end
     return doc.group(doc.concat(parts))
 end
@@ -120,7 +158,7 @@ end
 local function call_doc_build_call_expr_doc(
     ctx: RenderContext, callee: parser.Node, args: parser.Node
 ): doc.Doc
-    local callee_doc = ctx.render_expr(callee)
+    local callee_doc = ctx.render_expr(callee, true)
     local force_wrap = render_builders.any_items_have_comments(args)
         or args.leading_inline_comment ~= nil
     local parts: {doc.Doc} = {}
@@ -201,7 +239,10 @@ local function operator_doc_with_spacing(node: parser.Node): doc.Doc
 end
 
 local function render_op(
-    ctx: RenderContext, node: parser.Node, parent_prec: integer
+    ctx: RenderContext,
+    node: parser.Node,
+    parent_prec: integer,
+    same_indent_on_line: boolean
 ): doc.Doc
     local operator = node.op
     local left = node.e1
@@ -210,7 +251,7 @@ local function render_op(
     if op == "." or op == ":" then
         return doc.concat(
             {
-                render_expr(ctx, left, operator.prec),
+                render_expr(ctx, left, operator.prec, same_indent_on_line),
                 doc.text(op),
                 doc.text(right.tk),
             }
@@ -218,9 +259,9 @@ local function render_op(
     elseif op == "@index" then
         return doc.concat(
             {
-                render_expr(ctx, left, operator.prec),
+                render_expr(ctx, left, operator.prec, same_indent_on_line),
                 doc.text("["),
-                render_root_expr(ctx, right),
+                render_root_expr(ctx, right, same_indent_on_line),
                 doc.text("]"),
             }
         )
@@ -229,7 +270,7 @@ local function render_op(
     elseif op == "as" or op == "is" then
         return doc.concat(
             {
-                render_expr(ctx, left, operator.prec),
+                render_expr(ctx, left, operator.prec, same_indent_on_line),
                 doc.text(" " .. op .. " "),
                 type_doc.render(right.casttype),
             }
@@ -237,7 +278,7 @@ local function render_op(
     elseif operator.arity == 1 then
         local op_prec = operator.prec
         local child = parenthesize_unary_operand(
-            render_expr(ctx, left, op_prec), left, op_prec
+            render_expr(ctx, left, op_prec, same_indent_on_line), left, op_prec
         )
         local op_doc = doc.text(op)
         if node.after_op_comment then
@@ -253,15 +294,17 @@ local function render_op(
         )
     else
         local op_prec = operator.prec
-        if is_logical_binary_op(operator)
+        if is_chainable_binary_op(operator)
             and not node.before_op_comment
             and not node.after_op_comment then
             return parenthesize_if_lower_prec(
-                render_logical_chain(ctx, operator, left, right), op_prec, parent_prec
+                render_binary_chain(ctx, operator, left, right, same_indent_on_line),
+                op_prec,
+                parent_prec
             )
         end
-        local left_doc = render_expr(ctx, left, op_prec)
-        local right_doc = render_expr(ctx, right, op_prec)
+        local left_doc = render_expr(ctx, left, op_prec, same_indent_on_line)
+        local right_doc = render_expr(ctx, right, op_prec, same_indent_on_line)
         local op_doc = operator_doc_with_spacing(node)
 
         if node.before_op_comment then
@@ -289,28 +332,31 @@ local EXPRESSION_LEAF: {parser.NodeKind: boolean} = {
 }
 
 render_expr = function(
-    ctx: RenderContext, node: parser.Node, parent_prec: integer
+    ctx: RenderContext,
+    node: parser.Node,
+    parent_prec: integer,
+    same_indent_on_line: boolean
 ): doc.Doc
     if EXPRESSION_LEAF[node.kind] then
         return doc.text(node.tk)
     elseif node.kind == "string" then
         return render_string_literal(node)
     elseif node.kind == "paren" then
-        return doc.group(
-            doc.concat({doc.text("("), render_root_expr(ctx, node.e1), doc.text(")")})
-        )
+        return render_paren_in_chain(ctx, node, true)
     elseif node.kind == "literal_table" then
         return table_doc.build_table_doc(ctx, node)
     elseif node.kind == "function" then
         return function_doc.render_anonymous(ctx, node, doc.text("function"))
     elseif node.kind == "op" then
-        return render_op(ctx, node, parent_prec)
+        return render_op(ctx, node, parent_prec, same_indent_on_line)
     end
     error("unsupported expression kind: " .. node.kind)
 end
 
-function expr_doc.render(ctx: RenderContext, node: parser.Node): doc.Doc
-    return render_root_expr(ctx, node)
+function expr_doc.render(
+    ctx: RenderContext, node: parser.Node, same_indent_on_line?: boolean
+): doc.Doc
+    return render_root_expr(ctx, node, same_indent_on_line)
 end
 
 return expr_doc

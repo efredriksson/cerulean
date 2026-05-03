@@ -1,5 +1,8 @@
 local doc = require("cerulean.doc")
 local parser = require("cerulean.parser")
+local render_context = require("cerulean.render_context")
+
+local type RenderContext = render_context.RenderContext
 
 local record DelimitedSequenceOptions
     open_delim: string
@@ -53,11 +56,11 @@ function render_builders.build_comma_separated_docs(item_docs: {doc.Doc}): doc.D
 end
 
 function render_builders.build_mapped_comma_separated_docs(
-    nodes: {parser.Node}, render_node: function(parser.Node): doc.Doc
+    ctx: RenderContext, nodes: {parser.Node}
 ): doc.Doc
     local item_docs: {doc.Doc} = {}
     for _, node in ipairs(nodes) do
-        table.insert(item_docs, render_node(node))
+        table.insert(item_docs, ctx.render_expr(node))
     end
     return render_builders.build_comma_separated_docs(item_docs)
 end
@@ -131,16 +134,16 @@ function render_builders.any_items_have_comments(items: parser.Node): boolean
 end
 
 function render_builders.build_exp_list_doc(
-    exps: {parser.Node}, render_node: function(parser.Node): doc.Doc
+    ctx: RenderContext, exps: {parser.Node}
 ): doc.Doc
     if not render_builders.any_items_have_comments(exps) then
-        return render_builders.build_mapped_comma_separated_docs(exps, render_node)
+        return render_builders.build_mapped_comma_separated_docs(ctx, exps)
     end
     local parts: {doc.Doc} = {}
     local force_next_indent = false
     for index, exp in ipairs(exps) do
         local is_last = index == #exps
-        local exp_doc = render_node(exp)
+        local exp_doc = ctx.render_expr(exp)
         if force_next_indent then
             exp_doc = doc.indent_hardline(exp_doc)
             force_next_indent = false
