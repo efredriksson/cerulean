@@ -199,7 +199,7 @@ local function call_doc_build_call_expr_doc(
 
     for index, arg_node in ipairs(args) do
         line_before = render_builders.append_comment_docs(
-            parts, arg_node.comments or {}, line_before
+            parts, arg_node.leading_comments or {}, line_before
         )
         table.insert(
             parts, render_builders.append_lines_pre_node(arg_node, line_before)
