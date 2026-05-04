@@ -3134,6 +3134,7 @@ local function parse_assignment_expression_list(
          return i
       end
       if ps.tokens[i].tk == "," then
+         val.trailing_trivia = take_all_token_comments(ps.tokens[i])
          val.trailing_comment = get_same_line_comment(ps.tokens[i + 1], val.yend or val.y)
       end
       table.insert(asgn.exps, val)

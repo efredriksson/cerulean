@@ -91,9 +91,7 @@ function inline_stmt_doc.render_declaration_doc(
         return build_init_doc(ctx.render_expr(stmt.exps[1]))
     end
 
-    return build_init_doc(
-        render_builders.build_mapped_comma_separated_docs(ctx, stmt.exps)
-    )
+    return build_init_doc(render_builders.build_exp_list_doc(ctx, stmt.exps))
 end
 
 return inline_stmt_doc
