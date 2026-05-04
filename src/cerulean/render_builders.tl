@@ -118,11 +118,13 @@ function render_builders.trailing_comment_doc(node: parser.Node): doc.Doc
     return doc.text("")
 end
 
-function render_builders.head_trailing_comment_doc(node: parser.Node): doc.Doc
-    if node.head_trailing_comment then
-        return doc.text(" " .. node.head_trailing_comment.text)
+function render_builders.head_trivia_doc(node: parser.Node): doc.Doc
+    if node.head_trivia == nil or #node.head_trivia == 0 then
+        return doc.text("")
     end
-    return doc.text("")
+    local parts: {doc.Doc} = {}
+    trivia_doc.append_inline(parts, node.head_trivia)
+    return doc.concat(parts)
 end
 
 function render_builders.any_items_have_comments(items: parser.Node): boolean

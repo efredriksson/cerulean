@@ -1322,6 +1322,42 @@ describe("formatter comment matrix (single-line)", function()
          local x, y = 1 --[[c1]] --[[c2]], 2
       ]=]))
 
+      it("preserves multiple block comments after while do keyword", helpers.check([=[
+         while running do --[[a]] --[[b]]
+             step()
+         end
+      ]=]))
+
+      it("preserves multiple block comments after for-num do keyword", helpers.check([=[
+         for i = 1, 10 do --[[a]] --[[b]]
+             process(i)
+         end
+      ]=]))
+
+      it("preserves multiple block comments after for-in do keyword", helpers.check([=[
+         for k, v in pairs(t) do --[[a]] --[[b]]
+             use(k, v)
+         end
+      ]=]))
+
+      it("preserves multiple block comments after repeat keyword", helpers.check([=[
+         repeat --[[a]] --[[b]]
+             step()
+         until done
+      ]=]))
+
+      it("preserves multiple block comments after function header", helpers.check([=[
+         local function f() --[[a]] --[[b]]
+             step()
+         end
+      ]=]))
+
+      it("preserves multiple block comments after anonymous function header", helpers.check([=[
+         local f = function() --[[a]] --[[b]]
+             step()
+         end
+      ]=]))
+
       it("preserves trailing comment on nested logical expressions", helpers.format([[
          local x = expression_1 -- Keep me
             or expression_2
