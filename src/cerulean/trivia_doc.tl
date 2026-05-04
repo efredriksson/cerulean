@@ -36,6 +36,18 @@ function trivia_doc.append_inline(parts: {doc.Doc}, trivia: {parser.Comment})
     end
 end
 
+-- Like append_inline but joins with single spaces and emits no leading
+-- space — for callers whose prefix already ends with whitespace or
+-- where the trivia must sit flush against an opener like `(`.
+function trivia_doc.append_inline_joined(parts: {doc.Doc}, trivia: {parser.Comment})
+    for index, c in ipairs(trivia) do
+        if index > 1 then
+            table.insert(parts, doc.text(" "))
+        end
+        table.insert(parts, doc.text(c.text))
+    end
+end
+
 -- Use at boundaries (e.g. operator) where any own-line entry must force
 -- a break before the next chunk.
 function trivia_doc.emit_transition(
