@@ -43,7 +43,7 @@ end
 local function has_any_comments(items: parser.Node): boolean
     return render_builders.any_items_have_comments(items)
         or items.trailing_comma
-        or #(items.end_comments or {}) > 0
+        or #(items.dangling_comments or {}) > 0
 end
 
 function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.Doc
@@ -54,7 +54,7 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
     local line_before = false
     for index, item in ipairs(items) do
         line_before = render_builders.append_comment_docs(
-            parts, item.comments or {}, line_before
+            parts, item.leading_comments or {}, line_before
         )
 
         table.insert(parts, render_builders.append_lines_pre_node(item, line_before))
@@ -72,7 +72,9 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
         line_before = true
     end
 
-    render_builders.append_comment_docs(parts, items.end_comments or {}, line_before)
+    render_builders.append_comment_docs(
+        parts, items.dangling_comments or {}, line_before
+    )
 
     local items_doc = doc.concat(parts)
     if not force_wrap then

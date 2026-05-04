@@ -72,7 +72,7 @@ local function render_enum_doc(
     local line_before = false
     for _, item_node in ipairs(def.enum_items) do
         line_before = render_builders.append_comment_docs(
-            parts, item_node.comments or {}, line_before
+            parts, item_node.leading_comments or {}, line_before
         )
         table.insert(
             parts, render_builders.append_lines_pre_node(item_node, line_before)
@@ -81,7 +81,7 @@ local function render_enum_doc(
         table.insert(parts, render_builders.trailing_comment_doc(item_node))
         line_before = true
     end
-    local end_comments = def.end_comments or stmt.end_comments or {}
+    local end_comments = def.dangling_comments or stmt.dangling_comments or {}
     render_builders.append_comment_docs(parts, end_comments, line_before)
 
     return block_with_close(header, doc.concat(parts), "end")
@@ -140,7 +140,7 @@ local function render_record_like_body_doc(
     local line_before = false
     for _, entry in ipairs(record_def.field_entries) do
         line_before = render_builders.append_comment_docs(
-            parts, entry.comments or {}, line_before
+            parts, entry.leading_comments or {}, line_before
         )
         table.insert(parts, render_builders.append_lines_pre_node(entry, line_before))
         table.insert(parts, render_field_entry(ctx, entry))
@@ -150,7 +150,9 @@ local function render_record_like_body_doc(
         end
         line_before = true
     end
-    render_builders.append_comment_docs(parts, node.end_comments or {}, line_before)
+    render_builders.append_comment_docs(
+        parts, node.dangling_comments or {}, line_before
+    )
 
     return doc.concat(
         {
@@ -493,7 +495,7 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
 
     -- block_with_indent always emits a newline into the body, which produces a
     -- spurious blank line when the body is empty. Skip it in that case.
-    local is_empty_body = #node.body == 0 and #(node.body.end_comments or {}) == 0
+    local is_empty_body = #node.body == 0 and #(node.body.dangling_comments or {}) == 0
     local until_doc = render_builders.with_leading_inline_trivia(
         node, doc.text("until "), ctx.render_expr(node.exp)
     )

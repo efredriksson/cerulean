@@ -165,7 +165,7 @@ local record parser
       name: string
       the_type: Type
       node: Node
-      comments: {Comment}
+      leading_comments: {Comment}
       is_meta: boolean
       line: integer
       yend: integer
@@ -325,7 +325,7 @@ local record parser
       where self.typename == "enum"
 
       enum_items: {Node}
-      end_comments: {Comment}
+      dangling_comments: {Comment}
    end
 
    enum Attribute
@@ -450,7 +450,7 @@ local record parser
         -- fmt: off
         tk:                             string
         kind:                           NodeKind
-        comments:                       {Comment}
+        leading_comments:               {Comment}
         symbol_list_slot:               integer
         semicolon:                      boolean
         hashbang:                       string
@@ -515,7 +515,7 @@ local record parser
         pvalue:                         string
         opt:                            boolean
         trailing_comma:                 boolean
-        end_comments:                   {Comment}
+        dangling_comments:              {Comment}
         trailing_comment:               Comment
         trailing_trivia:                {Comment}
         head_trivia:                    {Comment}
@@ -587,7 +587,7 @@ function parser.FieldEntry.new(
     self.name = name
     self.the_type = the_type
     self.node = node
-    self.comments = comments
+    self.leading_comments = comments
     self.is_meta = is_meta
     self.line = line
     return self
@@ -1064,7 +1064,7 @@ local function parse_table_item(
    local node = new_node(ps, i, "literal_table_item")
    local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    if comments then
-      node.comments = comments
+      node.leading_comments = comments
    end
    if ps.tokens[i].kind == "$EOF$" then
       return fail(ps, i, "unexpected eof")
@@ -1221,14 +1221,14 @@ end
 
 local function parse_table_literal(ps: ParseState, i: integer): integer, Node
    local node = new_node(ps, i, "literal_table")
-   node.comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
+   node.leading_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    i, node = parse_bracket_list(ps, i, node, "{", "}", "term", parse_table_item)
-   node.end_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
+   node.dangling_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
    node.trailing_comma = #node > 0 and ps.tokens[i - 2].tk == ","
    local items = node
    local previous_end: integer | nil = nil
    for _, item in ipairs(items) do
-      local leading = item.comments or {}
+      local leading = item.leading_comments or {}
       if #leading > 0 then
          previous_end = leading[#leading].yend
       end
@@ -1812,7 +1812,7 @@ do
 
             local previous_end: integer | nil = nil
             for _, arg_node in ipairs(args) do
-               local leading = arg_node.comments or {}
+               local leading = arg_node.leading_comments or {}
                if #leading > 0 then
                   previous_end = leading[#leading].yend
                end
@@ -1966,7 +1966,7 @@ do
       end
       if lhs then
          if comments then
-            lhs.comments = comments
+            lhs.leading_comments = comments
          end
          return i, lhs, 0
       end
@@ -2308,7 +2308,7 @@ local function parse_if(ps: ParseState, i: integer): integer, Node
    end
    i = verify_end(ps, i, istart, node)
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -2324,7 +2324,7 @@ local function parse_while(ps: ParseState, i: integer): integer, Node
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -2349,7 +2349,7 @@ local function parse_fornum(ps: ParseState, i: integer): integer, Node
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -2382,7 +2382,7 @@ local function parse_forin(ps: ParseState, i: integer): integer, Node
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -2407,7 +2407,7 @@ local function parse_repeat(ps: ParseState, i: integer): integer, Node
    i, node.exp = parse_expression(ps, i)
    end_at(node, ps.tokens[i - 1])
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -2420,7 +2420,7 @@ local function parse_do(ps: ParseState, i: integer): integer, Node
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -2430,7 +2430,7 @@ local function parse_break(ps: ParseState, i: integer): integer, Node
    local node = new_node(ps, i, "break")
    i = verify_tk(ps, i, "break")
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -2484,7 +2484,7 @@ local function parse_return(ps: ParseState, i: integer): integer, Node
       end
    end
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -2728,7 +2728,7 @@ parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, 
       local item: Node
       i, item = verify_kind(ps, i, "string", "string")
       if item then
-         item.comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
+         item.leading_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
          item.yend = item.y
          item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
          table.insert(def.enum_items, item)
@@ -2737,7 +2737,7 @@ parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, 
 
    local previous_end: integer | nil = nil
    for _, item in ipairs(def.enum_items) do
-      local leading = item.comments or {}
+      local leading = item.leading_comments or {}
       if #leading > 0 then
          previous_end = leading[#leading].yend
       end
@@ -2747,7 +2747,7 @@ parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, 
       previous_end = item.yend
    end
 
-   def.end_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
+   def.dangling_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    return i, true
 end
 
@@ -3087,7 +3087,7 @@ parse_record_body = function(
 
    local previous_end: integer | nil = nil
    for _, entry in ipairs(def.field_entries) do
-      local leading = entry.comments or {}
+      local leading = entry.leading_comments or {}
       if #leading > 0 then
          previous_end = leading[#leading].yend
       end
@@ -3193,7 +3193,7 @@ do
 
       if node_is_funcall(exp) or exp.failstore then
          if exp then
-            exp.comments = comments
+            exp.leading_comments = comments
          end
          return i, exp
       end
@@ -3223,7 +3223,7 @@ do
 
       i, asgn = parse_assignment_expression_list(ps, i, asgn)
       if asgn then
-         asgn.comments = comments
+         asgn.leading_comments = comments
       end
       return i, asgn
    end
@@ -3425,13 +3425,13 @@ local function parse_local(ps: ParseState, i: integer): integer, Node
    elseif parse_type_body_fns[tn as BodyTypeName] and ps.tokens[i + 2].kind == "identifier" then
       i, node = parse_type_constructor(ps, i, "local_type", tn as BodyTypeName)
       if node then
-         node.end_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
+         node.dangling_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
       end
    else
       i, node = parse_variable_declarations(ps, i + 1, "local_declaration")
    end
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -3454,7 +3454,7 @@ local function parse_global(ps: ParseState, i: integer): integer, Node
       return parse_call_or_assignment(ps, i)
    end
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -3464,7 +3464,7 @@ local function parse_record_function(ps: ParseState, i: integer): integer, Node
    local node: Node
    i, node = parse_function(ps, i, "record")
    if node then
-      node.comments = comments
+      node.leading_comments = comments
    end
    return i, node
 end
@@ -3576,7 +3576,7 @@ parse_statements = function(
          -- won't be re-attached as a leading comment of the next statement.
          item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
 
-         local leading = item.comments or {}
+         local leading = item.leading_comments or {}
          if #leading > 0 then
             previous_end = leading[#leading].yend
          end
@@ -3600,7 +3600,7 @@ parse_statements = function(
       end
    end
 
-   node.end_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
+   node.dangling_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    end_at(node, ps.tokens[i])
    return i, node
 end

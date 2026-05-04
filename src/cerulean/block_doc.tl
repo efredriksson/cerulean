@@ -34,7 +34,7 @@ local function block_min_source_line(block: parser.Node): integer
     local min_line = block.y
 
     local function consider_comments(candidate: parser.Node)
-        for _, comment in ipairs(candidate.comments or {}) do
+        for _, comment in ipairs(candidate.leading_comments or {}) do
             if comment.y < min_line then
                 min_line = comment.y
             end
@@ -80,7 +80,7 @@ local function collect_verbatim_lines(
     source_lines: {string}, stmt: parser.Node, previous_end: integer
 ): {string}
     local first_line = stmt.y
-    for _, comment in ipairs(stmt.comments or {}) do
+    for _, comment in ipairs(stmt.leading_comments or {}) do
         if comment.y > previous_end then
             first_line = math.min(first_line, comment.y)
         end
@@ -93,9 +93,9 @@ local function collect_verbatim_lines(
 end
 
 local function blank_before_first_element(stmt: parser.Node): boolean
-    local leading = stmt.comments or {}
+    local leading = stmt.leading_comments or {}
     if #leading > 0 then
-        return stmt.comments[1].blank_line_before
+        return stmt.leading_comments[1].blank_line_before
     end
     return stmt.blank_line_before
 end
@@ -119,7 +119,7 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
             table.insert(parts, doc.raw(verbatim_lines))
         else
             line_before = render_builders.append_comment_docs(
-                parts, stmt.comments or {}, line_before
+                parts, stmt.leading_comments or {}, line_before
             )
 
             table.insert(
@@ -143,7 +143,9 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
         line_before = true
     end
 
-    render_builders.append_comment_docs(parts, block.end_comments or {}, line_before)
+    render_builders.append_comment_docs(
+        parts, block.dangling_comments or {}, line_before
+    )
 
     return doc.concat(parts)
 end

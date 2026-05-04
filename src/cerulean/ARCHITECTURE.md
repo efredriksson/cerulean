@@ -62,7 +62,7 @@ Shared across `block_doc`, `stmt_doc`, `expr_doc`, `table_doc`:
 - `head_trivia_doc(node)` — emits `head_trivia` (same-line comments after a block-opening keyword like `do`/`then`/`function`).
 - `with_leading_inline_trivia(node, prefix, content)` — wraps `content` after `prefix`, threading any `leading_inline_trivia` (same-line comments after an opener like `(`, `=`, `until`, `return`) on the prefix line and breaking before `content`.
 - `append_comment_docs(parts, comments, line_before)` — prepend leading own-line comments with `hardline` separators; returns updated `line_before`.
-- `any_items_have_comments(items)` — true if any item has `comments` or `trailing_comment`; drives force-wrap. Note: deliberately *does not* consult `trailing_trivia`, since inline block-trivia must not flip a flat layout to wrapped.
+- `any_items_have_comments(items)` — true if any item has `leading_comments` or `trailing_comment`; drives force-wrap. Note: deliberately *does not* consult `trailing_trivia`, since inline block-trivia must not flip a flat layout to wrapped.
 - `item_line_doc(force_wrap)` — `hardline` if force-wrapping, else `softline`.
 - `append_lines_pre_node(node, line_before, line_from_before?)` — emit separator + extra `hardline` for `blank_line_before`. Accepts `parser.Node` or `parser.FieldEntry`.
 - Delimiter builders (`build_delimited_sequence_doc`, `build_comma_separated_docs`, etc.) — bracketed comma-separated doc sequences.
@@ -73,11 +73,11 @@ Cerulean uses a hybrid model: structural comments live in three node-level slots
 
 ### Node-level slots
 
-- `node.comments` — own-line comments before the node's first token. Each carries `blank_line_before: boolean`.
+- `node.leading_comments` — own-line comments before the node's first token. Each carries `blank_line_before: boolean`.
 - `node.trailing_comment` — single same-line `--`-style comment after the node's last token. Forces a break in the surrounding layout.
-- `node.end_comments` — own-line comments inside a block construct before its closing keyword/delimiter (`end`, `}`, `until`).
+- `node.dangling_comments` — own-line comments inside a block construct before its closing keyword/delimiter (`end`, `}`, `until`).
 
-Render order: leading `comments` → node → `trailing_comment`.
+Render order: `leading_comments` → node → `trailing_comment`.
 
 ### Trivia lists (positional, between tokens)
 

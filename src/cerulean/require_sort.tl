@@ -72,7 +72,7 @@ local function comment_yend(comment: parser.Comment): integer
 end
 
 local function separate_comments(node: parser.Node): {parser.Comment}, {parser.Comment}
-    local comments = node.comments or {}
+    local comments = node.leading_comments or {}
     local previous_y = node.y
     local floating_comments: {parser.Comment} = {}
     local attached_comments: {parser.Comment} = {}
@@ -130,13 +130,13 @@ function require_sort.sort_top_level_requires(
                 -- If there are no floating comments then assume the attched comment
                 -- is intended as the module comment
                 attach_module_documentation = attached_comments
-                entry.node.comments = {}
+                entry.node.leading_comments = {}
             else
                 float_module_documentation = floating_comments
-                entry.node.comments = attached_comments
+                entry.node.leading_comments = attached_comments
             end
         else
-            entry.node.comments = attached_comments
+            entry.node.leading_comments = attached_comments
             for _, floating_comment in ipairs(floating_comments) do
                 table.insert(all_floating_comments, floating_comment)
             end
@@ -159,7 +159,7 @@ function require_sort.sort_top_level_requires(
         current_y = comment_yend(comment) + 1
         first_require_stmt.blank_line_before = false
     end
-    for index, comment in ipairs(first_require_stmt.comments) do
+    for index, comment in ipairs(first_require_stmt.leading_comments) do
         if index == 1 and #attach_module_documentation == 0 then
             comment.blank_line_before = true
         end
@@ -169,14 +169,14 @@ function require_sort.sort_top_level_requires(
         current_y = comment.yend + 1
         first_require_stmt.blank_line_before = false
     end
-    first_require_stmt.comments = total_top_level_comments
-    if #first_require_stmt.comments == 0 then
+    first_require_stmt.leading_comments = total_top_level_comments
+    if #first_require_stmt.leading_comments == 0 then
         first_require_stmt.blank_line_before = false
     end
 
     for index, entry in ipairs(sortable) do
         if index ~= 1 then
-            for _, comment in ipairs(entry.node.comments or {}) do
+            for _, comment in ipairs(entry.node.leading_comments or {}) do
                 comment.y = current_y
                 comment.yend = comment_yend(comment)
                 current_y = comment.yend + 1
@@ -204,15 +204,15 @@ function require_sort.sort_top_level_requires(
 
     local next_stmt = ast[count + 1]
     if next_stmt then
-        for _, comment in ipairs(next_stmt.comments or {}) do
+        for _, comment in ipairs(next_stmt.leading_comments or {}) do
             table.insert(all_floating_comments, comment)
         end
-        next_stmt.comments = all_floating_comments
+        next_stmt.leading_comments = all_floating_comments
     else
-        for _, comment in ipairs(ast.end_comments or {}) do
+        for _, comment in ipairs(ast.dangling_comments or {}) do
             table.insert(all_floating_comments, comment)
         end
-        ast.end_comments = all_floating_comments
+        ast.dangling_comments = all_floating_comments
     end
 end
 
