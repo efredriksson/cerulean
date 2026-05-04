@@ -28,12 +28,16 @@ function inline_stmt_doc.render_assignment_doc(
     ctx: RenderContext, stmt: parser.Node
 ): doc.Doc
     local function build_var_doc(var: parser.Node): doc.Doc
-        if var.trailing_comment then
-            return doc.concat(
-                {ctx.render_expr(var), doc.text(" " .. var.trailing_comment.text)}
-            )
+        local var_doc = ctx.render_expr(var)
+        local trivia = var.trailing_trivia
+        if trivia == nil or #trivia == 0 then
+            return var_doc
         end
-        return ctx.render_expr(var)
+        local parts: {doc.Doc} = {var_doc}
+        for _, c in ipairs(trivia) do
+            table.insert(parts, doc.text(" " .. c.text))
+        end
+        return doc.concat(parts)
     end
     local var_docs: {doc.Doc} = {}
     for _, var in ipairs(stmt.vars) do
