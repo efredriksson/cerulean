@@ -25,7 +25,7 @@ local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc
                 }
             )
         end
-        return render_builders.with_leading_inline_comment(
+        return render_builders.with_leading_inline_trivia(
             item, doc.text(key_text .. " = "), ctx.render_expr(item.value)
         )
     end

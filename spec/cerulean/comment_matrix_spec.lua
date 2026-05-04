@@ -1358,6 +1358,87 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]=]))
 
+      it("preserves multiple block comments after declaration equals", helpers.check([=[
+         local x = --[[a]] --[[b]]
+             1
+      ]=]))
+
+      it("preserves multiple block comments after assignment equals", helpers.check([=[
+         x = --[[a]] --[[b]]
+             1
+      ]=]))
+
+      it("preserves multiple block comments after call open paren", helpers.format([=[
+         f( --[[a]] --[[b]] x)
+      ]=], [=[
+         f(--[[a]] --[[b]]
+             x
+         )
+      ]=]))
+
+      it("preserves multiple block comments after while keyword", helpers.format([=[
+         while --[[a]] --[[b]] cond do
+             step()
+         end
+      ]=], [=[
+         while --[[a]] --[[b]]
+             cond do
+             step()
+         end
+      ]=]))
+
+      it("preserves multiple block comments after for-num equals", helpers.format([=[
+         for i = --[[a]] --[[b]] 1, 10 do
+             step()
+         end
+      ]=], [=[
+         for i = --[[a]] --[[b]]
+             1, 10 do
+             step()
+         end
+      ]=]))
+
+      it("preserves multiple block comments after for-in keyword", helpers.format([=[
+         for k, v in --[[a]] --[[b]] pairs(t) do
+             step()
+         end
+      ]=], [=[
+         for k, v in --[[a]] --[[b]]
+             pairs(t) do
+             step()
+         end
+      ]=]))
+
+      it("preserves multiple block comments after until", helpers.check([=[
+         repeat
+             step()
+         until --[[a]] --[[b]]
+             cond
+      ]=]))
+
+      it("preserves multiple block comments after return", helpers.check([=[
+         return --[[a]] --[[b]]
+             x
+      ]=]))
+
+      it("preserves multiple block comments after if cond keyword", helpers.format([=[
+         if --[[a]] --[[b]] cond then
+             step()
+         end
+      ]=], [=[
+         if --[[a]] --[[b]]
+             cond then
+             step()
+         end
+      ]=]))
+
+      it("preserves multiple block comments after table short key equals", helpers.check([=[
+         local t = {
+             key = --[[a]] --[[b]]
+                 value,
+         }
+      ]=]))
+
       it("preserves trailing comment on nested logical expressions", helpers.format([[
          local x = expression_1 -- Keep me
             or expression_2
