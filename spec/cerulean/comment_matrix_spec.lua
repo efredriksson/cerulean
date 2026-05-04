@@ -1262,19 +1262,26 @@ describe("formatter comment matrix (single-line)", function()
    end)
 
    describe("dropped comments in multi-line expressions (regression)", function()
-      pending("preserves trailing comment on is-narrowing line in multi-line and/or assignment", helpers.check([[
+      it("preserves trailing comment on is-narrowing line in multi-line and/or assignment", helpers.check([[
          local x = a is integer -- only ints
-             and 1
-             or 0
+             and 1 or 0
       ]]))
 
-      pending("preserves comments interleaved between and/or parts in if condition", helpers.check([[
+      it("preserves comments interleaved between and/or parts in if condition", helpers.format([[
          if (not a) and
             -- try first
             ((b == 1)
             -- then second
             or (b == 2))
          then
+             f()
+         end
+      ]], [[
+         if (not a) and
+             -- try first
+             ((b == 1)
+                     -- then second
+                     or (b == 2)) then
              f()
          end
       ]]))
