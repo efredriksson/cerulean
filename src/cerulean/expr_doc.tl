@@ -265,19 +265,22 @@ local function call_doc_build_call_expr_doc(
     return doc.concat({callee_doc, call_args_doc, args_tc})
 end
 
-local function operator_doc_with_spacing(
-    node: parser.Node, before_op: parser.Comment, after_op: parser.Comment
-): doc.Doc
-    local op_text = node.op.op
-    if before_op and after_op then
-        return doc.text(op_text)
-    elseif before_op then
-        return doc.text(op_text .. " ")
-    elseif after_op then
-        return doc.text(" " .. op_text)
-    else
-        return doc.text(" " .. op_text .. " ")
+local function partition_trivia(
+    trivia: {parser.Comment}, anchor_line: integer
+): parser.Comment, {parser.Comment}
+    local same_line: parser.Comment = nil
+    local off_line: {parser.Comment} = {}
+    if trivia == nil then
+        return same_line, off_line
     end
+    for index, c in ipairs(trivia) do
+        if index == 1 and c.y == anchor_line then
+            same_line = c
+        else
+            table.insert(off_line, c)
+        end
+    end
+    return same_line, off_line
 end
 
 local function render_op(
@@ -322,25 +325,37 @@ local function render_op(
         local child = parenthesize_unary_operand(
             render_expr(ctx, left, op_prec, same_indent_on_line), left, op_prec
         )
-        local op_doc = doc.text(op)
-        local after_op = trivia_same_line(node.op_trailing_trivia, operator.y)
-        if after_op then
-            op_doc = trail_comment_on(op_doc, after_op)
-            child = doc.indent_hardline(child)
-        end
-
-        if op == "not" then
-            op_doc = doc.concat({op_doc, doc.text(" ")})
-        end
-        return parenthesize_if_lower_prec(
-            doc.concat({op_doc, child}), op_prec, parent_prec
+        local after_op, after_off = partition_trivia(
+            node.op_trailing_trivia, operator.y
         )
+        local parts: {doc.Doc} = {doc.text(op)}
+        if after_op then
+            table.insert(parts, doc.text(" " .. after_op.text))
+        end
+        for _, c in ipairs(after_off) do
+            table.insert(parts, doc.indent_hardline(doc.text(c.text)))
+        end
+        if after_op or #after_off > 0 then
+            table.insert(parts, doc.indent_hardline(child))
+        else
+            if op == "not" then
+                table.insert(parts, doc.text(" "))
+            end
+            table.insert(parts, child)
+        end
+        return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
     else
         local op_prec = operator.prec
         local lhs_line = left.yend or left.y
-        local before_op = trivia_same_line(node.op_leading_trivia, lhs_line)
-        local after_op = trivia_same_line(node.op_trailing_trivia, operator.y)
-        if is_chainable_binary_op(operator) and not before_op and not after_op then
+        local before_op, before_off = partition_trivia(node.op_leading_trivia, lhs_line)
+        local after_op, after_off = partition_trivia(
+            node.op_trailing_trivia, operator.y
+        )
+        local has_before_break = before_op ~= nil or #before_off > 0
+        local has_after_break = after_op ~= nil or #after_off > 0
+        if is_chainable_binary_op(operator)
+            and not has_before_break
+            and not has_after_break then
             return parenthesize_if_lower_prec(
                 render_binary_chain(ctx, operator, left, right, same_indent_on_line),
                 op_prec,
@@ -349,19 +364,32 @@ local function render_op(
         end
         local left_doc = render_expr(ctx, left, op_prec, same_indent_on_line)
         local right_doc = render_expr(ctx, right, op_prec, same_indent_on_line)
-        local op_doc = operator_doc_with_spacing(node, before_op, after_op)
 
+        local parts: {doc.Doc} = {left_doc}
         if before_op then
-            left_doc = trail_comment_on(left_doc, before_op)
-            op_doc = doc.indent_hardline(op_doc)
+            table.insert(parts, doc.text(" " .. before_op.text))
+        end
+        for _, c in ipairs(before_off) do
+            table.insert(parts, doc.indent_hardline(doc.text(c.text)))
+        end
+        if has_before_break then
+            table.insert(parts, doc.indent_hardline(doc.text(op)))
+        else
+            table.insert(parts, doc.text(" " .. op))
         end
         if after_op then
-            op_doc = trail_comment_on(op_doc, after_op)
-            right_doc = doc.indent_hardline(right_doc)
+            table.insert(parts, doc.text(" " .. after_op.text))
         end
-        return parenthesize_if_lower_prec(
-            doc.concat({left_doc, op_doc, right_doc}), op_prec, parent_prec
-        )
+        for _, c in ipairs(after_off) do
+            table.insert(parts, doc.indent_hardline(doc.text(c.text)))
+        end
+        if has_after_break then
+            table.insert(parts, doc.indent_hardline(right_doc))
+        else
+            table.insert(parts, doc.text(" "))
+            table.insert(parts, right_doc)
+        end
+        return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
     end
 end
 
