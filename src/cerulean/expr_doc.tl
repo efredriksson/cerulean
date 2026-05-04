@@ -71,6 +71,18 @@ local function is_chainable_binary_op(operator: parser.Operator): boolean
     return CHAINABLE_OPS[operator.op] == true
 end
 
+local function trivia_same_line(trivia: {parser.Comment}, line: integer): parser.Comment
+    if trivia == nil then
+        return nil
+    end
+    for _, c in ipairs(trivia) do
+        if c.y == line then
+            return c
+        end
+    end
+    return nil
+end
+
 local function collect_chain_terms(
     node: parser.Node,
     operator: parser.Operator,
@@ -79,8 +91,10 @@ local function collect_chain_terms(
 )
     if node.kind == "op" and node.op.prec == operator.prec then
         collect_chain_terms(node.e1, operator, terms, gap_before_comments)
-        if node.before_op_comment then
-            gap_before_comments[#terms] = node.before_op_comment
+        local lhs_line = node.e1.yend or node.e1.y
+        local before_op = trivia_same_line(node.op_leading_trivia, lhs_line)
+        if before_op then
+            gap_before_comments[#terms] = before_op
         end
         collect_chain_terms(node.e2, operator, terms, gap_before_comments)
         return
@@ -251,13 +265,15 @@ local function call_doc_build_call_expr_doc(
     return doc.concat({callee_doc, call_args_doc, args_tc})
 end
 
-local function operator_doc_with_spacing(node: parser.Node): doc.Doc
+local function operator_doc_with_spacing(
+    node: parser.Node, before_op: parser.Comment, after_op: parser.Comment
+): doc.Doc
     local op_text = node.op.op
-    if node.before_op_comment and node.after_op_comment then
+    if before_op and after_op then
         return doc.text(op_text)
-    elseif node.before_op_comment then
+    elseif before_op then
         return doc.text(op_text .. " ")
-    elseif node.after_op_comment then
+    elseif after_op then
         return doc.text(" " .. op_text)
     else
         return doc.text(" " .. op_text .. " ")
@@ -307,8 +323,9 @@ local function render_op(
             render_expr(ctx, left, op_prec, same_indent_on_line), left, op_prec
         )
         local op_doc = doc.text(op)
-        if node.after_op_comment then
-            op_doc = trail_comment_on(op_doc, node.after_op_comment)
+        local after_op = trivia_same_line(node.op_trailing_trivia, operator.y)
+        if after_op then
+            op_doc = trail_comment_on(op_doc, after_op)
             child = doc.indent_hardline(child)
         end
 
@@ -320,9 +337,10 @@ local function render_op(
         )
     else
         local op_prec = operator.prec
-        if is_chainable_binary_op(operator)
-            and not node.before_op_comment
-            and not node.after_op_comment then
+        local lhs_line = left.yend or left.y
+        local before_op = trivia_same_line(node.op_leading_trivia, lhs_line)
+        local after_op = trivia_same_line(node.op_trailing_trivia, operator.y)
+        if is_chainable_binary_op(operator) and not before_op and not after_op then
             return parenthesize_if_lower_prec(
                 render_binary_chain(ctx, operator, left, right, same_indent_on_line),
                 op_prec,
@@ -331,14 +349,14 @@ local function render_op(
         end
         local left_doc = render_expr(ctx, left, op_prec, same_indent_on_line)
         local right_doc = render_expr(ctx, right, op_prec, same_indent_on_line)
-        local op_doc = operator_doc_with_spacing(node)
+        local op_doc = operator_doc_with_spacing(node, before_op, after_op)
 
-        if node.before_op_comment then
-            left_doc = trail_comment_on(left_doc, node.before_op_comment)
+        if before_op then
+            left_doc = trail_comment_on(left_doc, before_op)
             op_doc = doc.indent_hardline(op_doc)
         end
-        if node.after_op_comment then
-            op_doc = trail_comment_on(op_doc, node.after_op_comment)
+        if after_op then
+            op_doc = trail_comment_on(op_doc, after_op)
             right_doc = doc.indent_hardline(right_doc)
         end
         return parenthesize_if_lower_prec(
