@@ -3,6 +3,7 @@ local doc = require("cerulean.doc")
 local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
+local trivia_doc = require("cerulean.trivia_doc")
 local type_doc = require("cerulean.type_doc")
 
 local type RenderContext = render_context.RenderContext
@@ -45,18 +46,6 @@ local function has_any_comments(items: parser.Node): boolean
         or #(items.end_comments or {}) > 0
 end
 
-local function pre_comma_trivia_doc(item: parser.Node): doc.Doc
-    local trivia = item.trailing_trivia
-    if trivia == nil or #trivia == 0 then
-        return doc.text("")
-    end
-    local parts: {doc.Doc} = {}
-    for _, c in ipairs(trivia) do
-        table.insert(parts, doc.text(" " .. c.text))
-    end
-    return doc.concat(parts)
-end
-
 function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.Doc
     local force_wrap = has_any_comments(items)
     local line_doc = render_builders.item_line_doc(force_wrap)
@@ -70,7 +59,7 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
 
         table.insert(parts, render_builders.append_lines_pre_node(item, line_before))
         table.insert(parts, build_table_item_text(ctx, item))
-        table.insert(parts, pre_comma_trivia_doc(item))
+        trivia_doc.append_inline(parts, item.trailing_trivia)
 
         local sep = item.trailing_comment and "," or ", "
         if index < #items then

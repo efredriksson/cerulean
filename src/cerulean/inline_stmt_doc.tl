@@ -2,6 +2,7 @@ local doc = require("cerulean.doc")
 local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
+local trivia_doc = require("cerulean.trivia_doc")
 local type_doc = require("cerulean.type_doc")
 
 local type RenderContext = render_context.RenderContext
@@ -28,15 +29,8 @@ function inline_stmt_doc.render_assignment_doc(
     ctx: RenderContext, stmt: parser.Node
 ): doc.Doc
     local function build_var_doc(var: parser.Node): doc.Doc
-        local var_doc = ctx.render_expr(var)
-        local trivia = var.trailing_trivia
-        if trivia == nil or #trivia == 0 then
-            return var_doc
-        end
-        local parts: {doc.Doc} = {var_doc}
-        for _, c in ipairs(trivia) do
-            table.insert(parts, doc.text(" " .. c.text))
-        end
+        local parts: {doc.Doc} = {ctx.render_expr(var)}
+        trivia_doc.append_inline(parts, var.trailing_trivia)
         return doc.concat(parts)
     end
     local var_docs: {doc.Doc} = {}
@@ -58,17 +52,11 @@ local function build_var_text(var_node: parser.Node): string
     return var_text
 end
 
-local function append_trailing_trivia(parts: {doc.Doc}, var_node: parser.Node)
-    for _, c in ipairs(var_node.trailing_trivia or {}) do
-        table.insert(parts, doc.text(" " .. c.text))
-    end
-end
-
 local function build_vars_doc(stmt: parser.Node, keyword: string): doc.Doc
     local parts: {doc.Doc} = {doc.text(keyword .. " ")}
     for index, var_node in ipairs(stmt.vars) do
         table.insert(parts, doc.text(build_var_text(var_node)))
-        append_trailing_trivia(parts, var_node)
+        trivia_doc.append_inline(parts, var_node.trailing_trivia)
         if index < #stmt.vars then
             table.insert(parts, doc.text(", "))
         end
