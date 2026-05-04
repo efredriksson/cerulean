@@ -207,19 +207,21 @@ function render_builders.append_lines_pre_node(
     return doc.concat(parts)
 end
 
-function render_builders.with_leading_inline_comment(
+function render_builders.with_leading_inline_trivia(
     node: parser.Node, prefix: doc.Doc, content: doc.Doc
 ): doc.Doc
-    if node.leading_inline_comment then
-        return doc.concat(
-            {
-                prefix,
-                doc.text(node.leading_inline_comment.text),
-                doc.indent_hardline(content),
-            }
-        )
+    if node.leading_inline_trivia == nil or #node.leading_inline_trivia == 0 then
+        return doc.concat({prefix, content})
     end
-    return doc.concat({prefix, content})
+    local parts: {doc.Doc} = {prefix}
+    for index, c in ipairs(node.leading_inline_trivia) do
+        if index > 1 then
+            table.insert(parts, doc.text(" "))
+        end
+        table.insert(parts, doc.text(c.text))
+    end
+    table.insert(parts, doc.indent_hardline(content))
+    return doc.concat(parts)
 end
 
 function render_builders.append_comment_docs(

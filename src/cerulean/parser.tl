@@ -519,7 +519,7 @@ local record parser
         trailing_comment:               Comment
         trailing_trivia:                {Comment}
         head_trivia:                    {Comment}
-        leading_inline_comment:         Comment
+        leading_inline_trivia:          {Comment}
         blank_line_before:              boolean
         debug_type:                     Type
         is_self:                        boolean
@@ -1085,7 +1085,7 @@ local function parse_table_item(
          node.key.conststr = node.key.tk
          node.key.tk = '"' .. node.key.tk .. '"'
          i = verify_tk(ps, i, "=")
-         node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+         node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
          i, node.value = parse_table_value(ps, i)
          node.yend = ps.tokens[i - 1].y
          return i, node, n
@@ -1797,10 +1797,10 @@ do
             local prev_i = i
 
             local args = new_node(ps, i, "expression_list")
-            local open_paren_leading_comment = get_same_line_comment(ps.tokens[i + 1], ps.tokens[i].y)
+            local open_paren_leading_trivia = take_same_line_comments(ps.tokens[i + 1], ps.tokens[i].y)
             i, args = parse_bracket_list(ps, i, args, "(", ")", "sep", parse_expression)
-            if open_paren_leading_comment then
-               args.leading_inline_comment = open_paren_leading_comment
+            if #open_paren_leading_trivia > 0 then
+               args.leading_inline_trivia = open_paren_leading_trivia
             end
 
             local function leftmost_y(node: Node): integer
@@ -2267,7 +2267,7 @@ local function parse_if_block(
    block.if_parent = node
    block.if_block_n = n
    if not is_else then
-      block.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+      block.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
       i, block.exp = parse_expression_and_tk(ps, i, "then")
       if not block.exp then
          return i
@@ -2318,7 +2318,7 @@ local function parse_while(ps: ParseState, i: integer): integer, Node
    local istart = i
    local node = new_node(ps, i, "while")
    i = verify_tk(ps, i, "while")
-   node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+   node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.exp = parse_expression_and_tk(ps, i, "do")
    node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
@@ -2336,7 +2336,7 @@ local function parse_fornum(ps: ParseState, i: integer): integer, Node
    i = i + 1
    i, node.var = parse_identifier(ps, i)
    i = verify_tk(ps, i, "=")
-   node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+   node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.from = parse_expression_and_tk(ps, i, ",")
    i, node.to = parse_expression(ps, i)
    if ps.tokens[i].tk == "," then
@@ -2369,7 +2369,7 @@ local function parse_forin(ps: ParseState, i: integer): integer, Node
        parse_identifier
    )
    i = verify_tk(ps, i, "in")
-   node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+   node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    node.exps = new_node(ps, i, "expression_list")
    i = parse_list(ps, i, node.exps, { ["do"] = true }, "sep", parse_expression)
    if #node.exps < 1 then
@@ -2403,7 +2403,7 @@ local function parse_repeat(ps: ParseState, i: integer): integer, Node
    i, node.body = parse_statements(ps, i)
    node.body.is_repeat = true
    i = verify_tk(ps, i, "until")
-   node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+   node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.exp = parse_expression(ps, i)
    end_at(node, ps.tokens[i - 1])
    if node then
@@ -2473,7 +2473,7 @@ local function parse_return(ps: ParseState, i: integer): integer, Node
    local node = new_node(ps, i, "return")
    i = verify_tk(ps, i, "return")
    if not stop_return_list[ps.tokens[i].tk] then
-      node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+      node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    end
    node.exps = new_node(ps, i, "expression_list")
    i = parse_list(ps, i, node.exps, stop_return_list, "sep", parse_expression)
@@ -3145,7 +3145,7 @@ local function parse_assignment_expression_list(
    repeat
       i = i + 1
       if #asgn.exps == 0 then
-         asgn.leading_inline_comment = get_same_line_comment(ps.tokens[i], eq_line)
+         asgn.leading_inline_trivia = take_same_line_comments(ps.tokens[i], eq_line)
       end
       local val: Node
       i, val = parse_expression(ps, i)

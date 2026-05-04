@@ -366,7 +366,7 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
                 return doc.text("else")
             end
             local keyword = index == 1 and "if" or "elseif"
-            local with_comment = render_builders.with_leading_inline_comment(
+            local with_comment = render_builders.with_leading_inline_trivia(
                 if_block, doc.text(keyword .. " "), ctx.render_expr(if_block.exp)
             )
             return doc.group(doc.concat({with_comment, doc.text(" then")}))
@@ -394,7 +394,7 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
-    local while_and_exp_doc = render_builders.with_leading_inline_comment(
+    local while_and_exp_doc = render_builders.with_leading_inline_trivia(
         node, doc.text("while "), ctx.render_expr(node.exp)
     )
     local header = doc.concat(
@@ -437,7 +437,7 @@ local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc
         }
     )
     return block_with_close(
-        render_builders.with_leading_inline_comment(
+        render_builders.with_leading_inline_trivia(
             node, doc.text("for " .. node.var.tk .. " = "), tail
         ),
         body_doc,
@@ -471,7 +471,7 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
             doc.text(" in "),
         }
     )
-    local header = render_builders.with_leading_inline_comment(
+    local header = render_builders.with_leading_inline_trivia(
         node, for_in_doc, doc.concat({exps_doc, tail_doc})
     )
     return block_with_close(header, body_doc, "end")
@@ -494,7 +494,7 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
     -- block_with_indent always emits a newline into the body, which produces a
     -- spurious blank line when the body is empty. Skip it in that case.
     local is_empty_body = #node.body == 0 and #(node.body.end_comments or {}) == 0
-    local until_doc = render_builders.with_leading_inline_comment(
+    local until_doc = render_builders.with_leading_inline_trivia(
         node, doc.text("until "), ctx.render_expr(node.exp)
     )
     if is_empty_body then

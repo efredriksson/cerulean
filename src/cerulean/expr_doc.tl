@@ -193,7 +193,7 @@ local function call_doc_build_call_expr_doc(
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee, true)
     local force_wrap = render_builders.any_items_have_comments(args)
-        or args.leading_inline_comment ~= nil
+        or #(args.leading_inline_trivia or {}) > 0
     local parts: {doc.Doc} = {}
     local line_before = false
 
@@ -222,13 +222,16 @@ local function call_doc_build_call_expr_doc(
 
     local function build_args_doc(): doc.Doc
         local arg_items_trimed = doc.trim_lines(args_items_doc)
-        if args.leading_inline_comment then
-            return doc.concat(
-                {
-                    doc.text(args.leading_inline_comment.text),
-                    doc.indent_hardline(arg_items_trimed),
-                }
-            )
+        if #(args.leading_inline_trivia or {}) > 0 then
+            local prefix_parts: {doc.Doc} = {}
+            for index, c in ipairs(args.leading_inline_trivia) do
+                if index > 1 then
+                    table.insert(prefix_parts, doc.text(" "))
+                end
+                table.insert(prefix_parts, doc.text(c.text))
+            end
+            table.insert(prefix_parts, doc.indent_hardline(arg_items_trimed))
+            return doc.concat(prefix_parts)
         else
             return doc.concat(
                 {

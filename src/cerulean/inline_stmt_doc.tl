@@ -19,7 +19,7 @@ function inline_stmt_doc.render_return_doc(
     local return_exp_doc = render_builders.build_exp_list_doc(ctx, stmt.exps)
     local last_exp = stmt.exps[#stmt.exps]
     local last_tc = render_builders.trailing_comment_doc(last_exp)
-    local stmt_doc = render_builders.with_leading_inline_comment(
+    local stmt_doc = render_builders.with_leading_inline_trivia(
         stmt, doc.text("return "), return_exp_doc
     )
     return doc.concat({stmt_doc, last_tc})
@@ -39,7 +39,7 @@ function inline_stmt_doc.render_assignment_doc(
     end
     local vars_doc = render_builders.build_comma_separated_docs(var_docs)
     local exps_doc = render_builders.build_exp_list_doc(ctx, stmt.exps)
-    return render_builders.with_leading_inline_comment(
+    return render_builders.with_leading_inline_trivia(
         stmt, doc.concat({vars_doc, doc.text(" = ")}), exps_doc
     )
 end
@@ -82,7 +82,7 @@ function inline_stmt_doc.render_declaration_doc(
     end
 
     local function build_init_doc(exp_doc: doc.Doc): doc.Doc
-        return render_builders.with_leading_inline_comment(
+        return render_builders.with_leading_inline_trivia(
             stmt, doc.concat({prefix_doc, doc.text(" = ")}), exp_doc
         )
     end
