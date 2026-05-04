@@ -43,8 +43,6 @@ describe("formatter function expressions", function()
           5
    ]]))
 
-   -- comment before the top-level expression (between keyword/punctuation and value).
-   -- Requires leading_inline_comment on Node + stmt_doc changes to render it inline.
    it("preserves comment between assignment = and value", helpers.format([[
       local x = --hmm
             5
