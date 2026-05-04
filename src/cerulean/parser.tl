@@ -492,8 +492,6 @@ local record parser
         op:                             Operator
         e1:                             Node
         e2:                             Node
-        before_op_comment:              Comment
-        after_op_comment:               Comment
         op_leading_trivia:              {Comment}
         op_trailing_trivia:             {Comment}
         constnum:                       number
@@ -1697,7 +1695,7 @@ do
       if precedences[1][t1.tk] ~= nil then
          local op: Operator = new_operator(t1, 1, t1.tk)
          i = i + 1
-         local after_op = get_same_line_comment(ps.tokens[i], t1.y)
+         local op_trailing_trivia = take_all_token_comments(ps.tokens[i])
          local prev_i = i
          i, e1 = P(ps, i)
          if not e1 then
@@ -1705,7 +1703,8 @@ do
             return i
          end
          e1 = { f = ps.filename, y = t1.y, x = t1.x, kind = "op", op = op, e1 = e1 }
-         e1.after_op_comment = after_op
+         e1.op_leading_trivia = {}
+         e1.op_trailing_trivia = op_trailing_trivia
       elseif ps.tokens[i].tk == "(" then
          i = i + 1
          local prev_i = i
@@ -1920,7 +1919,6 @@ do
       local lookahead = ps.tokens[i].tk
       while precedences[2][lookahead] and precedences[2][lookahead] >= min_precedence do
          local t1 = ps.tokens[i]
-         local lhs_line = lhs.yend or lhs.y
          local op_leading_trivia = take_all_token_comments(ps.tokens[i])
          local op: Operator = new_operator(t1, 2, t1.tk)
          i = i + 1
@@ -1944,18 +1942,6 @@ do
          lhs = { f = ps.filename, y = t1.y, x = t1.x, kind = "op", op = op, e1 = lhs, e2 = rhs, yend = rhs.yend or rhs.y }
          lhs.op_leading_trivia = op_leading_trivia
          lhs.op_trailing_trivia = op_trailing_trivia
-         for _, c in ipairs(op_leading_trivia) do
-            if c.y == lhs_line then
-               lhs.before_op_comment = c
-               break
-            end
-         end
-         for _, c in ipairs(op_trailing_trivia) do
-            if c.y == t1.y then
-               lhs.after_op_comment = c
-               break
-            end
-         end
       end
       return i, lhs
    end
