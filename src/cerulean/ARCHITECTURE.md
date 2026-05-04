@@ -95,6 +95,18 @@ Trivia lists are populated during parse by draining `token.comments` via `take_a
 - `append_inline_joined(parts, trivia)` — same content, single-space separator, no leading space (for use after openers).
 - `emit_transition(parts, trivia, anchor_line, next_doc, plain_separator)` — boundary handler for operator-like positions: own-line entries force a break before `next_doc`; otherwise emits `plain_separator` and `next_doc` flat.
 
+### Migration status (in transition)
+
+The current comment model is the result of a partial migration *toward* a canonical token-trivia / three-slot CST (StyLua / Prettier style). It works, but is not the full vision. Known gaps to keep in mind when extending it:
+
+1. **Hybrid, not pure token-trivia.** The original target was StyLua-style: every `Token` carries `leading_trivia`/`trailing_trivia` and AST nodes hold token references. We landed on per-position trivia *fields on Nodes* (`op_leading_trivia`, `head_trivia`, `leading_inline_trivia`, `trailing_trivia`). The field-count-per-position pressure is reduced but not eliminated — each new "between two specific tokens" case still tempts a new field. Pushing the rest of the way (trivia on `Token`, drained by renderers via a `render_token` helper) would close that.
+
+2. **`trailing_comment` is still a scalar, not a list.** Every other comment vector became `{Comment}`. `trailing_comment` stayed a single slot. Defensible (at most one `--` comment per line), but a case like `value --[[a]] --[[b]]\n` after a value would need to migrate to a list.
+
+3. **`dangling_comments` is a pure rename, not a unification.** In Prettier's model, "dangling" covers any comment inside an enclosing node that doesn't attach to a child (empty `{}`, empty bodies, before-closer). We use it only for the before-closer case; empty-body and head-trailing cases live in `head_trivia` and pre-closing logic. Real dangling unification was deferred.
+
+4. **`get_same_line_comment` and `take_same_line_comments` overlap.** Both look up same-line comments on a token; one returns the first match (for the scalar `trailing_comment`), the other drains the matching list (for trivia fields). Could collapse to one list-returning helper with a thin scalar caller.
+
 ## require_sort Comment Semantics
 
 Only module mutating AST comment fields post-parse. Two kinds:
