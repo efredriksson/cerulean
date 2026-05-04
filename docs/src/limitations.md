@@ -10,9 +10,6 @@ Cerulean is experimental. The output format may change between versions. Use it 
 
 The following behaviours are not yet correctly handled. They are tracked as pending tests in the test suite.
 
-**Comments in wrapped expressions are dropped.**
-When an expression is split across multiple lines, inline comments within it may be lost in the output.
-
 **Expressions with table types may be reformatted incorrectly.**
 An expression whose type annotation is a table type can produce malformed output in some cases.
 
