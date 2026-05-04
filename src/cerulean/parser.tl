@@ -518,7 +518,7 @@ local record parser
         end_comments:                   {Comment}
         trailing_comment:               Comment
         trailing_trivia:                {Comment}
-        head_trailing_comment:          Comment
+        head_trivia:                    {Comment}
         leading_inline_comment:         Comment
         blank_line_before:              boolean
         debug_type:                     Type
@@ -1053,6 +1053,7 @@ end
 
 local get_attached_comments: function(token: Token, previous_token?: Token): {Comment}
 local get_same_line_comment: function(token: Token, line: integer): Comment
+local take_same_line_comments: function(token: Token, line: integer): {Comment}
 local take_all_token_comments: function(token: Token): {Comment}
 
 local function parse_table_item(
@@ -1543,7 +1544,7 @@ local function parse_function_args_rets_body(
    i, node.typeargs = parse_typeargs_if_any(ps, i)
    i, node.args, node.min_arity = parse_argument_list(ps, i)
    i, node.rets = parse_return_types(ps, i)
-   node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+   node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
    end_at(node, ps.tokens[i])
    i = verify_end(ps, i, istart, node)
@@ -2319,7 +2320,7 @@ local function parse_while(ps: ParseState, i: integer): integer, Node
    i = verify_tk(ps, i, "while")
    node.leading_inline_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.exp = parse_expression_and_tk(ps, i, "do")
-   node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+   node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
    if node then
@@ -2344,7 +2345,7 @@ local function parse_fornum(ps: ParseState, i: integer): integer, Node
    else
       i = verify_tk(ps, i, "do")
    end
-   node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+   node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
    if node then
@@ -2377,7 +2378,7 @@ local function parse_forin(ps: ParseState, i: integer): integer, Node
       return fail(ps, i, "too many expressions in generic for")
    end
    i = verify_tk(ps, i, "do")
-   node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+   node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
    i = verify_end(ps, i, istart, node)
    if node then
@@ -2398,7 +2399,7 @@ local function parse_repeat(ps: ParseState, i: integer): integer, Node
    local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    local node = new_node(ps, i, "repeat")
    i = verify_tk(ps, i, "repeat")
-   node.head_trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+   node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
    i, node.body = parse_statements(ps, i)
    node.body.is_repeat = true
    i = verify_tk(ps, i, "until")
@@ -2640,6 +2641,27 @@ get_same_line_comment = function(token: Token, line: integer): Comment
       end
    end
    return nil
+end
+
+-- Drains every comment on the given line from token.comments. Use after
+-- a block-opening keyword so trailing inline trivia does not leak into
+-- the first body statement's leading comments.
+take_same_line_comments = function(token: Token, line: integer): {Comment}
+   local lc_list = token.comments
+   if lc_list == nil or #lc_list == 0 then
+      return {}
+   end
+   local result: {Comment} = {}
+   local i = 1
+   while i <= #lc_list do
+      if lc_list[i].y == line then
+         table.insert(result, make_comment(lc_list[i]))
+         table.remove(lc_list, i)
+      else
+         i = i + 1
+      end
+   end
+   return result
 end
 
 -- Mutates token.comments so a downstream get_attached_comments call

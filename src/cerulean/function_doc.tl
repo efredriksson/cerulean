@@ -27,7 +27,7 @@ function function_doc.render(
     local header = doc.concat(
         {
             doc.group(doc.concat({header_prefix, sig_doc})),
-            render_builders.head_trailing_comment_doc(node),
+            render_builders.head_trivia_doc(node),
         }
     )
     local body_doc = ctx.render_block(node.body)
@@ -52,7 +52,7 @@ function function_doc.render_anonymous(
 
     local rendered = function_doc.render(ctx, node, header_prefix)
     if render_builders.block_has_any_comments(node.body)
-        or node.head_trailing_comment then
+        or #(node.head_trivia or {}) > 0 then
         return rendered
     end
     return doc.group(rendered)

@@ -400,7 +400,7 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
     local header = doc.concat(
         {
             doc.group(doc.concat({while_and_exp_doc, doc.text(" do")})),
-            render_builders.head_trailing_comment_doc(node),
+            render_builders.head_trivia_doc(node),
         }
     )
     return block_with_close(header, body_doc, "end")
@@ -433,7 +433,7 @@ local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc
         {
             build_fornum_range_doc(node, ctx),
             doc.text(" do"),
-            render_builders.head_trailing_comment_doc(node),
+            render_builders.head_trivia_doc(node),
         }
     )
     return block_with_close(
@@ -462,7 +462,7 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
 
     local exps_doc = render_builders.build_mapped_comma_separated_docs(ctx, node.exps)
     local tail_doc = doc.concat(
-        {doc.text(" do"), render_builders.head_trailing_comment_doc(node)}
+        {doc.text(" do"), render_builders.head_trivia_doc(node)}
     )
     local for_in_doc = doc.concat(
         {
@@ -488,7 +488,7 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
     end
 
     local header = doc.concat(
-        {doc.text("repeat"), render_builders.head_trailing_comment_doc(node)}
+        {doc.text("repeat"), render_builders.head_trivia_doc(node)}
     )
 
     -- block_with_indent always emits a newline into the body, which produces a
