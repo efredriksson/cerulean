@@ -6,6 +6,7 @@ local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local table_doc = require("cerulean.table_doc")
+local trivia_doc = require("cerulean.trivia_doc")
 local type_doc = require("cerulean.type_doc")
 
 local type RenderContext = render_context.RenderContext
@@ -71,18 +72,6 @@ local function is_chainable_binary_op(operator: parser.Operator): boolean
     return CHAINABLE_OPS[operator.op] == true
 end
 
-local function trivia_same_line(trivia: {parser.Comment}, line: integer): parser.Comment
-    if trivia == nil then
-        return nil
-    end
-    for _, c in ipairs(trivia) do
-        if c.y == line then
-            return c
-        end
-    end
-    return nil
-end
-
 local function collect_chain_terms(
     node: parser.Node,
     operator: parser.Operator,
@@ -92,7 +81,7 @@ local function collect_chain_terms(
     if node.kind == "op" and node.op.prec == operator.prec then
         collect_chain_terms(node.e1, operator, terms, gap_before_comments)
         local lhs_line = node.e1.yend or node.e1.y
-        local before_op = trivia_same_line(node.op_leading_trivia, lhs_line)
+        local before_op = trivia_doc.partition(node.op_leading_trivia, lhs_line)
         if before_op then
             gap_before_comments[#terms] = before_op
         end
@@ -215,11 +204,8 @@ local function call_doc_build_call_expr_doc(
         table.insert(
             parts, render_builders.append_lines_pre_node(arg_node, line_before)
         )
-        local arg_doc = ctx.render_expr(arg_node)
-        local arg_parts: {doc.Doc} = {arg_doc}
-        for _, c in ipairs(arg_node.trailing_trivia or {}) do
-            table.insert(arg_parts, doc.text(" " .. c.text))
-        end
+        local arg_parts: {doc.Doc} = {ctx.render_expr(arg_node)}
+        trivia_doc.append_inline(arg_parts, arg_node.trailing_trivia)
         if index < #args then
             local sep = arg_node.trailing_comment and "," or ", "
             table.insert(arg_parts, doc.text(sep))
@@ -267,51 +253,6 @@ local function call_doc_build_call_expr_doc(
 
     local args_tc = render_builders.trailing_comment_doc(args)
     return doc.concat({callee_doc, call_args_doc, args_tc})
-end
-
-local function partition_trivia(
-    trivia: {parser.Comment}, anchor_line: integer
-): parser.Comment, {parser.Comment}
-    local same_line: parser.Comment = nil
-    local off_line: {parser.Comment} = {}
-    if trivia == nil then
-        return same_line, off_line
-    end
-    for index, c in ipairs(trivia) do
-        if index == 1 and c.y == anchor_line then
-            same_line = c
-        else
-            table.insert(off_line, c)
-        end
-    end
-    return same_line, off_line
-end
-
--- Emits the trivia at a token boundary, then the next chunk. Same-line trivia
--- glues to the previous text; off-line entries each take their own indented
--- line. The follow-on chunk gets an indent_hardline if any trivia broke the
--- line, otherwise plain_separator. Used for both unary and binary non-chain
--- operator rendering.
-local function emit_trivia_transition(
-    parts: {doc.Doc},
-    trivia: {parser.Comment},
-    anchor_line: integer,
-    next_doc: doc.Doc,
-    plain_separator: doc.Doc
-)
-    local same_line, off_line = partition_trivia(trivia, anchor_line)
-    if same_line then
-        table.insert(parts, doc.text(" " .. same_line.text))
-    end
-    for _, c in ipairs(off_line) do
-        table.insert(parts, doc.indent_hardline(doc.text(c.text)))
-    end
-    if same_line ~= nil or #off_line > 0 then
-        table.insert(parts, doc.indent_hardline(next_doc))
-    else
-        table.insert(parts, plain_separator)
-        table.insert(parts, next_doc)
-    end
 end
 
 local function op_has_any_trivia(node: parser.Node): boolean
@@ -363,7 +304,7 @@ local function render_op(
         )
         local plain_sep = (op == "not") and doc.text(" ") or doc.text("")
         local parts: {doc.Doc} = {doc.text(op)}
-        emit_trivia_transition(
+        trivia_doc.emit_transition(
             parts, node.op_trailing_trivia, operator.y, child, plain_sep
         )
         return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
@@ -380,10 +321,10 @@ local function render_op(
         local left_doc = render_expr(ctx, left, op_prec, same_indent_on_line)
         local right_doc = render_expr(ctx, right, op_prec, same_indent_on_line)
         local parts: {doc.Doc} = {left_doc}
-        emit_trivia_transition(
+        trivia_doc.emit_transition(
             parts, node.op_leading_trivia, lhs_line, doc.text(op), doc.text(" ")
         )
-        emit_trivia_transition(
+        trivia_doc.emit_transition(
             parts, node.op_trailing_trivia, operator.y, right_doc, doc.text(" ")
         )
         return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)

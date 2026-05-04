@@ -46,6 +46,7 @@ build = {
       ["cerulean.source"] = "dist/cerulean/source.lua",
       ["cerulean.stmt_doc"] = "dist/cerulean/stmt_doc.lua",
       ["cerulean.table_doc"] = "dist/cerulean/table_doc.lua",
+      ["cerulean.trivia_doc"] = "dist/cerulean/trivia_doc.lua",
       ["cerulean.type_doc"] = "dist/cerulean/type_doc.lua",
    },
    install = {

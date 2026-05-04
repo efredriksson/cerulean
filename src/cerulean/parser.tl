@@ -1153,6 +1153,11 @@ local function parse_list<T>(
       i, item, n = parse_item(ps, i, n)
       n = n or oldn
       if item and item is Node then
+         -- Two trailing positions render as "after this item":
+         --   `x --[[c]],`  → drained from separator token
+         --   `x, --[[c]] y` → looked up on the next item's token
+         -- Only drain on a separator; a closing bracket's comments belong
+         -- to the bracket-list's end_comments, not to this item.
          local is_separator = ps.tokens[i].tk == "," or ps.tokens[i].tk == ";"
          if is_separator then
             item.trailing_trivia = take_all_token_comments(ps.tokens[i])
@@ -2637,10 +2642,8 @@ get_same_line_comment = function(token: Token, line: integer): Comment
    return nil
 end
 
--- Trivia helpers: drain comments off a token and return them as Comment lists.
--- Mutating token.comments is deliberate — it ensures comments cannot be
--- re-attached to a downstream node via get_attached_comments.
-
+-- Mutates token.comments so a downstream get_attached_comments call
+-- cannot re-pick the same comment.
 take_all_token_comments = function(token: Token): {Comment}
    local lc_list = token.comments
    if lc_list == nil or #lc_list == 0 then
