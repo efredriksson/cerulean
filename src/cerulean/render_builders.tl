@@ -1,6 +1,7 @@
 local doc = require("cerulean.doc")
 local parser = require("cerulean.parser")
 local render_context = require("cerulean.render_context")
+local trivia_doc = require("cerulean.trivia_doc")
 
 local type RenderContext = render_context.RenderContext
 
@@ -133,17 +134,29 @@ function render_builders.any_items_have_comments(items: parser.Node): boolean
     return false
 end
 
+local function any_items_have_trailing_trivia(items: {parser.Node}): boolean
+    for _, item in ipairs(items) do
+        if #(item.trailing_trivia or {}) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
 function render_builders.build_exp_list_doc(
     ctx: RenderContext, exps: {parser.Node}
 ): doc.Doc
-    if not render_builders.any_items_have_comments(exps) then
+    if not render_builders.any_items_have_comments(exps)
+        and not any_items_have_trailing_trivia(exps) then
         return render_builders.build_mapped_comma_separated_docs(ctx, exps)
     end
     local parts: {doc.Doc} = {}
     local force_next_indent = false
     for index, exp in ipairs(exps) do
         local is_last = index == #exps
-        local exp_doc = ctx.render_expr(exp)
+        local item_parts: {doc.Doc} = {ctx.render_expr(exp)}
+        trivia_doc.append_inline(item_parts, exp.trailing_trivia)
+        local exp_doc = doc.concat(item_parts)
         if force_next_indent then
             exp_doc = doc.indent_hardline(exp_doc)
             force_next_indent = false
