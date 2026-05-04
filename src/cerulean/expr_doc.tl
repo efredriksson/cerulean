@@ -283,6 +283,38 @@ local function partition_trivia(
     return same_line, off_line
 end
 
+-- Emits the trivia at a token boundary, then the next chunk. Same-line trivia
+-- glues to the previous text; off-line entries each take their own indented
+-- line. The follow-on chunk gets an indent_hardline if any trivia broke the
+-- line, otherwise plain_separator. Used for both unary and binary non-chain
+-- operator rendering.
+local function emit_trivia_transition(
+    parts: {doc.Doc},
+    trivia: {parser.Comment},
+    anchor_line: integer,
+    next_doc: doc.Doc,
+    plain_separator: doc.Doc
+)
+    local same_line, off_line = partition_trivia(trivia, anchor_line)
+    if same_line then
+        table.insert(parts, doc.text(" " .. same_line.text))
+    end
+    for _, c in ipairs(off_line) do
+        table.insert(parts, doc.indent_hardline(doc.text(c.text)))
+    end
+    if same_line ~= nil or #off_line > 0 then
+        table.insert(parts, doc.indent_hardline(next_doc))
+    else
+        table.insert(parts, plain_separator)
+        table.insert(parts, next_doc)
+    end
+end
+
+local function op_has_any_trivia(node: parser.Node): boolean
+    return (node.op_leading_trivia ~= nil and #node.op_leading_trivia > 0)
+        or (node.op_trailing_trivia ~= nil and #node.op_trailing_trivia > 0)
+end
+
 local function render_op(
     ctx: RenderContext,
     node: parser.Node,
@@ -325,70 +357,31 @@ local function render_op(
         local child = parenthesize_unary_operand(
             render_expr(ctx, left, op_prec, same_indent_on_line), left, op_prec
         )
-        local after_op, after_off = partition_trivia(
-            node.op_trailing_trivia, operator.y
-        )
+        local plain_sep = (op == "not") and doc.text(" ") or doc.text("")
         local parts: {doc.Doc} = {doc.text(op)}
-        if after_op then
-            table.insert(parts, doc.text(" " .. after_op.text))
-        end
-        for _, c in ipairs(after_off) do
-            table.insert(parts, doc.indent_hardline(doc.text(c.text)))
-        end
-        if after_op or #after_off > 0 then
-            table.insert(parts, doc.indent_hardline(child))
-        else
-            if op == "not" then
-                table.insert(parts, doc.text(" "))
-            end
-            table.insert(parts, child)
-        end
+        emit_trivia_transition(
+            parts, node.op_trailing_trivia, operator.y, child, plain_sep
+        )
         return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
     else
         local op_prec = operator.prec
-        local lhs_line = left.yend or left.y
-        local before_op, before_off = partition_trivia(node.op_leading_trivia, lhs_line)
-        local after_op, after_off = partition_trivia(
-            node.op_trailing_trivia, operator.y
-        )
-        local has_before_break = before_op ~= nil or #before_off > 0
-        local has_after_break = after_op ~= nil or #after_off > 0
-        if is_chainable_binary_op(operator)
-            and not has_before_break
-            and not has_after_break then
+        if is_chainable_binary_op(operator) and not op_has_any_trivia(node) then
             return parenthesize_if_lower_prec(
                 render_binary_chain(ctx, operator, left, right, same_indent_on_line),
                 op_prec,
                 parent_prec
             )
         end
+        local lhs_line = left.yend or left.y
         local left_doc = render_expr(ctx, left, op_prec, same_indent_on_line)
         local right_doc = render_expr(ctx, right, op_prec, same_indent_on_line)
-
         local parts: {doc.Doc} = {left_doc}
-        if before_op then
-            table.insert(parts, doc.text(" " .. before_op.text))
-        end
-        for _, c in ipairs(before_off) do
-            table.insert(parts, doc.indent_hardline(doc.text(c.text)))
-        end
-        if has_before_break then
-            table.insert(parts, doc.indent_hardline(doc.text(op)))
-        else
-            table.insert(parts, doc.text(" " .. op))
-        end
-        if after_op then
-            table.insert(parts, doc.text(" " .. after_op.text))
-        end
-        for _, c in ipairs(after_off) do
-            table.insert(parts, doc.indent_hardline(doc.text(c.text)))
-        end
-        if has_after_break then
-            table.insert(parts, doc.indent_hardline(right_doc))
-        else
-            table.insert(parts, doc.text(" "))
-            table.insert(parts, right_doc)
-        end
+        emit_trivia_transition(
+            parts, node.op_leading_trivia, lhs_line, doc.text(op), doc.text(" ")
+        )
+        emit_trivia_transition(
+            parts, node.op_trailing_trivia, operator.y, right_doc, doc.text(" ")
+        )
         return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
     end
 end
