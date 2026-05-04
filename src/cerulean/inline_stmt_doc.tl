@@ -50,30 +50,44 @@ function inline_stmt_doc.render_assignment_doc(
     )
 end
 
-local function build_prefix_doc(vars_text: string, stmt: parser.Node): doc.Doc
-    if stmt.decltuple == nil or #stmt.decltuple.tuple == 0 then
-        return doc.text(vars_text)
+local function build_var_text(var_node: parser.Node): string
+    local var_text = var_node.tk
+    if var_node.attribute ~= nil then
+        var_text = var_text .. " <" .. var_node.attribute .. ">"
     end
+    return var_text
+end
 
-    return doc.concat({doc.text(vars_text .. ": "), type_doc.render(stmt.decltuple)})
+local function append_trailing_trivia(parts: {doc.Doc}, var_node: parser.Node)
+    for _, c in ipairs(var_node.trailing_trivia or {}) do
+        table.insert(parts, doc.text(" " .. c.text))
+    end
+end
+
+local function build_vars_doc(stmt: parser.Node, keyword: string): doc.Doc
+    local parts: {doc.Doc} = {doc.text(keyword .. " ")}
+    for index, var_node in ipairs(stmt.vars) do
+        table.insert(parts, doc.text(build_var_text(var_node)))
+        append_trailing_trivia(parts, var_node)
+        if index < #stmt.vars then
+            table.insert(parts, doc.text(", "))
+        end
+    end
+    return doc.concat(parts)
 end
 
 function inline_stmt_doc.render_declaration_doc(
     ctx: RenderContext, stmt: parser.Node, keyword: string
 ): doc.Doc
-    local vars: {string} = {}
-
-    for _, var_node in ipairs(stmt.vars) do
-        local var_text = var_node.tk
-        if var_node.attribute ~= nil then
-            var_text = var_text .. " <" .. var_node.attribute .. ">"
-        end
-        table.insert(vars, var_text)
+    local vars_doc = build_vars_doc(stmt, keyword)
+    local prefix_doc: doc.Doc
+    if stmt.decltuple == nil or #stmt.decltuple.tuple == 0 then
+        prefix_doc = vars_doc
+    else
+        prefix_doc = doc.concat(
+            {vars_doc, doc.text(": "), type_doc.render(stmt.decltuple)}
+        )
     end
-
-    local prefix_doc = build_prefix_doc(
-        keyword .. " " .. table.concat(vars, ", "), stmt
-    )
 
     if stmt.exps == nil or #stmt.exps == 0 then
         return prefix_doc

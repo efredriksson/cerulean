@@ -1298,6 +1298,18 @@ describe("formatter comment matrix (single-line)", function()
          i --[[what is i?]], t = f(i)
       ]=]))
 
+      it("preserves block comment after first call arg before comma", helpers.check([=[
+         f(x --[[what is x?]], y)
+      ]=]))
+
+      it("preserves block comment after first table field before comma", helpers.check([=[
+         local t = {1 --[[first?]], 2}
+      ]=]))
+
+      it("preserves multiple block comments after assignment lhs before equals", helpers.check([=[
+         local x --[[c1]] --[[c2]] = 1
+      ]=]))
+
       it("preserves trailing comment on nested logical expressions", helpers.format([[
          local x = expression_1 -- Keep me
             or expression_2

@@ -216,11 +216,15 @@ local function call_doc_build_call_expr_doc(
             parts, render_builders.append_lines_pre_node(arg_node, line_before)
         )
         local arg_doc = ctx.render_expr(arg_node)
+        local arg_parts: {doc.Doc} = {arg_doc}
+        for _, c in ipairs(arg_node.trailing_trivia or {}) do
+            table.insert(arg_parts, doc.text(" " .. c.text))
+        end
         if index < #args then
             local sep = arg_node.trailing_comment and "," or ", "
-            arg_doc = doc.concat({arg_doc, doc.text(sep)})
+            table.insert(arg_parts, doc.text(sep))
         end
-        table.insert(parts, arg_doc)
+        table.insert(parts, doc.concat(arg_parts))
         table.insert(parts, render_builders.trailing_comment_doc(arg_node))
         line_before = true
     end

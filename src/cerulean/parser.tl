@@ -1154,6 +1154,9 @@ local function parse_list<T>(
       n = n or oldn
       if item and item is Node then
          local is_separator = ps.tokens[i].tk == "," or ps.tokens[i].tk == ";"
+         if is_separator then
+            item.trailing_trivia = take_all_token_comments(ps.tokens[i])
+         end
          local comment_token = (is_separator and ps.tokens[i + 1]) or ps.tokens[i]
          item.trailing_comment = get_same_line_comment(comment_token, item.yend or item.y)
       end
@@ -3212,6 +3215,9 @@ local function parse_variable_declarations(
    if #asgn.vars == 0 then
       return fail(ps, i, "expected a local variable definition")
    end
+
+   local last_var = asgn.vars[#asgn.vars]
+   last_var.trailing_trivia = take_all_token_comments(ps.tokens[i])
 
    i, asgn.decltuple = parse_type_list(ps, i, "decltuple")
 
