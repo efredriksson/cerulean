@@ -56,6 +56,22 @@
     --search-mark-bg: #1eaed6;
 }
 
+/* Sidebar logo */
+.cerulean-logo {
+    padding: 14px 16px 10px;
+}
+
+.cerulean-logo a {
+    display: block;
+}
+
+.cerulean-logo img {
+    width: 100%;
+    max-width: 250px;
+    height: auto;
+    display: block;
+}
+
 /* Typography */
 body {
     font-family: 'IBM Plex Sans', system-ui, sans-serif;
