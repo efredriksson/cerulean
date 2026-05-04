@@ -214,12 +214,7 @@ function render_builders.with_leading_inline_trivia(
         return doc.concat({prefix, content})
     end
     local parts: {doc.Doc} = {prefix}
-    for index, c in ipairs(node.leading_inline_trivia) do
-        if index > 1 then
-            table.insert(parts, doc.text(" "))
-        end
-        table.insert(parts, doc.text(c.text))
-    end
+    trivia_doc.append_inline_joined(parts, node.leading_inline_trivia)
     table.insert(parts, doc.indent_hardline(content))
     return doc.concat(parts)
 end
