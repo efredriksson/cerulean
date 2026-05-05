@@ -148,8 +148,10 @@ end
 function render_builders.build_exp_list_doc(
     ctx: RenderContext, exps: {parser.Node}
 ): doc.Doc
-    if not render_builders.any_items_have_comments(exps)
-        and not any_items_have_trailing_trivia(exps) then
+    if
+        not render_builders.any_items_have_comments(exps)
+        and not any_items_have_trailing_trivia(exps)
+    then
         return render_builders.build_mapped_comma_separated_docs(ctx, exps)
     end
     local parts: {doc.Doc} = {}
@@ -205,6 +207,54 @@ function render_builders.append_lines_pre_node(
     end
 
     return doc.concat(parts)
+end
+
+function render_builders.is_top_level_binary_op(node: parser.Node): boolean
+    if node.kind ~= "op" or node.op == nil then
+        return false
+    end
+    if node.op.arity ~= 2 then
+        return false
+    end
+    local op = node.op.op
+    return op ~= "@funcall"
+        and op ~= "@index"
+        and op ~= "."
+        and op ~= ":"
+        and op ~= "as"
+end
+
+function render_builders.has_chain_internal_trivia(node: parser.Node): boolean
+    if node.kind ~= "op" or node.op == nil then
+        return false
+    end
+    if node.op_leading_trivia ~= nil and #node.op_leading_trivia > 0 then
+        return true
+    end
+    if node.op_trailing_trivia ~= nil and #node.op_trailing_trivia > 0 then
+        return true
+    end
+    if node.e1 ~= nil and render_builders.has_chain_internal_trivia(node.e1) then
+        return true
+    end
+    if node.e2 ~= nil and render_builders.has_chain_internal_trivia(node.e2) then
+        return true
+    end
+    return false
+end
+
+function render_builders.wrap_keyword_around(
+    keyword: doc.Doc, expression: doc.Doc, closing: doc.Doc
+): doc.Doc
+    return doc.group(
+        doc.concat({keyword, doc.indent_line(expression), doc.line(), closing})
+    )
+end
+
+function render_builders.wrap_keyword_before(
+    keyword: doc.Doc, expression: doc.Doc
+): doc.Doc
+    return doc.group(doc.concat({keyword, doc.indent_line(expression)}))
 end
 
 function render_builders.with_leading_inline_trivia(

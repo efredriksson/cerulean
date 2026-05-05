@@ -359,6 +359,105 @@ describe("formatter structural block rendering", function()
       ]]))
    end)
 
+   describe("statement header break-around-keyword layout", function()
+      it("breaks an elseif chain around the keyword when the boolean expression overflows", helpers.format([[
+         local function f()
+             if other then
+                 use(other)
+             elseif node.kind == "local_function" or node.kind == "global_function" or node.kind == "record_function" then
+                 use(node)
+             end
+         end
+      ]], [[
+         local function f()
+             if other then
+                 use(other)
+             elseif
+                 node.kind == "local_function"
+                 or node.kind == "global_function"
+                 or node.kind == "record_function"
+             then
+                 use(node)
+             end
+         end
+      ]]))
+
+      it("keeps a short if header on one line", helpers.check([[
+         if x == 1 then
+         end
+      ]]))
+
+      it("does not break around the keyword when the condition is a single function call", helpers.format([[
+         if input_events.was_released(actor.id, keymap.ACTIONS.B_SECONDARY_VERY_LONG_NAME_HERE) then
+         end
+      ]], [[
+         if input_events.was_released(
+             actor.id, keymap.ACTIONS.B_SECONDARY_VERY_LONG_NAME_HERE
+         ) then
+         end
+      ]]))
+
+      it("breaks a long while-condition around the keyword and do", helpers.format([[
+         while state.is_running_for_now and not state.cancelled and queue:has_pending_work_to_perform() do
+             process()
+         end
+      ]], [[
+         while
+             state.is_running_for_now
+             and not state.cancelled
+             and queue:has_pending_work_to_perform()
+         do
+             process()
+         end
+      ]]))
+
+      it("keeps a short while header on one line", helpers.check([[
+         while ready() do
+             tick()
+         end
+      ]]))
+
+      it("breaks a long until-condition around the keyword", helpers.format([[
+         local function f()
+             repeat
+                 step()
+             until state.is_running_now and not state.cancelled_yet and queue:is_completely_empty_now()
+         end
+      ]], [[
+         local function f()
+             repeat
+                 step()
+             until
+                 state.is_running_now
+                 and not state.cancelled_yet
+                 and queue:is_completely_empty_now()
+         end
+      ]]))
+
+      it("breaks a multi-iterator for-in around the keywords", helpers.format([[
+         for key, value in pairs(some_long_table_name_here), secondary_iterator_function(arg_one, arg_two) do
+             use(key, value)
+         end
+      ]], [[
+         for key, value in
+             pairs(some_long_table_name_here), secondary_iterator_function(arg_one, arg_two)
+         do
+             use(key, value)
+         end
+      ]]))
+
+      it("keeps a simple for-in pairs(t) on one line", helpers.check([[
+         for k, v in pairs(t) do
+             use(k, v)
+         end
+      ]]))
+
+      it("keeps a long for-num header without breaking around the keyword (deliberate exclusion)", helpers.check([[
+         for index = start_offset, math.min(items.count, max_index_for(window)) do
+             use(index)
+         end
+      ]]))
+   end)
 
    describe("blocks that are not rendered structurally", function()
       it("keeps wrong space indentation when blank line gaps block structural rendering", helpers.format([[

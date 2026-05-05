@@ -51,8 +51,10 @@ function function_doc.render_anonymous(
     end
 
     local rendered = function_doc.render(ctx, node, header_prefix)
-    if render_builders.block_has_any_comments(node.body)
-        or #(node.head_trivia or {}) > 0 then
+    if
+        render_builders.block_has_any_comments(node.body)
+        or #(node.head_trivia or {}) > 0
+    then
         return rendered
     end
     return doc.group(rendered)

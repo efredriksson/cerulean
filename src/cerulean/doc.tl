@@ -296,11 +296,13 @@ local function propagate_breaks(node: Doc): boolean
 end
 
 local function has_line_break_opportunity(node: Doc): boolean
-    if node.kind == "line"
+    if
+        node.kind == "line"
         or node.kind == "hardline"
         or node.kind == "blankline"
         or node.kind == "close"
-        or node.kind == "break_parent" then
+        or node.kind == "break_parent"
+    then
         return true
     end
     if node.kind == "raw" then
@@ -481,9 +483,11 @@ local function render_doc(root: Doc, state: RenderState)
             write_raw_lines(state, node.raw_lines or {})
         elseif node.kind == "close" then
             if node_flat then
-                if string.sub(
-                    state.current_line, -#node.close_flat_sep
-                ) ~= node.close_flat_sep then
+                if
+                    string.sub(
+                        state.current_line, -#node.close_flat_sep
+                    ) ~= node.close_flat_sep
+                then
                     append_text(state, node.close_flat_sep)
                 end
                 append_text(state, node.close_text)
@@ -605,9 +609,11 @@ local function render_doc(root: Doc, state: RenderState)
                     state.broken_groups,
                     state.indent_width
                 )
-                if group_id ~= nil
+                if
+                    group_id ~= nil
                     and not fits_flat
-                    and has_line_break_opportunity(node.child) then
+                    and has_line_break_opportunity(node.child)
+                then
                     state.broken_groups[group_id] = true
                 end
                 table.insert(

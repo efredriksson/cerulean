@@ -252,15 +252,19 @@ end
 
 local function render_function_name(node: parser.Node): doc.Doc | nil
     local function render_function_owner(owner: parser.Node): string | nil
-        if owner.kind == "identifier"
+        if
+            owner.kind == "identifier"
             or owner.kind == "type_identifier"
-            or owner.kind == "variable" then
+            or owner.kind == "variable"
+        then
             return owner.tk
-        elseif owner.kind == "op"
+        elseif
+            owner.kind == "op"
             and owner.op ~= nil
             and owner.op.op == "."
             and owner.e1 ~= nil
-            and owner.e2 ~= nil then
+            and owner.e2 ~= nil
+        then
             local left = render_function_owner(owner.e1)
             if left == nil then
                 return nil
@@ -285,17 +289,17 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
                 render_function_typeargs(node),
             }
         )
-    elseif node.kind == "global_function"
-        and node.name ~= nil
-        and not node.is_method then
+    elseif
+        node.kind == "global_function" and node.name ~= nil and not node.is_method
+    then
         local prefix = node.implicit_global_function and "function "
             or "global function "
         return doc.concat(
             {doc.text(prefix .. node.name.tk), render_function_typeargs(node)}
         )
-    elseif node.kind == "record_function"
-        and node.fn_owner ~= nil
-        and node.name ~= nil then
+    elseif
+        node.kind == "record_function" and node.fn_owner ~= nil and node.name ~= nil
+    then
         local owner = render_function_owner(node.fn_owner)
         if owner == nil then
             return nil
@@ -368,6 +372,19 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
                 return doc.text("else")
             end
             local keyword = index == 1 and "if" or "elseif"
+            local has_inline_trivia = if_block.leading_inline_trivia ~= nil
+                and #if_block.leading_inline_trivia > 0
+            if
+                not has_inline_trivia
+                and render_builders.is_top_level_binary_op(if_block.exp)
+                and not render_builders.has_chain_internal_trivia(if_block.exp)
+            then
+                return render_builders.wrap_keyword_around(
+                    doc.text(keyword),
+                    ctx.render_expr(if_block.exp, true),
+                    doc.text("then")
+                )
+            end
             local with_comment = render_builders.with_leading_inline_trivia(
                 if_block, doc.text(keyword .. " "), ctx.render_expr(if_block.exp)
             )
@@ -396,14 +413,26 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
-    local while_and_exp_doc = render_builders.with_leading_inline_trivia(
-        node, doc.text("while "), ctx.render_expr(node.exp)
-    )
+    local has_inline_trivia = node.leading_inline_trivia ~= nil
+        and #node.leading_inline_trivia > 0
+    local should_wrap_around = not has_inline_trivia
+        and render_builders.is_top_level_binary_op(node.exp)
+        and not render_builders.has_chain_internal_trivia(node.exp)
+
+    local function build_head_group(): doc.Doc
+        if should_wrap_around then
+            return render_builders.wrap_keyword_around(
+                doc.text("while"), ctx.render_expr(node.exp, true), doc.text("do")
+            )
+        end
+        local while_and_exp_doc = render_builders.with_leading_inline_trivia(
+            node, doc.text("while "), ctx.render_expr(node.exp)
+        )
+        return doc.group(doc.concat({while_and_exp_doc, doc.text(" do")}))
+    end
+
     local header = doc.concat(
-        {
-            doc.group(doc.concat({while_and_exp_doc, doc.text(" do")})),
-            render_builders.head_trivia_doc(node),
-        }
+        {build_head_group(), render_builders.head_trivia_doc(node)}
     )
     return block_with_close(header, body_doc, "end")
 end
@@ -462,21 +491,55 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
-    local exps_doc = render_builders.build_mapped_comma_separated_docs(ctx, node.exps)
-    local tail_doc = doc.concat(
-        {doc.text(" do"), render_builders.head_trivia_doc(node)}
-    )
-    local for_in_doc = doc.concat(
+    local has_inline_trivia = node.leading_inline_trivia ~= nil
+        and #node.leading_inline_trivia > 0
+    local single_exp_is_chainable = #node.exps == 1
+        and render_builders.is_top_level_binary_op(node.exps[1])
+        and not render_builders.has_chain_internal_trivia(node.exps[1])
+    local should_wrap_around = not has_inline_trivia
+        and (#node.exps > 1 or single_exp_is_chainable)
+
+    local for_in_keyword = doc.concat(
         {
             doc.text("for "),
             render_builders.build_comma_separated_docs(var_docs),
-            doc.text(" in "),
+            doc.text(" in"),
         }
     )
-    local header = render_builders.with_leading_inline_trivia(
-        node, for_in_doc, doc.concat({exps_doc, tail_doc})
-    )
-    return block_with_close(header, body_doc, "end")
+
+    local function build_wrapped_exps(): doc.Doc
+        if single_exp_is_chainable then
+            return ctx.render_expr(node.exps[1], true)
+        end
+        return render_builders.build_mapped_comma_separated_docs(ctx, node.exps)
+    end
+
+    local function build_header(): doc.Doc
+        if should_wrap_around then
+            return doc.concat(
+                {
+                    render_builders.wrap_keyword_around(
+                        for_in_keyword, build_wrapped_exps(), doc.text("do")
+                    ),
+                    render_builders.head_trivia_doc(node),
+                }
+            )
+        end
+        local tail_doc = doc.concat(
+            {doc.text(" do"), render_builders.head_trivia_doc(node)}
+        )
+        local exps_and_tail = doc.concat(
+            {
+                render_builders.build_mapped_comma_separated_docs(ctx, node.exps),
+                tail_doc,
+            }
+        )
+        return render_builders.with_leading_inline_trivia(
+            node, doc.concat({for_in_keyword, doc.text(" ")}), exps_and_tail
+        )
+    end
+
+    return block_with_close(build_header(), body_doc, "end")
 end
 
 local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
@@ -496,9 +559,24 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
     -- block_with_indent always emits a newline into the body, which produces a
     -- spurious blank line when the body is empty. Skip it in that case.
     local is_empty_body = #node.body == 0 and #(node.body.dangling_comments or {}) == 0
-    local until_doc = render_builders.with_leading_inline_trivia(
-        node, doc.text("until "), ctx.render_expr(node.exp)
-    )
+    local has_inline_trivia = node.leading_inline_trivia ~= nil
+        and #node.leading_inline_trivia > 0
+    local should_wrap_around = not has_inline_trivia
+        and render_builders.is_top_level_binary_op(node.exp)
+        and not render_builders.has_chain_internal_trivia(node.exp)
+
+    local function build_until_doc(): doc.Doc
+        if should_wrap_around then
+            return render_builders.wrap_keyword_before(
+                doc.text("until"), ctx.render_expr(node.exp, true)
+            )
+        end
+        return render_builders.with_leading_inline_trivia(
+            node, doc.text("until "), ctx.render_expr(node.exp)
+        )
+    end
+
+    local until_doc = build_until_doc()
     if is_empty_body then
         return doc.concat({header, doc.line(), until_doc})
     end
@@ -533,11 +611,11 @@ function stmt_doc.render_statement_doc(
         return render_type_doc(ctx, node, "local")
     elseif node.kind == "global_type" then
         return render_type_doc(ctx, node, "global")
-    elseif (
+    elseif
         node.kind == "local_function"
         or node.kind == "global_function"
         or node.kind == "record_function"
-    ) then
+    then
         return render_function_definition_doc(ctx, node)
     elseif node.kind == "local_macroexp" then
         return render_local_macroexp_doc(ctx, node)

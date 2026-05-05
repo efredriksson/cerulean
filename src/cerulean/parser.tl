@@ -693,11 +693,13 @@ local function node_is_require_call(n: Node): string
     end
     if n.op and n.op.op == "." then
         return node_is_require_call(n.e1)
-    elseif n.e1.kind == "variable"
+    elseif
+        n.e1.kind == "variable"
         and n.e1.tk == "require"
         and n.e2.kind == "expression_list"
         and #n.e2 == 1
-        and n.e2[1].kind == "string" then
+        and n.e2[1].kind == "string"
+    then
         return n.e2[1].conststr
     end
     return nil
