@@ -15,9 +15,9 @@
     <rect x="8" y="87" width="68.879997" height="7" rx="3" fill="#7cc8e2" />
   </g>
   <g font-family="'IBM Plex Sans', system-ui, sans-serif" font-weight="600" transform="translate(9.7822547,-2.885328)">
-    <text x="58.93" y="65.610001" font-size="31.2px" fill="#ffffff" letter-spacing="-0.5">cerulean</text>
+    <text x="58.93" y="65.610001" font-size="31.2px" fill="#7cc8e2" letter-spacing="-0.5">cerulean</text>
   </g>
   <g font-family="'IBM Plex Mono', ui-monospace, monospace" font-weight="400" transform="translate(23.957999,9.7905712)">
-    <text x="60.93" y="79.989998" font-size="11.23px" fill="rgba(255,255,255,0.65)" letter-spacing="0.3">a formatter for teal</text>
+    <text x="60.93" y="79.989998" font-size="11.23px" fill="#7cc8e2" letter-spacing="0.3">a formatter for teal</text>
   </g>
 </svg>
