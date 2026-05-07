@@ -43,6 +43,18 @@ describe("formatter function expressions", function()
           5
    ]]))
 
+   it("double unary minus preserves space to avoid producing a comment", helpers.format([[
+      local x = - - y
+   ]], [[
+      local x = - -y
+   ]]))
+
+   it("double unary minus on table preserves space to avoid producing a comment", helpers.format([[
+      return - - {}
+   ]], [[
+      return - -{}
+   ]]))
+
    it("preserves comment between assignment = and value", helpers.format([[
       local x = --hmm
             5

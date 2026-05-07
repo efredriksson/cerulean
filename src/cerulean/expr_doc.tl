@@ -37,6 +37,23 @@ local function parenthesize_unary_operand(
     return doc.concat({doc.text("("), rendered, doc.text(")")})
 end
 
+-- Two adjacent `-` tokens form a `--` comment start, so a unary minus applied
+-- to another unary minus needs a separating space.
+local function unary_separator(op: string, operand: parser.Node): doc.Doc
+    if op == "not" then
+        return doc.text(" ")
+    end
+    if
+        op == "-"
+        and operand.kind == "op"
+        and operand.op.op == "-"
+        and operand.op.arity == 1
+    then
+        return doc.text(" ")
+    end
+    return doc.text("")
+end
+
 -- Adds parentheses when the parent would otherwise misparse the expression.
 local function parenthesize_if_lower_prec(
     rendered: doc.Doc, op_prec: integer, parent_prec: integer
@@ -309,7 +326,7 @@ local function render_op(
         local child = parenthesize_unary_operand(
             render_expr(ctx, left, op_prec, same_indent_on_line), left, op_prec
         )
-        local plain_sep = (op == "not") and doc.text(" ") or doc.text("")
+        local plain_sep = unary_separator(op, left)
         local parts: {doc.Doc} = {doc.text(op)}
         trivia_doc.emit_transition(
             parts, node.op_trailing_trivia, operator.y, child, plain_sep
