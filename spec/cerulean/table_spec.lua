@@ -212,4 +212,12 @@ describe("formatter table constructor wrapping", function()
       end
    ]]))
 
+   it("table key with long string preserves space to avoid tokenizer ambiguity", helpers.check([==[
+      return {[ [=[]=] ] = nil}
+   ]==]))
+
+   it("table key with level-0 long string preserves space to avoid tokenizer ambiguity", helpers.check([=[
+      local t = {[ [[key]] ] = nil}
+   ]=]))
+
 end)

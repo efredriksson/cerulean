@@ -30,11 +30,12 @@ local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc
         )
     end
 
+    local bracket_spacing = item.key.is_longstring and " " or ""
     return doc.concat(
         {
-            doc.text("["),
+            doc.text("[" .. bracket_spacing),
             ctx.render_expr(item.key),
-            doc.text("] = "),
+            doc.text(bracket_spacing .. "] = "),
             ctx.render_expr(item.value),
         }
     )
