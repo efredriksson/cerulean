@@ -1,4 +1,5 @@
 // Project: https://github.com/teal-language/tl
+// Reference grammar: https://teal-language.org/book/latest/grammar.html
 
 // $antlr-format alignTrailingComments true, columnLimit 150, minEmptyLines 1, maxEmptyLinesToKeep 1, reflowComments false, useTab false
 // $antlr-format allowShortRulesOnASingleLine false, allowShortBlocksOnASingleLine true, alignSemicolons hanging, alignColons hanging
@@ -28,12 +29,18 @@ stat
     | 'for' namelist 'in' explist 'do' block 'end'                             # ForInStat
     | 'function' funcname funcbody                                             # FuncStat
     | 'local' 'function' NAME funcbody                                         # LocalFuncStat
+    | 'local' 'record' NAME recordbody                                         # LocalRecordStat
+    | 'local' 'interface' NAME recordbody                                      # LocalInterfaceStat
+    | 'local' 'enum' NAME enumbody                                             # LocalEnumStat
+    | 'local' 'type' NAME '=' newtype                                          # LocalTypeStat
     | 'local' attnamelist (':' typelist)? ('=' explist)?                       # LocalAttrAssignStat
-    | 'local' NAME '=' newtype                                                 # LocalNewTypeStat
     | 'global' 'function' NAME funcbody                                        # GlobalFuncStat
-    | 'global' attnamelist ':' typelist                                        # GlobalAttrStat
-    | 'global' attnamelist (':' typelist)? '=' explist                         # GlobalAttrAssignStat
-    | 'global' NAME '=' newtype                                                # GlobalAssignStat
+    | 'global' 'record' NAME recordbody                                        # GlobalRecordStat
+    | 'global' 'interface' NAME recordbody                                     # GlobalInterfaceStat
+    | 'global' 'enum' NAME enumbody                                            # GlobalEnumStat
+    | 'global' 'type' NAME ('=' newtype)?                                      # GlobalTypeStat
+    | 'global' attnamelist ':' typelist ('=' explist)?                         # GlobalAttrStat
+    | 'global' attnamelist '=' explist                                         # GlobalAttrAssignStat
     ;
 
 attnamelist
@@ -41,7 +48,7 @@ attnamelist
     ;
 
 attrib
-    : '<' NAME '>'
+    : '<' ('const' | 'close') '>'
     ;
 
 // we rename `type` to `typ` because of keyword `type`
@@ -50,23 +57,27 @@ typ
     | basetype ('|' basetype)*
     ;
 
+nominal
+    : NAME ('.' NAME)* typeargs?
+    ;
+
 basetype
     : 'string'
     | 'boolean'
     | 'nil'
     | 'number'
-    | '{' typ '}'
+    | '{' typ (',' typ)* '}'
     | '{' typ ':' typ '}'
     | 'function' functiontype
-    | NAME typeargs?
+    | nominal
     ;
 
 typelist
-    : typ (',' typ)?
+    : typ (',' typ)*
     ;
 
 retlist
-    : '(' typelist? '...'? ')'
+    : '(' (typelist '...'?)? ')'
     | typelist '...'?
     ;
 
@@ -74,14 +85,42 @@ typeargs
     : '<' NAME (',' NAME)* '>'
     ;
 
+interfacelist
+    : nominal (',' nominal)*
+    | '{' typ '}' (',' nominal)*
+    ;
+
 newtype
-    : 'record' typeargs? ('{' typ '}')? (NAME '=' newtype)* (NAME ':' typ)* 'end' # RecordNewType
-    | 'enum' str* 'end'                                                           # EnumNewType
-    | 'functiontype' functiontype                                                 # FuncNewType
+    : 'record' recordbody                # RecordNewType
+    | 'enum' enumbody                    # EnumNewType
+    | typ                                # TypeAliasNewType
+    | 'require' '(' str ')' ('.' NAME)*  # RequireNewType
+    ;
+
+recordbody
+    : typeargs? ('is' interfacelist)? ('where' exp)? recordentry* 'end'
+    ;
+
+recordentry
+    : 'userdata'                       # UserdataEntry
+    | 'type' NAME '=' newtype          # TypeAliasEntry
+    | 'metamethod'? recordkey ':' typ  # FieldEntry
+    | 'record' NAME recordbody         # NestedRecordEntry
+    | 'interface' NAME recordbody      # NestedInterfaceEntry
+    | 'enum' NAME enumbody             # NestedEnumEntry
+    ;
+
+recordkey
+    : NAME
+    | '[' str ']'
+    ;
+
+enumbody
+    : str* 'end'
     ;
 
 functiontype
-    : typeargs? '(' partypelist ')' (':' retlist)?
+    : typeargs? '(' partypelist? ')' (':' retlist)?
     ;
 
 partypelist
@@ -89,7 +128,8 @@ partypelist
     ;
 
 partype
-    : (NAME ':')? typ
+    : NAME '?'? ':' typ
+    | '?'? typ
     ;
 
 parnamelist
@@ -97,7 +137,7 @@ parnamelist
     ;
 
 parname
-    : NAME (':' typ)?
+    : NAME '?'? (':' typ)?
     ;
 
 retstat
@@ -135,6 +175,7 @@ exp
     | prefixexp
     | tableconstructor
     | exp 'as' typ
+    | exp 'as' '(' typelist ')'
     | <assoc = right> exp operatorPower exp
     | operatorUnary exp
     | exp operatorMulDivMod exp
@@ -188,9 +229,7 @@ funcbody
     ;
 
 parlist
-    : namelist (',' '...')?
-    | '...'
-    | parnamelist (',' '...' (':' typ)?)?
+    : parnamelist (',' '...' (':' typ)?)?
     | '...' (':' typ)?
     ;
 
@@ -203,9 +242,8 @@ fieldlist
     ;
 
 field
-    : '[' exp ']' '=' exp     # BracketAssginField
+    : '[' exp ']' '=' exp     # BracketAssignField
     | NAME (':' typ)? '=' exp # AssignField
-    | NAME '=' newtype        # AssignNewTypeField
     | exp                     # ExprField
     ;
 
@@ -338,10 +376,13 @@ fragment EscapeSequence
     | UtfEscape
     ;
 
+// Lua decimal escapes are bounded to 0..255.
 fragment DecimalEscape
-    : '\\' Digit
+    : '\\' [01] Digit Digit
+    | '\\' '2' [0-4] Digit
+    | '\\' '25' [0-5]
     | '\\' Digit Digit
-    | '\\' [0-2] Digit Digit
+    | '\\' Digit
     ;
 
 fragment HexEscape
@@ -375,7 +416,7 @@ LINE_COMMENT
     ;
 
 WS
-    : [ \t\u000C\r\n]+ -> skip
+    : [ \t\r\n]+ -> skip
     ;
 
 SHEBANG
