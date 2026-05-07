@@ -2837,6 +2837,9 @@ parse_interface_name = function(
    local istart = i
    local typ: FirstOrderType
    i, typ = parse_simple_type_or_nominal(ps, i)
+   if not typ then
+      return i
+   end
    if not typ is NominalType then
       return fail(ps, istart, "expected an interface")
    end
