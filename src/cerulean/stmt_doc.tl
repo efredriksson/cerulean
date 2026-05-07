@@ -238,6 +238,9 @@ end
 local function render_type_doc(
     ctx: RenderContext, stmt: parser.Node, keyword: string
 ): doc.Doc | nil
+    if stmt.value == nil then
+        return doc.text(keyword .. " type " .. stmt.var.tk)
+    end
     if stmt.value.kind ~= "newtype" then
         return doc.concat(
             {
