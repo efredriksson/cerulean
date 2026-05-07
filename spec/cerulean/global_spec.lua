@@ -88,6 +88,17 @@ describe("formatter global declarations", function()
       ]]))
    end)
 
+   describe("global type forward declaration", function()
+      it("preserves global type with no body", helpers.check([[
+         global type Foo
+      ]]))
+
+      it("preserves global type forward decl among other statements", helpers.check([[
+         global type Foo
+         local x = 1
+      ]]))
+   end)
+
    describe("global variable declaration", function()
       it("formats global var with type only", helpers.format([[
          global x : integer
