@@ -1,10 +1,12 @@
 -- Fuzz driver for the formatter. Run from repo root:
 --   lua fuzz/fuzz.lua fuzz/corpus/*.tl
--- On failures, writes spec/cerulean/fuzz_regressions_spec.lua for debugging.
+-- Silent during the run; prints a summary at the end. Input parse errors are
+-- counted as informational (grammar drift) and do not fail the run. On real
+-- formatter findings, writes fuzz/regressions_spec.lua for debugging.
 require("tl").loader()
 
 local rewriter = require("cerulean.rewriter")
-local FormatterOptions = require("cerulean.options")
+local options_module = require("cerulean.options")
 
 local function read_file(path)
     local f = io.open(path, "r")
@@ -15,18 +17,67 @@ local function read_file(path)
 end
 
 -- Finds the minimum = level so the content can be embedded in a Lua long string.
+-- Avoids two pitfalls: the closer ']=*]' appearing inside content, and content
+-- ending with ']' followed by exactly N '='s, which would fuse with the closer.
 local function long_string_embed(s)
-    local max_level = -1
-    for closing in s:gmatch("]=*]") do
-        local level = #closing - 2
-        if level > max_level then max_level = level end
+    local level = 0
+    local function unsafe(lv)
+        local eq = string.rep("=", lv)
+        if s:find("]" .. eq .. "]", 1, true) then return true end
+        if s:sub(-(lv + 1)) == "]" .. eq then return true end
+        return false
     end
-    local eq = string.rep("=", max_level + 1)
+    while unsafe(level) do level = level + 1 end
+    local eq = string.rep("=", level)
     return "[" .. eq .. "[" .. s .. "]" .. eq .. "]"
+end
+
+local function format_parse_errors(errors)
+    local lines = {}
+    for _, e in ipairs(errors) do
+        table.insert(lines, string.format(
+            "%s:%d:%d: %s", e.filename or "?", e.y or 0, e.x or 0, e.msg or "?"
+        ))
+    end
+    return table.concat(lines, "\n")
 end
 
 local failures = {}
 local total = 0
+local parse_error_count = 0
+
+-- Returns either a failure record (formatter-side issue) or nil. Input parse
+-- errors bump parse_error_count and return nil — they're grammar drift, not
+-- formatter bugs.
+local function classify(path, content)
+    local ok, result = pcall(rewriter.rewrite, content, path, options_module.default())
+    if not ok then
+        return { kind = "crash", path = path, content = content, error = tostring(result) }
+    end
+    if #result.parse_errors > 0 then
+        parse_error_count = parse_error_count + 1
+        return nil
+    end
+    if result.status == "failed" then
+        return { kind = "render_failed", path = path, content = content }
+    end
+
+    local ok2, result2 = pcall(rewriter.rewrite, result.output, path, options_module.default())
+    if not ok2 then
+        return { kind = "crash", path = path, content = result.output, error = "second pass: " .. tostring(result2) }
+    end
+    if #result2.parse_errors > 0 then
+        return { kind = "broken_output", path = path, content = content, error = format_parse_errors(result2.parse_errors) }
+    end
+    if result2.status == "failed" then
+        return { kind = "render_failed", path = path, content = result.output }
+    end
+    if result2.output ~= result.output then
+        return { kind = "not_idempotent", path = path, content = result.output }
+    end
+
+    return nil
+end
 
 for i = 1, #arg do
     local path = arg[i]
@@ -34,29 +85,36 @@ for i = 1, #arg do
     local content = read_file(path)
 
     if not content then
-        io.stderr:write("ERROR: could not read " .. path .. "\n")
         table.insert(failures, { kind = "crash", path = path, content = "", error = "could not read file" })
     else
-        local ok, result = pcall(rewriter.rewrite, content, path, FormatterOptions.default())
-        if not ok then
-            io.stderr:write("CRASH: " .. path .. "\n" .. tostring(result) .. "\n")
-            table.insert(failures, { kind = "crash", path = path, content = content, error = tostring(result) })
-        elseif #result.parse_errors == 0 then
-            local ok2, result2 = pcall(rewriter.rewrite, result.output, path, FormatterOptions.default())
-            if not ok2 then
-                io.stderr:write("CRASH on second pass: " .. path .. "\n" .. tostring(result2) .. "\n")
-                table.insert(failures, { kind = "crash", path = path, content = result.output, error = "second pass: " .. tostring(result2) })
-            elseif result2.changed then
-                io.stderr:write("NOT_IDEMPOTENT: " .. path .. "\n")
-                table.insert(failures, { kind = "not_idempotent", path = path, content = result.output })
-            end
-        end
+        local failure = classify(path, content)
+        if failure then table.insert(failures, failure) end
     end
 end
 
-io.stdout:write("Failures: " .. tostring(#failures) .. " / " .. tostring(total) .. "\n")
+local kind_order = { "not_idempotent", "render_failed", "broken_output", "crash" }
 
-if #failures > 0 then
+local function counts_by_kind()
+    local counts = { crash = 0, broken_output = 0, not_idempotent = 0, render_failed = 0 }
+    for _, failure in ipairs(failures) do
+        counts[failure.kind] = counts[failure.kind] + 1
+    end
+    return counts
+end
+
+local function group_by_kind()
+    local groups = { crash = {}, broken_output = {}, not_idempotent = {}, render_failed = {} }
+    for _, failure in ipairs(failures) do
+        table.insert(groups[failure.kind], failure)
+    end
+    return groups
+end
+
+local function first_line(text)
+    return (text or ""):match("^[^\n]*") or ""
+end
+
+local function write_regression_spec()
     local spec_path = "fuzz/regressions_spec.lua"
     local f = assert(io.open(spec_path, "w"))
 
@@ -64,7 +122,7 @@ if #failures > 0 then
     f:write("-- Run: busted fuzz/regressions_spec.lua\n\n")
     f:write('require("tl").loader()\n')
     f:write('local rewriter = require("cerulean.rewriter")\n')
-    f:write('local FormatterOptions = require("cerulean.options")\n')
+    f:write('local options_module = require("cerulean.options")\n')
     f:write('local helpers = require("spec.cerulean.helpers")\n\n')
     f:write('describe("fuzz regressions", function()\n\n')
 
@@ -75,7 +133,19 @@ if #failures > 0 then
         if failure.kind == "crash" then
             f:write("    -- " .. failure.error:gsub("\n", "\n    -- ") .. "\n")
             f:write('    it("does not crash: ' .. name .. '", function()\n')
-            f:write("        rewriter.rewrite(" .. embedded .. ', "test.tl", FormatterOptions.default())\n')
+            f:write("        rewriter.rewrite(" .. embedded .. ', "test.tl", options_module.default())\n')
+            f:write("    end)\n\n")
+        elseif failure.kind == "render_failed" then
+            f:write('    it("renders without failure: ' .. name .. '", function()\n')
+            f:write("        local result = rewriter.rewrite(" .. embedded .. ', "test.tl", options_module.default())\n')
+            f:write('        assert.are_not.equal("failed", result.status)\n')
+            f:write("    end)\n\n")
+        elseif failure.kind == "broken_output" then
+            f:write("    -- " .. failure.error:gsub("\n", "\n    -- ") .. "\n")
+            f:write('    it("produces parseable output: ' .. name .. '", function()\n')
+            f:write("        local result = rewriter.rewrite(" .. embedded .. ', "test.tl", options_module.default())\n')
+            f:write('        local result2 = rewriter.rewrite(result.output, "test.tl", options_module.default())\n')
+            f:write("        assert.same({}, result2.parse_errors)\n")
             f:write("    end)\n\n")
         elseif failure.kind == "not_idempotent" then
             f:write('    it("is idempotent: ' .. name .. '", function()\n')
@@ -87,7 +157,40 @@ if #failures > 0 then
     f:write("end)\n")
     f:close()
 
-    io.stdout:write("Regression spec: busted " .. spec_path .. "\n")
+    return spec_path
 end
+
+local function print_summary()
+    io.stdout:write("\n")
+    local groups = group_by_kind()
+    for _, kind in ipairs(kind_order) do
+        local group = groups[kind]
+        if #group > 0 then
+            io.stdout:write(kind .. ":\n")
+            for _, failure in ipairs(group) do
+                io.stdout:write("  " .. failure.path .. "\n")
+                if failure.error then
+                    io.stdout:write("      " .. first_line(failure.error) .. "\n")
+                end
+            end
+        end
+    end
+
+    io.stdout:write("\n")
+    io.stdout:write(string.format("Fuzzed %d inputs.\n", total))
+    io.stdout:write(string.format("Parse errors (ignored): %d\n\n", parse_error_count))
+
+    local counts = counts_by_kind()
+    io.stdout:write(string.format("Formatter findings: %d\n", #failures))
+    for _, kind in ipairs(kind_order) do
+        io.stdout:write(string.format("    %-15s %d\n", kind .. ":", counts[kind]))
+    end
+    io.stdout:write("\n")
+
+    local spec_path = write_regression_spec()
+    io.stdout:write("\nRegression spec: busted " .. spec_path .. "\n")
+end
+
+print_summary()
 
 os.exit(#failures == 0 and 0 or 1)
