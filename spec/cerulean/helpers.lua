@@ -7,7 +7,7 @@ local options_module = require("cerulean.options")
 local assert = require("luassert")
 
 local function default_opts()
-    return options_module.FormatterOptions.new(false, "nothing", 4, 88, true, {})
+    return options_module.default()
 end
 
 local helpers = {}

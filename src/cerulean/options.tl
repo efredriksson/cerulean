@@ -31,7 +31,7 @@ function FormatterOptions.new(
     return self
 end
 
-local function default(): FormatterOptions
+function options.default(): FormatterOptions
     return FormatterOptions.new(false, "nothing", 4, 88, true, {})
 end
 
@@ -116,7 +116,7 @@ local function from_config_file(): FormatterOptions, string
     if not (formatter is {any: any}) then
         return nil, "tlconfig.lua: 'cerulean' must be a table"
     end
-    local opts = default()
+    local opts = options.default()
 
     local iw = formatter["indent_width"]
     if iw ~= nil then
@@ -161,7 +161,7 @@ function options.from_config_file_and_args(
         return nil, config_err
     end
 
-    local opts, parse_err = apply_args(file_opts or default(), script_args)
+    local opts, parse_err = apply_args(file_opts or options.default(), script_args)
     if parse_err then
         return nil, parse_err
     end
