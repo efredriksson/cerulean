@@ -1484,4 +1484,66 @@ describe("formatter structural block rendering", function()
          end
       ]]))
    end)
+
+   describe("return with trailing semicolon", function()
+      it("accepts return; before end of a while block", helpers.format([[
+         local function f()
+             while true do
+                 return;
+             end
+         end
+      ]], [[
+         local function f()
+             while true do
+                 return
+             end
+         end
+      ]]))
+
+      it("accepts return; before else and elseif", helpers.format([[
+         local function f(x: boolean)
+             if x then
+                 return;
+             elseif not x then
+                 return;
+             else
+                 return;
+             end
+         end
+      ]], [[
+         local function f(x: boolean)
+             if x then
+                 return
+             elseif not x then
+                 return
+             else
+                 return
+             end
+         end
+      ]]))
+
+      it("accepts return; before until of a repeat block", helpers.format([[
+         local function f()
+             repeat
+                 return;
+             until true
+         end
+      ]], [[
+         local function f()
+             repeat
+                 return
+             until true
+         end
+      ]]))
+
+      it("accepts return values; before end", helpers.format([[
+         local function f(): number, string
+             return 1, "ok";
+         end
+      ]], [[
+         local function f(): number, string
+             return 1, "ok"
+         end
+      ]]))
+   end)
 end)
