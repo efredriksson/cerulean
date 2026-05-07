@@ -165,6 +165,10 @@ describe("formatter global declarations", function()
       it("does not crash on parenthesized invalid type in type list", helpers.parse_error([[
          local f: function(): string, (,), number
       ]]))
+
+      it("does not crash on keyword used as identifier after dot in interface is-list", helpers.parse_error([[
+         global interface B is x.if end
+      ]]))
    end)
 
    describe("blank line preservation in record bodies", function()
