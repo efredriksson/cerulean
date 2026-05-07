@@ -1275,6 +1275,9 @@ local function parse_trying_list<T>(
       end
       i = i + 1
       i, item = parse_item(ps, i)
+      if not item then
+         break
+      end
       table.insert(list, item)
    end
    return i, list

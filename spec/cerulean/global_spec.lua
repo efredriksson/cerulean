@@ -161,6 +161,12 @@ describe("formatter global declarations", function()
       ]]))
    end)
 
+   describe("crash regressions", function()
+      it("does not crash on parenthesized invalid type in type list", helpers.parse_error([[
+         local f: function(): string, (,), number
+      ]]))
+   end)
+
    describe("blank line preservation in record bodies", function()
       it("preserves blank line between fields in record body", helpers.format([[
          global record Foo
