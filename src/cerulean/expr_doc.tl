@@ -277,12 +277,21 @@ local function render_op(
             }
         )
     elseif op == "@index" then
+        local function get_bracket_spacing(): string
+            -- A long-string key like [[k]] must be spaced away from the index `[`
+            -- to prevent `[[[k]]]` which in teal is a long string
+            if right.is_longstring then
+                return " "
+            else
+                return ""
+            end
+        end
         return doc.concat(
             {
                 render_expr(ctx, left, operator.prec, same_indent_on_line),
-                doc.text("["),
+                doc.text("[" .. get_bracket_spacing()),
                 render_root_expr(ctx, right, same_indent_on_line),
-                doc.text("]"),
+                doc.text(get_bracket_spacing() .. "]"),
             }
         )
     elseif op == "@funcall" then

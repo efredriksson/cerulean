@@ -150,4 +150,8 @@ describe("formatter function expressions", function()
           or last
    ]]))
 
+   it("index with long string key preserves space to avoid tokenizer ambiguity", helpers.check([=[
+      local x = t[ [[key]] ]
+   ]=]))
+
 end)
