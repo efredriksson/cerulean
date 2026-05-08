@@ -298,4 +298,13 @@ function render_builders.append_comment_docs(
     return line_before
 end
 
+function render_builders.key_starts_with_long_string(node: parser.Node): boolean
+    -- When the key expression's leftmost token is a long string, the subscript `[`
+    -- must be spaced away to prevent `[[[k]]` from being lexed as a long string.
+    return node.is_longstring
+        or node.kind == "op"
+            and node.op.arity == 2
+            and render_builders.key_starts_with_long_string(node.e1)
+end
+
 return render_builders
