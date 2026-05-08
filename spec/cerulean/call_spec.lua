@@ -547,4 +547,10 @@ describe("formatter function call wrapping", function()
           other
       )
    ]]))
+
+   it("preserves long string with backslash as bare function call argument", helpers.format([==[
+      f [=[r\]=]
+   ]==], [==[
+      f([=[r\]=])
+   ]==]))
 end)
