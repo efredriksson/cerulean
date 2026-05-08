@@ -231,4 +231,14 @@ describe("formatter global declarations", function()
       ]]))
    end)
 
+   describe("optional parameters in function types", function()
+      it("preserves optional parameter that is not the last parameter", helpers.check([[
+         global o: function(a: string, b?: number, c: boolean)
+      ]]))
+
+      it("preserves first parameter being optional in a function type", helpers.check([[
+         global o: function(? string, number, boolean)
+      ]]))
+   end)
+
 end)
