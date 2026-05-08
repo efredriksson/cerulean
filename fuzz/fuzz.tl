@@ -1,5 +1,9 @@
--- Fuzz driver for the formatter. Run from repo root:
---   tl run fuzz/fuzz.tl -- fuzz/corpus/*.tl
+-- Fuzz driver for the formatter. Run from repo root with grammarinator on PATH:
+--   tl run fuzz/fuzz.tl
+--   tl run fuzz/fuzz.tl -- --count 500
+--   tl run fuzz/fuzz.tl -- --until-fail
+--   tl run fuzz/fuzz.tl -- --until-fail --count 5000
+--   tl run fuzz/fuzz.tl -- --kind crash,not_idempotent
 -- Silent during the run; prints a summary at the end. Input parse errors are
 -- counted as informational (grammar drift) and do not fail the run. On real
 -- formatter findings, writes fuzz/regressions_spec.lua for debugging.
@@ -71,6 +75,82 @@ function Failure.new(
     self.content = content
     self.error = failure_error
     return self
+end
+
+local valid_kinds: {string: FailureKind} = {
+    crash = "crash",
+    render_failed = "render_failed",
+    broken_output = "broken_output",
+    not_idempotent = "not_idempotent",
+}
+
+local record Config
+    has_kind_filter: boolean
+    kinds: {FailureKind: boolean}
+    count: integer
+    until_fail: boolean
+end
+
+function Config.new(): Config
+    local self: Config = setmetatable({}, {__index = Config})
+    self.has_kind_filter = false
+    self.kinds = {}
+    self.count = 1000
+    self.until_fail = false
+    return self
+end
+
+local function parse_args(): Config
+    local config = Config.new()
+    local has_explicit_count = false
+    local i = 1
+    while i <= #arg do
+        local flag = arg[i]
+        if flag == "--kind" then
+            i = i + 1
+            if i > #arg then
+                io.stderr:write("fuzz: --kind requires an argument\n")
+                os.exit(2)
+            end
+            config.has_kind_filter = true
+            for word in arg[i]:gmatch("[^,]+") do
+                local kind = valid_kinds[word]
+                if not kind then
+                    io.stderr:write("fuzz: unknown kind: " .. word .. "\n")
+                    os.exit(2)
+                end
+                config.kinds[kind] = true
+            end
+        elseif flag == "--count" then
+            i = i + 1
+            if i > #arg then
+                io.stderr:write("fuzz: --count requires an argument\n")
+                os.exit(2)
+            end
+            local n = tonumber(arg[i])
+            if not n then
+                io.stderr:write("fuzz: --count requires a number\n")
+                os.exit(2)
+            end
+            config.count = math.floor(n)
+            has_explicit_count = true
+        elseif flag == "--until-fail" then
+            config.until_fail = true
+        else
+            io.stderr:write("fuzz: unknown flag: " .. flag .. "\n")
+            os.exit(2)
+        end
+        i = i + 1
+    end
+    if config.until_fail and not has_explicit_count then
+        config.count = 0
+    end
+    return config
+end
+
+local function is_wanted(kind: FailureKind, config: Config): boolean
+    if not config.has_kind_filter then return true end
+    return config.kinds[kind] == true
 end
 
 local failures: {Failure} = {}
@@ -187,7 +267,7 @@ local function write_regression_spec(): string
     return spec_path
 end
 
-local function print_summary()
+local function print_summary(config: Config)
     io.stdout:write("\n")
     local groups = group_by_kind()
     for _, kind in ipairs(kind_order) do
@@ -208,28 +288,104 @@ local function print_summary()
     io.stdout:write(string.format("Parse errors (ignored): %d\n\n", parse_error_count))
 
     local counts = counts_by_kind()
-    io.stdout:write(string.format("Formatter findings: %d\n", #failures))
+    if config.has_kind_filter then
+        local kind_names: {string} = {}
+        for _, kind in ipairs(kind_order) do
+            if config.kinds[kind] then
+                table.insert(kind_names, kind)
+            end
+        end
+        io.stdout:write(string.format("Formatter findings (filtered to: %s): %d\n", table.concat(kind_names, ", "), #failures))
+    else
+        io.stdout:write(string.format("Formatter findings: %d\n", #failures))
+    end
     for _, kind in ipairs(kind_order) do
         io.stdout:write(string.format("    %-15s %d\n", kind .. ":", counts[kind]))
     end
     io.stdout:write("\n")
 
-    local spec_path = write_regression_spec()
-    io.stdout:write("\nRegression spec: busted " .. spec_path .. "\n")
-end
-
-for i = 1, #arg do
-    local path = arg[i]
-    total = total + 1
-    local content = read_file(path)
-    if not content then
-        table.insert(failures, Failure.new("crash", path, "", "could not read file"))
-    else
-        local failure = classify(path, content)
-        if failure then table.insert(failures, failure) end
+    if #failures > 0 then
+        local spec_path = write_regression_spec()
+        io.stdout:write("\nRegression spec: busted " .. spec_path .. "\n")
     end
 end
 
-print_summary()
+local MAX_BATCH = 1000
 
+local function setup_generator()
+    os.execute("mkdir -p fuzz/gen fuzz/corpus")
+    os.execute("grammarinator-process fuzz/Teal.g4 -o fuzz/gen/ --no-actions 2>/dev/null")
+end
+
+local function generate_batch(batch_size: integer): {string}
+    os.execute(string.format(
+        "grammarinator-generate TealGenerator.TealGenerator -r chunk -d 20 -n %d -o fuzz/corpus/test_%%d.tl --sys-path fuzz/gen/ -s grammarinator.runtime.serializer.simple_space_serializer 2>/dev/null",
+        batch_size
+    ))
+    local paths: {string} = {}
+    for i = 0, batch_size - 1 do
+        table.insert(paths, string.format("fuzz/corpus/test_%d.tl", i))
+    end
+    return paths
+end
+
+local function process_path(config: Config, path: string): boolean
+    total = total + 1
+    local content = read_file(path)
+    if not content then
+        local failure = Failure.new("crash", path, "", "could not read file")
+        if is_wanted(failure.kind, config) then
+            table.insert(failures, failure)
+            return config.until_fail
+        end
+        return false
+    end
+    local failure = classify(path, content)
+    if failure is nil then return false end
+    if is_wanted(failure.kind, config) then
+        table.insert(failures, failure)
+        return config.until_fail
+    end
+    return false
+end
+
+local config = parse_args()
+setup_generator()
+
+local generated_total = 0
+local done = false
+while not done do
+    local batch_size: integer
+    if config.count == 0 then
+        batch_size = MAX_BATCH
+    else
+        batch_size = math.min(MAX_BATCH, config.count - generated_total)
+        if batch_size <= 0 then break end
+    end
+
+    local paths = generate_batch(batch_size)
+    generated_total = generated_total + batch_size
+
+    for _, path in ipairs(paths) do
+        local should_stop = process_path(config, path)
+        if should_stop then
+            done = true
+            break
+        end
+    end
+
+    if not done then
+        if config.count > 0 and generated_total >= config.count then
+            done = true
+        end
+    end
+end
+
+if config.until_fail and #failures == 0 then
+    io.stdout:write(string.format("\nChecked %d samples, no issues found.\n", total))
+    io.stdout:write(string.format("Parse errors (ignored): %d\n", parse_error_count))
+    os.exit(0)
+end
+
+print_summary(config)
 os.exit(#failures == 0 and 0 or 1)
