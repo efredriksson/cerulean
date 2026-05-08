@@ -161,6 +161,24 @@ describe("formatter global declarations", function()
       ]]))
    end)
 
+   describe("type = record inside interface body", function()
+      it("preserves type X = record syntax (not bare record X)", helpers.check([[
+         local interface I
+             type Foo = record
+                 x: integer
+             end
+         end
+      ]]))
+
+      it("preserves generic type X<T> = record syntax inside interface", helpers.check([[
+         local interface I
+             type Foo<T> = record
+                 x: T
+             end
+         end
+      ]]))
+   end)
+
    describe("crash regressions", function()
       it("does not crash on parenthesized invalid type in type list", helpers.parse_error([[
          local f: function(): string, (,), number
