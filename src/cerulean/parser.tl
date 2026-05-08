@@ -2054,7 +2054,9 @@ local function parse_argument(ps: ParseState, i: integer): integer, Node, intege
    end
    if ps.tokens[i].tk == "?" then
       i = i + 1
-      node.opt = true
+      if node then
+         node.opt = true
+      end
    end
    if ps.tokens[i].tk == ":" then
       i = i + 1

@@ -187,6 +187,10 @@ describe("formatter global declarations", function()
       it("does not crash on keyword used as identifier after dot in interface is-list", helpers.parse_error([[
          global interface B is x.if end
       ]]))
+
+      it("does not crash on keyword as argument name followed by optional marker", helpers.parse_error([[
+         local f = function(or ?) end
+      ]]))
    end)
 
    describe("blank line preservation in record bodies", function()
