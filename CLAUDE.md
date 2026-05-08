@@ -8,6 +8,8 @@ After making changes, run  `busted spec/` to verify logic of the code is correct
 
 Do not use `lua -e` or bare `lua` to test changes. `busted` loads `.tl` sources directly via the teal loader; `lua` loads compiled files from `dist/` and will not reflect edits.
 
+**Fuzz bugs.** `make fuzz` generates `fuzz/corpus/` and writes failures to `fuzz/regressions_spec.lua`. Fix workflow: write a focused test in `spec/` → fix → `busted spec/` + `busted fuzz/regressions_spec.lua`.
+
 After, go through each changed function and check it explicitly against every convention listed below. Only mark the task complete after this checklist pass.
 
 ## Teal style
