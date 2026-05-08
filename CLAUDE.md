@@ -10,7 +10,9 @@ Do not use `lua -e` or bare `lua` to test changes. `busted` loads `.tl` sources 
 
 To run the formatter on a file: `tl run src/cerulean/init.tl -- <file>`. For scripted investigations, write a `.tl` script and run it with `tl run` — prefer Teal scripts over Lua scripts.
 
-**Fuzz bugs.** `make fuzz` generates `fuzz/corpus/` and writes failures to `fuzz/regressions_spec.lua`. Fix workflow: write a focused test in `spec/` → fix → `busted spec/` + `busted fuzz/regressions_spec.lua`.
+**Fuzz bugs.** `make fuzz` generates `fuzz/corpus/` and writes failures to `fuzz/regressions_spec.lua`. Fix workflow: write a focused test in `spec/` → fix → `busted spec/` + `busted fuzz/regressions_spec.lua`. Corpus files are untracked.
+
+**Spec helpers.** `helpers.check(src)` — assert unchanged. `helpers.format(input, expected)` — assert formats as expected. `helpers.parse_error(src)` — assert parser error for input.
 
 After, go through each changed function and check it explicitly against every convention listed below. Only mark the task complete after this checklist pass.
 
