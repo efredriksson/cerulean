@@ -269,6 +269,15 @@ local function op_has_any_trivia(node: parser.Node): boolean
         or (node.op_trailing_trivia ~= nil and #node.op_trailing_trivia > 0)
 end
 
+local function key_starts_with_long_string(node: parser.Node): boolean
+    -- When the key expression's leftmost token is a long string, the subscript `[`
+    -- must be spaced away to prevent `[[[k]]` from being lexed as a long string.
+    return node.is_longstring
+        or node.kind == "op"
+            and node.op.arity == 2
+            and key_starts_with_long_string(node.e1)
+end
+
 local function render_op(
     ctx: RenderContext,
     node: parser.Node,
@@ -288,21 +297,13 @@ local function render_op(
             }
         )
     elseif op == "@index" then
-        local function get_bracket_spacing(): string
-            -- A long-string key like [[k]] must be spaced away from the index `[`
-            -- to prevent `[[[k]]]` which in teal is a long string
-            if right.is_longstring then
-                return " "
-            else
-                return ""
-            end
-        end
+        local spacing = key_starts_with_long_string(right) and " " or ""
         return doc.concat(
             {
                 render_expr(ctx, left, operator.prec, same_indent_on_line),
-                doc.text("[" .. get_bracket_spacing()),
+                doc.text("[" .. spacing),
                 render_root_expr(ctx, right, same_indent_on_line),
-                doc.text(get_bracket_spacing() .. "]"),
+                doc.text(spacing .. "]"),
             }
         )
     elseif op == "@funcall" then

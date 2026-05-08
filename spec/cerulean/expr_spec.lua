@@ -166,4 +166,8 @@ describe("formatter function expressions", function()
       local x = t[ [[key]] ]
    ]=]))
 
+   it("index with expression starting with long string preserves space to avoid tokenizer ambiguity", helpers.check([=[
+      local x = t[ [[d]] and {} ]
+   ]=]))
+
 end)
