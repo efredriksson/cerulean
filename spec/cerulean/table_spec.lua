@@ -220,4 +220,8 @@ describe("formatter table constructor wrapping", function()
       local t = {[ [[key]] ] = nil}
    ]=]))
 
+   it("table key with expression starting with long string preserves space to avoid tokenizer ambiguity", helpers.check([=[
+      local t = {[ [[x]] + {} ] = 1}
+   ]=]))
+
 end)
