@@ -167,6 +167,9 @@ local record parser
       node: Node
       leading_comments: {Comment}
       is_meta: boolean
+      is_string_key: boolean
+      string_key_token: string
+      is_longstring_key: boolean
       line: integer
       yend: integer
       blank_line_before: boolean
@@ -3007,7 +3010,9 @@ parse_record_body = function(
          end
 
          local v: Node
+         local is_string_key = false
          if ps.tokens[i].tk == "[" then
+            is_string_key = true
             i, v = parse_literal(ps, i + 1)
             if v and not v.conststr then
                return fail(ps, i, "expected a string literal")
@@ -3066,6 +3071,12 @@ parse_record_body = function(
                 comments,
                 is_metamethod and "meta" or nil
             )
+            if is_string_key then
+               local last_entry = def.field_entries[#def.field_entries]
+               last_entry.is_string_key = true
+               last_entry.string_key_token = v.tk
+               last_entry.is_longstring_key = v.is_longstring
+            end
          elseif ps.tokens[i].tk == "=" then
             local next_word = ps.tokens[i + 1].tk
             if next_word == "record" or next_word == "enum" then

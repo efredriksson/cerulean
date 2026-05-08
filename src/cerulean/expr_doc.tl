@@ -194,15 +194,9 @@ local function render_binary_chain(
 end
 
 local function render_string_literal(node: parser.Node): doc.Doc
-    if node.is_longstring then
-        return doc.text(node.tk)
-    end
-
-    local content = node.tk:sub(2, -2)
-    if content:find('"', 1, true) then
-        return doc.text(node.tk)
-    end
-    return doc.text('"' .. content .. '"')
+    return doc.text(
+        render_builders.normalize_string_literal(node.tk, node.is_longstring)
+    )
 end
 
 local function call_doc_build_call_expr_doc(

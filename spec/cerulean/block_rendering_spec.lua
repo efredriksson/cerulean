@@ -854,6 +854,34 @@ describe("formatter structural block rendering", function()
              type Attribute = Attribute
          end
       ]]))
+
+      it("preserves a record field declared with a string literal bracket key", helpers.check([=[
+         local record F
+             [""]: string
+         end
+      ]=]))
+
+      it("formats a record field with a single-quoted string literal bracket key", helpers.format([=[
+         local record F
+             ['']: string
+         end
+      ]=], [=[
+         local record F
+             [""]: string
+         end
+      ]=]))
+
+      it("preserves a record field whose string literal bracket key contains a double quote", helpers.check([=[
+         local record F
+             ['say "hi"']: string
+         end
+      ]=]))
+
+      it("preserves a record field with a long string literal bracket key", helpers.check([=[
+         local record F
+             [ [[key]] ]: string
+         end
+      ]=]))
    end)
 
    describe("local require type aliases", function()
