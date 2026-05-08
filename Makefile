@@ -60,4 +60,4 @@ fuzz:
 		-o fuzz/corpus/test_%d.tl -n 1000 \
 		--sys-path fuzz/gen/ \
 		-s grammarinator.runtime.serializer.simple_space_serializer
-	LUA_PATH="./src/?.lua;;" lua fuzz/fuzz.lua fuzz/corpus/*.tl
+	tl run fuzz/fuzz.tl -- fuzz/corpus/*.tl
