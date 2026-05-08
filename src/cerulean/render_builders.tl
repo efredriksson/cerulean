@@ -25,6 +25,19 @@ function DelimitedSequenceOptions.new(
     return self
 end
 
+function render_builders.normalize_string_literal(
+    tk: string, is_longstring: boolean
+): string
+    if is_longstring then
+        return tk
+    end
+    local content = tk:sub(2, -2)
+    if content:find('"', 1, true) then
+        return tk
+    end
+    return '"' .. content .. '"'
+end
+
 function render_builders.build_comma_line_item_docs(item_docs: {doc.Doc}): doc.Doc
     local parts: {doc.Doc} = {}
 

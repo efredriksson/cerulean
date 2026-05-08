@@ -128,9 +128,22 @@ local function render_field_entry(
         end
     end
 
-    return doc.concat(
-        {doc.text(prefix() .. entry.name .. ": "), type_doc.render(entry.the_type)}
-    )
+    local function render_string_key(): string
+        local key = render_builders.normalize_string_literal(
+            entry.string_key_token, entry.is_longstring_key
+        )
+        local bracket_spacing = entry.is_longstring_key and " " or ""
+        return "[" .. bracket_spacing .. key .. bracket_spacing .. "]"
+    end
+
+    local function field_name_prefix(): string
+        if entry.is_string_key then
+            return render_string_key() .. ": "
+        end
+        return prefix() .. entry.name .. ": "
+    end
+
+    return doc.concat({doc.text(field_name_prefix()), type_doc.render(entry.the_type)})
 end
 
 local function render_record_like_body_doc(
