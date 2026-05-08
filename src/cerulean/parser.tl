@@ -1887,7 +1887,7 @@ do
             local argument: Node
             if tkop.kind == "string" then
                argument = new_node(ps, i)
-               argument.conststr = unquote(tkop.tk)
+               argument.conststr, argument.is_longstring = unquote(tkop.tk)
                i = i + 1
             else
                i, argument = parse_table_literal(ps, i)
