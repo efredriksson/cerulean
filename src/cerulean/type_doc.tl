@@ -28,11 +28,8 @@ local function arg_name_doc(
 end
 
 local function is_optional_arg(type_def: parser.FunctionType, index: integer): boolean
-    local min_arity = type_def.min_arity or #type_def.args.tuple
-    local is_variadic_tail = type_def.args.is_va
-
-    return index > min_arity
-        and not (is_variadic_tail and index == #type_def.args.tuple)
+    local is_variadic_tail = type_def.args.is_va and index == #type_def.args.tuple
+    return not is_variadic_tail and type_def.args.is_optional[index]
 end
 
 local type_doc = {}

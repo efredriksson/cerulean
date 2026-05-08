@@ -223,6 +223,7 @@ local record parser
 
       is_va: boolean
       argnames: {string}
+      is_optional: {boolean}
       tuple: {Type}
    end
 
@@ -2174,11 +2175,13 @@ parse_argument_type_list = function(
    i = parse_bracket_list(ps, i, ars, "(", ")", "sep", parse_argument_type)
    local t, list = new_tuple(ps, i)
    t.argnames = {}
+   t.is_optional = {}
    local n = #ars
    local min_arity = 0
    for l, ar in ipairs(ars) do
       list[l] = ar.type
       t.argnames[l] = ar.name
+      t.is_optional[l] = ar.opt
       if ar.is_va and l < n then
          fail(ps, ar.i, "'...' can only be last argument")
       end
