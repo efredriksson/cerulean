@@ -6,6 +6,7 @@ local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local signature_doc = require("cerulean.signature_doc")
+local table_doc = require("cerulean.table_doc")
 local type_doc = require("cerulean.type_doc")
 
 local type RenderContext = render_context.RenderContext
@@ -187,7 +188,12 @@ local function render_record_like_header_doc(
         assert(where_function is parser.FunctionType)
         local where_macroexp = where_function.macroexp
         table.insert(parts, doc.text(" where "))
-        table.insert(parts, ctx.render_expr(where_macroexp.exp))
+        local where_exp = where_macroexp.exp
+        if where_exp.kind == "literal_table" then
+            table.insert(parts, table_doc.build_table_doc(ctx, where_exp, ";"))
+        else
+            table.insert(parts, ctx.render_expr(where_exp))
+        end
     end
     return doc.concat(parts)
 end

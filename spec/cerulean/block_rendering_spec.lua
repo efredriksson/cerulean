@@ -836,6 +836,13 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("record where table constraint uses ; separator to avoid ambiguity with function return types", helpers.format([[
+         local record A where { [ true ] = t is function ( ) : string ; [ false ] = number } end
+      ]], [[
+         local record A where {[true] = t is function(): string; [false] = number}
+         end
+      ]]))
+
       it("format records that is userdata", helpers.format([[
          local record A
             is userdata

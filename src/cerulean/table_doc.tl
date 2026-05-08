@@ -47,10 +47,13 @@ local function has_any_comments(items: parser.Node): boolean
         or #(items.dangling_comments or {}) > 0
 end
 
-function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.Doc
+function table_doc.build_table_doc(
+    ctx: RenderContext, items: parser.Node, separator_char?: string
+): doc.Doc
     local force_wrap = has_any_comments(items)
     local line_doc = render_builders.item_line_doc(force_wrap)
     local parts: {doc.Doc} = {}
+    local sep_char = separator_char or ","
 
     local line_before = false
     for index, item in ipairs(items) do
@@ -62,7 +65,7 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
         table.insert(parts, build_table_item_text(ctx, item))
         trivia_doc.append_inline(parts, item.trailing_trivia)
 
-        local sep = item.trailing_comment and "," or ", "
+        local sep = item.trailing_comment and sep_char or sep_char .. " "
         if index < #items then
             table.insert(parts, doc.text(sep))
         else
