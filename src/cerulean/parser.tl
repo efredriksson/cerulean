@@ -2980,6 +2980,7 @@ parse_record_body = function(
 
          local nt = lt.value
          nt.typeargs = lt.typeargs
+         nt.is_type_declaration = lt.is_type_declaration
          if not nt or not nt.newtype then
             return fail(ps, i, "expected a type definition")
          end
