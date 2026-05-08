@@ -6,6 +6,8 @@ See [ARCHITECTURE.md](src/cerulean/ARCHITECTURE.md) for a full overview of the c
 
 After making changes, run  `busted spec/` to verify logic of the code is correct, then `make lint` to ensure the code conforms and that the formatter formatting itself looks reasonable. Running `make format` will format the code which might be neccessary for new code or when new formatting features/updates are added.
 
+Do not use `lua -e` or bare `lua` to test changes. `busted` loads `.tl` sources directly via the teal loader; `lua` loads compiled files from `dist/` and will not reflect edits.
+
 After, go through each changed function and check it explicitly against every convention listed below. Only mark the task complete after this checklist pass.
 
 ## Teal style
