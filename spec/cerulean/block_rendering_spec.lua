@@ -730,6 +730,13 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("renders userdata in record body after where clause, not in is-clause", helpers.check([[
+         local record Foo is Bar where self.x
+             userdata
+             ["key"]: string
+         end
+      ]]))
+
       it("reindents a local type interface while preserving its declaration spelling", helpers.format([[
          local type A = interface
            draw: function(self)
