@@ -97,15 +97,47 @@ local render_type_def_doc: function(
     generic_doc?: doc.Doc
 ): doc.Doc | nil
 
+local function is_userdata_nominal(iface: parser.Type): boolean
+    if not (iface is parser.NominalType) then
+        return false
+    end
+    return #iface.names == 1 and iface.names[1] == "userdata"
+end
+
+local function has_string_key_field(record_def: parser.RecordLikeType): boolean
+    for _, entry in ipairs(record_def.field_entries) do
+        if entry.is_string_key then
+            return true
+        end
+    end
+    return false
+end
+
+-- When a record has a where clause and string-key body fields, rendering userdata
+-- in the is-clause causes the second-pass parser to greedily consume the ["key"]
+-- field as an index on the where expression, producing broken output. Moving
+-- userdata into the body keeps the where expression boundary unambiguous.
+local function needs_userdata_in_body(record_def: parser.RecordLikeType): boolean
+    local has_where = record_def.meta_fields ~= nil
+        and record_def.meta_fields["__is"] ~= nil
+    return has_where and has_string_key_field(record_def)
+end
+
 local function render_interface_list_parts(record_def: parser.RecordLikeType): {doc.Doc}
     local parts: {doc.Doc} = {}
-    if record_def.interface_list == nil or #record_def.interface_list == 0 then
+    local filtered: {parser.Type} = {}
+    for _, iface in ipairs(record_def.interface_list or {}) do
+        if not is_userdata_nominal(iface) or not needs_userdata_in_body(record_def) then
+            table.insert(filtered, iface)
+        end
+    end
+    if #filtered == 0 then
         return parts
     end
     table.insert(parts, doc.text(" is "))
-    for index, iface in ipairs(record_def.interface_list) do
+    for index, iface in ipairs(filtered) do
         table.insert(parts, type_doc.render(iface))
-        if index < #record_def.interface_list then
+        if index < #filtered then
             table.insert(parts, doc.text(", "))
         end
     end
@@ -152,6 +184,14 @@ local function render_record_like_body_doc(
 ): doc.Doc | nil
     local parts: {doc.Doc} = {}
     local line_before = false
+    if needs_userdata_in_body(record_def) then
+        for _, iface in ipairs(record_def.interface_list or {}) do
+            if is_userdata_nominal(iface) then
+                table.insert(parts, doc.text("userdata"))
+                line_before = true
+            end
+        end
+    end
     for _, entry in ipairs(record_def.field_entries) do
         line_before = render_builders.append_comment_docs(
             parts, entry.leading_comments or {}, line_before
