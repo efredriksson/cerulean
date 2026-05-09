@@ -2,8 +2,25 @@ local doc = require("cerulean.doc")
 local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 
+local record TypeRenderOpts
+    -- Generic doc forwarded into the inner function-type renderer
+    generic_doc: doc.Doc
+    -- True when the type is being rendered in a position where a trailing ','
+    -- following the rendered type would be ambiguous with the outer context.
+    wrap_multi_return_rets: boolean
+end
+
+function TypeRenderOpts.new(
+    generic_doc?: doc.Doc, wrap_multi_return_rets?: boolean
+): TypeRenderOpts
+    local self: TypeRenderOpts = setmetatable({}, {__index = TypeRenderOpts})
+    self.generic_doc = generic_doc
+    self.wrap_multi_return_rets = wrap_multi_return_rets or false
+    return self
+end
+
 local render_return: function(parser.TupleType): doc.Doc
-local render_type: function(parser.Type, generic_doc?: doc.Doc): doc.Doc
+local render_type: function(parser.Type, TypeRenderOpts): doc.Doc
 
 local function arg_name_doc(
     arg_name: string, is_optional: boolean, is_variadic: boolean
@@ -34,12 +51,12 @@ end
 
 local type_doc = {}
 
-local type_doc_render: function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
+local type_doc_render: function(type_def: parser.Type, ? TypeRenderOpts): doc.Doc
 
 function type_doc.render_typeargs(typeargs: {parser.TypeArgType}): doc.Doc
     local typearg_docs: {doc.Doc} = {}
     for _, typearg in ipairs(typeargs) do
-        table.insert(typearg_docs, render_type(typearg))
+        table.insert(typearg_docs, render_type(typearg, TypeRenderOpts.new()))
     end
     return doc.concat(
         {
@@ -51,7 +68,7 @@ function type_doc.render_typeargs(typeargs: {parser.TypeArgType}): doc.Doc
 end
 
 local function function_type_render(
-    type_def: parser.FunctionType, generic_doc?: doc.Doc
+    type_def: parser.FunctionType, opts: TypeRenderOpts
 ): doc.Doc
     local arg_docs: {doc.Doc} = {}
     local argnames = type_def.args.argnames or {}
@@ -60,27 +77,36 @@ local function function_type_render(
         local arg_name, type_suffix = arg_name_doc(
             argnames[index], is_optional_arg(type_def, index), is_variadic
         )
-        local rendered_type = render_type(arg_type)
+        local rendered_type = render_type(arg_type, opts)
         table.insert(arg_docs, doc.concat({arg_name, rendered_type, type_suffix}))
     end
-    local opts = render_builders.DelimitedSequenceOptions.new("(", ")")
+    local delim_opts = render_builders.DelimitedSequenceOptions.new("(", ")")
+    local rets = type_def.rets
+    local wrap_rets = opts.wrap_multi_return_rets and #rets.tuple > 1 and not rets.paren
+    local rets_doc: doc.Doc
+    if wrap_rets then
+        rets_doc = doc.concat({doc.text(": ("), render_type(rets, opts), doc.text(")")})
+    else
+        rets_doc = render_return(rets)
+    end
+    local generic_doc = opts and opts.generic_doc or doc.text("")
     return doc.concat(
         {
             doc.text("function"),
-            generic_doc or doc.text(""),
-            render_builders.build_delimited_sequence_doc(arg_docs, opts),
-            render_return(type_def.rets),
+            generic_doc,
+            render_builders.build_delimited_sequence_doc(arg_docs, delim_opts),
+            rets_doc,
         }
     )
 end
 
-type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
+type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
     if type_def is parser.NominalType then
         local parts: {doc.Doc} = {doc.text(table.concat(type_def.names, "."))}
         if type_def.typevals ~= nil and #type_def.typevals > 0 then
             local typeval_docs: {doc.Doc} = {}
             for _, typeval in ipairs(type_def.typevals) do
-                table.insert(typeval_docs, render_type(typeval))
+                table.insert(typeval_docs, render_type(typeval, opts))
             end
             table.insert(parts, doc.text("<"))
             table.insert(
@@ -93,27 +119,29 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
         return doc.concat(
             {
                 doc.text("{"),
-                render_type(type_def.elements),
+                render_type(type_def.elements, opts),
                 doc.text("}"),
             }
         )
     elseif type_def is parser.TypeArgType then
         local typearg_text = doc.text(type_def.typearg)
         if type_def.constraint ~= nil then
-            local constraint_text = render_type(type_def.constraint)
+            local constraint_text = render_type(type_def.constraint, opts)
             typearg_text = doc.concat({typearg_text, doc.text(" is "), constraint_text})
         end
         return typearg_text
     elseif type_def is parser.UnionType then
         local type_docs: {doc.Doc} = {}
-        for _, t in ipairs(type_def.types) do
-            table.insert(type_docs, render_type(t))
+        local last = #type_def.types
+        for index, t in ipairs(type_def.types) do
+            local branch_opts = (index == last) and opts or TypeRenderOpts.new()
+            table.insert(type_docs, render_type(t, branch_opts))
         end
         return render_builders.build_separated_docs(type_docs, " | ")
     elseif type_def is parser.TupleType then
         local type_docs: {doc.Doc} = {}
         for _, t in ipairs(type_def.tuple) do
-            table.insert(type_docs, render_type(t))
+            table.insert(type_docs, render_type(t, opts))
         end
         local result = render_builders.build_separated_docs(type_docs, ", ")
         if type_def.is_va then
@@ -124,22 +152,22 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
         return doc.concat(
             {
                 doc.text("{"),
-                render_type(type_def.keys),
+                render_type(type_def.keys, opts),
                 doc.text(": "),
-                render_type(type_def.values),
+                render_type(type_def.values, opts),
                 doc.text("}"),
             }
         )
     elseif type_def is parser.TypeVarType then
         return doc.text(type_def.typevar)
     elseif type_def is parser.FunctionType then
-        return function_type_render(type_def, generic_doc)
+        return function_type_render(type_def, opts)
     elseif type_def is parser.TypeDeclType then
         assert(false, "implementation error, does not support enum/interface/...")
     elseif type_def is parser.TupleTableType then
         local type_docs: {doc.Doc} = {}
         for _, t in ipairs(type_def.types) do
-            table.insert(type_docs, render_type(t))
+            table.insert(type_docs, render_type(t, opts))
         end
         return doc.concat(
             {
@@ -149,7 +177,9 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
             }
         )
     elseif type_def is parser.GenericType then
-        return type_doc_render(type_def.t, type_doc.render_typeargs(type_def.typeargs))
+        local typeargs_doc = type_doc.render_typeargs(type_def.typeargs)
+        local inner_opts = TypeRenderOpts.new(typeargs_doc, opts.wrap_multi_return_rets)
+        return type_doc_render(type_def.t, inner_opts)
     elseif parser.simple_types[type_def.typename] then
         return doc.text(type_def.typename)
     end
@@ -157,8 +187,13 @@ type_doc_render = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Do
     assert(false, "unhandled type: " .. tostring(type_def.typename))
 end
 
-render_type = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
-    local result = type_doc_render(type_def, generic_doc)
+render_type = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
+    local inner_opts = opts
+    if type_def.paren and opts.wrap_multi_return_rets then
+        -- Outer paren already disambiguate trailing ',' so drop flag.
+        inner_opts = TypeRenderOpts.new(opts.generic_doc, false)
+    end
+    local result = type_doc_render(type_def, inner_opts)
     if type_def.paren then
         result = doc.concat({doc.text("("), result, doc.text(")")})
     end
@@ -166,7 +201,11 @@ render_type = function(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
 end
 
 function type_doc.render(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
-    return render_type(type_def, generic_doc)
+    return render_type(type_def, TypeRenderOpts.new(generic_doc))
+end
+
+function type_doc.render_cast(type_def: parser.Type): doc.Doc
+    return render_type(type_def, TypeRenderOpts.new(nil, true))
 end
 
 render_return = function(type_def: parser.TupleType): doc.Doc
