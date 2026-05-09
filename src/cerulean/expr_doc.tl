@@ -304,7 +304,7 @@ local function render_op(
             {
                 render_expr(ctx, left, operator.prec, same_indent_on_line),
                 doc.text(" " .. op .. " "),
-                type_doc.render(right.casttype),
+                type_doc.render_cast(right.casttype),
             }
         )
     elseif operator.arity == 1 then
