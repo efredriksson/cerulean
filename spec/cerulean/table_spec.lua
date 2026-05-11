@@ -268,6 +268,26 @@ describe("formatter table constructor wrapping", function()
       return {a = not (n is function(): number), b = 1}
    ]], {skip_ast_equivalence = true}))
 
+   it("uses semicolon when as-cast under unary prefix is not parenthesized", helpers.format([[
+      return { a = not x as function(): number; b = 1 }
+   ]], [[
+      return {a = not x as function(): number; b = 1}
+   ]]))
+
+   it("uses semicolon on trailing separator when wrapped unary as-cast is last item", helpers.format([[
+      return {
+         -- force wrap
+         a = 1,
+         b = not x as function(): number
+      }
+   ]], [[
+      return {
+          -- force wrap
+          a = 1,
+          b = not x as function(): number;
+      }
+   ]]))
+
    it("uses semicolon on trailing separator when wrapped cast is last item", helpers.format([[
       return {
          -- force wrap

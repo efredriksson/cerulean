@@ -10,23 +10,30 @@ local type RenderContext = render_context.RenderContext
 
 local table_doc = {}
 
--- In `expr as function(args): T`, the trailing `,` after the cast is parsed as
--- a return-type separator for the function type, breaking the next table field.
--- Using `;` instead of `,` avoids the ambiguity. A non-cast binary parent does
--- not parenthesize its right operand around a cast (the cast renderer skips
--- precedence parens), so walk through binary `e2` to find a rightmost cast.
--- Unary prefixes always parenthesize a lower-prec operand, so they cannot leave
--- a cast at the tail and are not walked into.
+-- `expr as function(): T, next` re-parses as `function(): (T, next)` — the `,`
+-- is greedily consumed as a return-type separator. Use `;` instead. Walk the
+-- rightmost operand to find any such cast: through binary `e2` (cast renderer
+-- skips precedence parens so no wrapping protects it), and through unary ops
+-- only when the inner op has high enough precedence that the renderer won't add
+-- parens (`as` prec 50 > unary prec 11; `is` prec 3 gets parens → safe).
 local function item_value_needs_semicolon(value: parser.Node): boolean
-    while value.kind == "op" and value.op.arity == 2 do
-        local op = value.op.op
-        if op == "as" or op == "is" then
-            return type_doc.cast_absorbs_trailing_comma(value.e2.casttype)
+    while value.kind == "op" do
+        if value.op.arity == 2 then
+            local op = value.op.op
+            if op == "as" or op == "is" then
+                return type_doc.cast_absorbs_trailing_comma(value.e2.casttype)
+            end
+            if op == "@funcall" or op == "@index" or op == "." or op == ":" then
+                return false
+            end
+            value = value.e2
+        else
+            local inner = value.e1
+            if inner.kind ~= "op" or inner.op.prec < value.op.prec then
+                return false
+            end
+            value = inner
         end
-        if op == "@funcall" or op == "@index" or op == "." or op == ":" then
-            return false
-        end
-        value = value.e2
     end
     return false
 end
