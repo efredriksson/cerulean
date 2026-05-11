@@ -196,7 +196,9 @@ local function render_record_like_body_doc(
         line_before = render_builders.append_comment_docs(
             parts, entry.leading_comments or {}, line_before
         )
-        table.insert(parts, render_builders.append_lines_pre_node(entry, line_before))
+        table.insert(
+            parts, render_builders.append_lines_pre_node(entry, line_before, doc.line())
+        )
         table.insert(parts, render_field_entry(ctx, entry))
 
         if entry.trailing_comment then
