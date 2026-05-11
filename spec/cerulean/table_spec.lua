@@ -224,4 +224,62 @@ describe("formatter table constructor wrapping", function()
       local t = {[ [[x]] + {} ] = 1}
    ]=]))
 
+   it("uses semicolon separator after cast to function type to avoid trailing comma being parsed as return type", helpers.format([[
+      return { a = x as function(): number; b = 1 }
+   ]], [[
+      return {a = x as function(): number; b = 1}
+   ]]))
+
+   it("uses semicolon after is-cast to function type with single return", helpers.format([[
+      return { a = x is nil | function(): string; b = 1 }
+   ]], [[
+      return {a = x is nil | function(): string; b = 1}
+   ]]))
+
+   it("uses comma when cast function type has no return types", helpers.format([[
+      return { a = x as function(); b = 1 }
+   ]], [[
+      return {a = x as function(), b = 1}
+   ]]))
+
+   it("uses comma when cast function type return is parenthesized", helpers.check([[
+      return {a = x as (function(): number), b = 1}
+   ]]))
+
+   it("uses comma when cast function type has parenthesized return tuple", helpers.check([[
+      return {a = x as function(): (number), b = 1}
+   ]]))
+
+   it("uses semicolon after cast to generic function type with single return", helpers.format([[
+      return { a = x as function<T>(): T; b = 1 }
+   ]], [[
+      return {a = x as function<T>(): T; b = 1}
+   ]]))
+
+   it("uses semicolon when cast is nested as right operand of binary op", helpers.format([[
+      return { a = false .. n is function(): number; b = 1 }
+   ]], [[
+      return {a = false .. n is function(): number; b = 1}
+   ]]))
+
+   it("uses comma when cast under unary prefix gets parenthesized by renderer", helpers.format([[
+      return { a = not n is function(): number; b = 1 }
+   ]], [[
+      return {a = not (n is function(): number), b = 1}
+   ]], {skip_ast_equivalence = true}))
+
+   it("uses semicolon on trailing separator when wrapped cast is last item", helpers.format([[
+      return {
+         -- force wrap
+         a = 1,
+         b = x as function(): number
+      }
+   ]], [[
+      return {
+          -- force wrap
+          a = 1,
+          b = x as function(): number;
+      }
+   ]]))
+
 end)
