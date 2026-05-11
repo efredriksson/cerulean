@@ -10,6 +10,27 @@ local type RenderContext = render_context.RenderContext
 
 local table_doc = {}
 
+-- In `expr as function(args): T`, the trailing `,` after the cast is parsed as
+-- a return-type separator for the function type, breaking the next table field.
+-- Using `;` instead of `,` avoids the ambiguity. A non-cast binary parent does
+-- not parenthesize its right operand around a cast (the cast renderer skips
+-- precedence parens), so walk through binary `e2` to find a rightmost cast.
+-- Unary prefixes always parenthesize a lower-prec operand, so they cannot leave
+-- a cast at the tail and are not walked into.
+local function item_value_needs_semicolon(value: parser.Node): boolean
+    while value.kind == "op" and value.op.arity == 2 do
+        local op = value.op.op
+        if op == "as" or op == "is" then
+            return type_doc.cast_absorbs_trailing_comma(value.e2.casttype)
+        end
+        if op == "@funcall" or op == "@index" or op == "." or op == ":" then
+            return false
+        end
+        value = value.e2
+    end
+    return false
+end
+
 local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc.Doc
     if item.key_parsed == "implicit" then
         return ctx.render_expr(item.value)
@@ -66,7 +87,9 @@ function table_doc.build_table_doc(
         table.insert(parts, build_table_item_text(ctx, item))
         trivia_doc.append_inline(parts, item.trailing_trivia)
 
-        local sep = item.trailing_comment and sep_char or sep_char .. " "
+        local effective_sep = (item_value_needs_semicolon(item.value) and ";")
+            or sep_char
+        local sep = item.trailing_comment and effective_sep or effective_sep .. " "
         if index < #items then
             table.insert(parts, doc.text(sep))
         else
