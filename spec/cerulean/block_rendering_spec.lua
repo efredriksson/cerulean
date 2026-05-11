@@ -700,6 +700,12 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("separates nested record and interface with a space when rendered inline", helpers.format([[
+         return { function() global record n4d<Oz> record u end interface l end end end }
+      ]], [[
+         return {function() global record n4d<Oz> record u end interface l end end end}
+      ]]))
+
       it("wraps long funtion types", helpers.format([[
          local record A
             f: function(SomethingVeryLong1, SomethingVeryLong2, SomethingVeryLong3, SomethingVeryLong4): string
