@@ -1,19 +1,71 @@
 -- Wadler-Lindig pretty-printer: groups try flat first, break when they don't fit.
-local record Doc
+local interface Doc
     kind: string
+    render: function(self, max_width: integer, indent_width: integer): string
+end
+
+local record DocText is Doc where self.kind == "text"
     text: string
+end
+
+local record DocRaw is Doc where self.kind == "raw"
     raw_lines: {string}
+end
+
+local record DocClosed is Doc where self.kind == "close"
     close_text: string
     close_flat_sep: string
+end
+
+local record DocLine is Doc where self.kind == "line"
+    flat_text: string
+end
+
+local record DocHardLine is Doc where self.kind == "hardline"
+end
+
+local record DocBlankLine is Doc where self.kind == "blankline"
+end
+
+local record DocBreakText is Doc where self.kind == "break_text"
     flat_text: string
     broken_text: string
-    parts: {Doc}
+end
+
+local record DocTrimStart is Doc where self.kind == "trim_start"
+end
+
+local record DocTrimEnd is Doc where self.kind == "trim_end"
+end
+
+local record DocGroup is Doc where self.kind == "group"
     child: Doc
+    group_id: integer
+    should_break: boolean
+end
+
+local record DocConcat is Doc where self.kind == "concat"
+    parts: {Doc}
+end
+
+local record DocLineSuffix is Doc where self.kind == "line_suffix"
+    child: Doc
+end
+
+local record DocLineSuffixBoundary is Doc where self.kind == "line_suffix_boundary"
+end
+
+local record DocIndent is Doc where self.kind == "indent"
+    child: Doc
+end
+
+local record DocIfBreak is Doc where self.kind == "if_break"
     flat_child: Doc
     break_child: Doc
-    group_id: integer
     target_group_id: integer
-    should_break: boolean
+end
+
+local record DocBreakParent is Doc where self.kind == "break_parent"
 end
 
 local doc = {Doc = Doc}
@@ -62,154 +114,6 @@ local record RenderState
     broken_groups: {integer: boolean}
     line_suffixes: {RenderCommand}
     marked_column: integer
-end
-
-local function new_doc(kind: string): Doc
-    local self: Doc = setmetatable({}, {__index = Doc})
-    self.kind = kind
-    return self
-end
-
-function doc.text(text: string): Doc
-    local result = new_doc("text")
-    result.text = text
-    return result
-end
-
-function doc.raw(lines: {string}): Doc
-    local result = new_doc("raw")
-    result.raw_lines = lines
-    return result
-end
-
-function doc.close(text: string): Doc
-    local result = new_doc("close")
-    result.close_text = text
-    result.close_flat_sep = " "
-    return result
-end
-
-function doc.softclose(text: string): Doc
-    local result = new_doc("close")
-    result.close_text = text
-    result.close_flat_sep = ""
-    return result
-end
-
-function doc.line(): Doc
-    local result = new_doc("line")
-    result.flat_text = " "
-    return result
-end
-
-function doc.softline(): Doc
-    local result = new_doc("line")
-    result.flat_text = ""
-    return result
-end
-
-function doc._break_text(broken_text: string, flat_text?: string): Doc
-    local result = new_doc("break_text")
-    result.broken_text = broken_text
-    result.flat_text = flat_text or ""
-    return result
-end
-
-function doc.hardline(): Doc
-    local result = new_doc("hardline")
-    return result
-end
-
-function doc.if_wrapped(text: string): Doc
-    return doc._break_text(text, "")
-end
-
-local function build_if_break_doc(
-    break_child: Doc, flat_child?: Doc, target_group_id?: integer
-): Doc
-    local result = new_doc("if_break")
-    result.break_child = break_child
-    result.flat_child = flat_child or doc.text("")
-    result.target_group_id = target_group_id
-    return result
-end
-
-function GroupRef:if_break(break_child: Doc, flat_child?: Doc): Doc
-    return build_if_break_doc(break_child, flat_child, self.group_id)
-end
-
-function doc.break_parent(): Doc
-    return new_doc("break_parent")
-end
-
-function doc.line_suffix(child: Doc): Doc
-    local result = new_doc("line_suffix")
-    result.child = child
-    return result
-end
-
-function doc.line_suffix_boundary(): Doc
-    return new_doc("line_suffix_boundary")
-end
-
-function doc.blankline(): Doc
-    local result = new_doc("blankline")
-    return result
-end
-
-function doc.concat(parts: {Doc}): Doc
-    local result = new_doc("concat")
-    result.parts = parts
-    return result
-end
-
-function doc._trim_start(): Doc
-    return new_doc("trim_start")
-end
-
-function doc._trim_end(): Doc
-    return new_doc("trim_end")
-end
-
-function doc.trim_lines(child: Doc): Doc
-    return doc.concat({doc._trim_start(), child, doc._trim_end()})
-end
-
-function doc.indent(child: Doc): Doc
-    local result = new_doc("indent")
-    result.child = child
-    return result
-end
-
-function doc.indent_line(child: Doc): Doc
-    return doc.indent(doc.concat({doc.line(), child}))
-end
-
-function doc.indent_softline(child: Doc): Doc
-    return doc.indent(doc.concat({doc.softline(), child}))
-end
-
-function doc.indent_hardline(child: Doc): Doc
-    return doc.indent(doc.concat({doc.hardline(), child}))
-end
-
-local function build_group_doc(child: Doc, group_id?: integer): Doc
-    local result = new_doc("group")
-    result.child = child
-    result.group_id = group_id
-    return result
-end
-
-function doc.group(child: Doc): Doc
-    return build_group_doc(child, nil)
-end
-
-function GroupRef:group(child: Doc): Doc
-    return build_group_doc(child, self.group_id)
-end
-
-function doc.group_ref(): GroupRef
-    return GroupRef.new()
 end
 
 local function append_text(state: RenderState, text: string)
@@ -268,13 +172,13 @@ end
 
 -- Pre-mark groups before rendering so fits() skips break_parent traversal during width checks.
 local function propagate_breaks(node: Doc): boolean
-    if node.kind == "break_parent" then
+    if node is DocBreakParent then
         return true
-    elseif node.kind == "group" then
+    elseif node is DocGroup then
         local child_propagate = propagate_breaks(node.child)
         node.should_break = node.should_break or child_propagate
         return false
-    elseif node.kind == "concat" then
+    elseif node is DocConcat then
         -- Must visit every part: an early return would leave later groups unmarked,
         -- so their should_break stays false and fits() treats them as flat incorrectly.
         local any_part_breaks = false
@@ -284,9 +188,9 @@ local function propagate_breaks(node: Doc): boolean
             end
         end
         return any_part_breaks
-    elseif node.kind == "indent" or node.kind == "line_suffix" then
+    elseif node is DocIndent or node is DocLineSuffix then
         return propagate_breaks(node.child)
-    elseif node.kind == "if_break" then
+    elseif node is DocIfBreak then
         -- Same constraint: evaluate both sides before combining.
         local break_propagates = propagate_breaks(node.break_child)
         local flat_propagates = propagate_breaks(node.flat_child)
@@ -297,19 +201,19 @@ end
 
 local function has_line_break_opportunity(node: Doc): boolean
     if
-        node.kind == "line"
-        or node.kind == "hardline"
-        or node.kind == "blankline"
-        or node.kind == "close"
-        or node.kind == "break_parent"
+        node is DocLine
+        or node is DocHardLine
+        or node is DocBlankLine
+        or node is DocClosed
+        or node is DocBreakParent
     then
         return true
     end
-    if node.kind == "raw" then
+    if node is DocRaw then
         return false
     end
 
-    if node.kind == "concat" then
+    if node is DocConcat then
         for _, part in ipairs(node.parts or {}) do
             if has_line_break_opportunity(part) then
                 return true
@@ -318,18 +222,18 @@ local function has_line_break_opportunity(node: Doc): boolean
         return false
     end
 
-    if node.kind == "trim_end" then
+    if node is DocTrimEnd then
         return true
     end
 
-    if node.kind == "indent" or node.kind == "group" or node.kind == "line_suffix" then
+    if node is DocIndent or node is DocGroup or node is DocLineSuffix then
         if node.child == nil then
             return false
         end
         return has_line_break_opportunity(node.child)
     end
 
-    if node.kind == "if_break" then
+    if node is DocIfBreak then
         if node.break_child ~= nil and has_line_break_opportunity(node.break_child) then
             return true
         end
@@ -386,25 +290,25 @@ local function fits(
         local flat = command.flat
         local current_group_id = command.current_group_id
 
-        if node.kind == "text" then
+        if node is DocText then
             remaining_width = remaining_width - #(node.text or "")
-        elseif node.kind == "raw" then
+        elseif node is DocRaw then
             return false
-        elseif node.kind == "break_text" then
+        elseif node is DocBreakText then
             if flat then
                 remaining_width = remaining_width - #(node.flat_text or "")
             else
                 remaining_width = remaining_width - #(node.broken_text or "")
             end
-        elseif node.kind == "line" then
+        elseif node is DocLine then
             if flat then
                 remaining_width = remaining_width - #(node.flat_text or "")
             else
                 return true
             end
-        elseif node.kind == "trim_end" and not flat then
+        elseif node is DocTrimEnd and not flat then
             return true
-        elseif node.kind == "if_break" then
+        elseif node is DocIfBreak then
             local take_break_branch = should_take_break_branch(
                 node.target_group_id, current_group_id, flat, broken_groups
             )
@@ -413,34 +317,34 @@ local function fits(
                 commands,
                 RenderCommand.new(chosen, command.indent, flat, current_group_id)
             )
-        elseif node.kind == "break_parent" then
+        elseif node is DocBreakParent then
             -- propagate_breaks already set group.should_break; nothing to measure here.
-        elseif node.kind == "line_suffix" or node.kind == "line_suffix_boundary" then
+        elseif node is DocLineSuffix or node is DocLineSuffixBoundary then
 
-        elseif node.kind == "hardline" then
+        elseif node is DocHardLine then
             return true
-        elseif node.kind == "blankline" then
+        elseif node is DocBlankLine then
             if not flat then
                 return true
             end
-        elseif node.kind == "close" then
+        elseif node is DocClosed then
             if flat then
                 remaining_width = remaining_width - #node.close_text - #node.close_flat_sep
             else
                 return true
             end
-        elseif node.kind == "concat" then
+        elseif node is DocConcat then
             push_concat_parts(
                 commands, node.parts or {}, command.indent, flat, current_group_id
             )
-        elseif node.kind == "indent" then
+        elseif node is DocIndent then
             table.insert(
                 commands,
                 RenderCommand.new(
                     node.child, command.indent + indent_width, flat, current_group_id
                 )
             )
-        elseif node.kind == "group" then
+        elseif node is DocGroup then
             if flat and node.should_break then
                 return false
             end
@@ -477,11 +381,11 @@ local function render_doc(root: Doc, state: RenderState)
         local node_flat = command.flat
         local current_group_id = command.current_group_id
 
-        if node.kind == "text" then
+        if node is DocText then
             append_text(state, node.text or "")
-        elseif node.kind == "raw" then
+        elseif node is DocRaw then
             write_raw_lines(state, node.raw_lines or {})
-        elseif node.kind == "close" then
+        elseif node is DocClosed then
             if node_flat then
                 if
                     string.sub(
@@ -506,13 +410,13 @@ local function render_doc(root: Doc, state: RenderState)
                 end
                 append_text(state, node.close_text)
             end
-        elseif node.kind == "break_text" then
+        elseif node is DocBreakText then
             if node_flat then
                 append_text(state, node.flat_text or "")
             else
                 append_text(state, node.broken_text or "")
             end
-        elseif node.kind == "if_break" then
+        elseif node is DocIfBreak then
             local take_break_branch = should_take_break_branch(
                 node.target_group_id, current_group_id, node_flat, state.broken_groups
             )
@@ -520,18 +424,18 @@ local function render_doc(root: Doc, state: RenderState)
             table.insert(
                 commands, RenderCommand.new(chosen, indent, node_flat, current_group_id)
             )
-        elseif node.kind == "break_parent" then
+        elseif node is DocBreakParent then
             if current_group_id ~= nil then
                 state.broken_groups[current_group_id] = true
             end
-        elseif node.kind == "line_suffix" then
+        elseif node is DocLineSuffix then
             table.insert(
                 state.line_suffixes,
                 RenderCommand.new(node.child, indent, node_flat, current_group_id)
             )
-        elseif node.kind == "line_suffix_boundary" then
+        elseif node is DocLineSuffixBoundary then
             push_pending_line_suffixes(commands, state)
-        elseif node.kind == "line" then
+        elseif node is DocLine then
             if node_flat then
                 append_text(state, node.flat_text or "")
             else
@@ -542,9 +446,9 @@ local function render_doc(root: Doc, state: RenderState)
                     break_line(state, indent)
                 end
             end
-        elseif node.kind == "trim_start" then
+        elseif node is DocTrimStart then
             state.marked_column = state.column
-        elseif node.kind == "trim_end" then
+        elseif node is DocTrimEnd then
             if state.column > state.marked_column then
                 if not node_flat then
                     local suffix_count = push_pending_line_suffixes(commands, state)
@@ -555,14 +459,14 @@ local function render_doc(root: Doc, state: RenderState)
                     end
                 end
             end
-        elseif node.kind == "hardline" then
+        elseif node is DocHardLine then
             local suffix_count = push_pending_line_suffixes(commands, state)
             if suffix_count > 0 then
                 table.insert(commands, #commands - suffix_count + 1, command)
             else
                 break_line(state, indent)
             end
-        elseif node.kind == "blankline" then
+        elseif node is DocBlankLine then
             if not node_flat then
                 local suffix_count = push_pending_line_suffixes(commands, state)
                 if suffix_count > 0 then
@@ -574,18 +478,18 @@ local function render_doc(root: Doc, state: RenderState)
                     state.column = indent
                 end
             end
-        elseif node.kind == "concat" then
+        elseif node is DocConcat then
             push_concat_parts(
                 commands, node.parts or {}, indent, node_flat, current_group_id
             )
-        elseif node.kind == "indent" then
+        elseif node is DocIndent then
             table.insert(
                 commands,
                 RenderCommand.new(
                     node.child, indent + state.indent_width, node_flat, current_group_id
                 )
             )
-        elseif node.kind == "group" then
+        elseif node is DocGroup then
             local group_id = node.group_id or current_group_id
             if node_flat then
                 table.insert(
@@ -624,8 +528,8 @@ local function render_doc(root: Doc, state: RenderState)
     end
 end
 
-function Doc:render(max_width: integer, indent_width: integer): string
-    propagate_breaks(self)
+local function render(to_render: Doc, max_width: integer, indent_width: integer): string
+    propagate_breaks(to_render)
     local state: RenderState = {
         lines = {},
         current_line = "",
@@ -636,9 +540,160 @@ function Doc:render(max_width: integer, indent_width: integer): string
         line_suffixes = {},
     }
 
-    render_doc(self, state)
+    render_doc(to_render, state)
     table.insert(state.lines, rstrip_whitespace(state.current_line))
     return table.concat(state.lines, "\n")
+end
+
+local function new_doc(kind: string): Doc
+    return {kind = kind, render = render}
+end
+
+function doc.text(text: string): Doc
+    local result = new_doc("text") as DocText
+    result.text = text
+    return result
+end
+
+function doc.raw(lines: {string}): Doc
+    local result = new_doc("raw") as DocRaw
+    result.raw_lines = lines
+    return result
+end
+
+function doc.close(text: string): Doc
+    local result = new_doc("close") as DocClosed
+    result.close_text = text
+    result.close_flat_sep = " "
+    return result
+end
+
+function doc.softclose(text: string): Doc
+    local result = new_doc("close") as DocClosed
+    result.close_text = text
+    result.close_flat_sep = ""
+    return result
+end
+
+function doc.line(): Doc
+    local result = new_doc("line") as DocLine
+    result.flat_text = " "
+    return result
+end
+
+function doc.softline(): Doc
+    local result = new_doc("line") as DocLine
+    result.flat_text = ""
+    return result
+end
+
+function doc._break_text(broken_text: string, flat_text?: string): Doc
+    local result = new_doc("break_text") as DocBreakText
+    result.broken_text = broken_text
+    result.flat_text = flat_text or ""
+    return result
+end
+
+function doc.hardline(): Doc
+    local result = new_doc("hardline") as DocHardLine
+    return result
+end
+
+function doc.if_wrapped(text: string): Doc
+    return doc._break_text(text, "")
+end
+
+local function build_if_break_doc(
+    break_child: Doc, flat_child?: Doc, target_group_id?: integer
+): Doc
+    local result = new_doc("if_break") as DocIfBreak
+    result.break_child = break_child
+    result.flat_child = flat_child or doc.text("")
+    result.target_group_id = target_group_id
+    return result
+end
+
+function GroupRef:if_break(break_child: Doc, flat_child?: Doc): Doc
+    return build_if_break_doc(break_child, flat_child, self.group_id)
+end
+
+function doc.break_parent(): Doc
+    local result = new_doc("break_parent") as DocBreakParent
+    return result
+end
+
+function doc.line_suffix(child: Doc): Doc
+    local result = new_doc("line_suffix") as DocLineSuffix
+    result.child = child
+    return result
+end
+
+function doc.line_suffix_boundary(): Doc
+    local result = new_doc("line_suffix_boundary") as DocLineSuffixBoundary
+    return result
+end
+
+function doc.blankline(): Doc
+    local result = new_doc("blankline") as DocBlankLine
+    return result
+end
+
+function doc.concat(parts: {Doc}): Doc
+    local result = new_doc("concat") as DocConcat
+    result.parts = parts
+    return result
+end
+
+function doc._trim_start(): Doc
+    local result = new_doc("trim_start") as DocTrimStart
+    return result
+end
+
+function doc._trim_end(): Doc
+    local result = new_doc("trim_end") as DocTrimEnd
+    return result
+end
+
+function doc.trim_lines(child: Doc): Doc
+    return doc.concat({doc._trim_start(), child, doc._trim_end()})
+end
+
+function doc.indent(child: Doc): Doc
+    local result = new_doc("indent") as DocIndent
+    result.child = child
+    return result
+end
+
+function doc.indent_line(child: Doc): Doc
+    return doc.indent(doc.concat({doc.line(), child}))
+end
+
+function doc.indent_softline(child: Doc): Doc
+    return doc.indent(doc.concat({doc.softline(), child}))
+end
+
+function doc.indent_hardline(child: Doc): Doc
+    return doc.indent(doc.concat({doc.hardline(), child}))
+end
+
+local function build_group_doc(child: Doc, group_id?: integer): Doc
+    local result = new_doc("group") as DocGroup
+    result.child = child
+    result.group_id = group_id
+    result.should_break = false
+    return result
+end
+
+function doc.group(child: Doc): Doc
+    return build_group_doc(child, nil)
+end
+
+function GroupRef:group(child: Doc): Doc
+    return build_group_doc(child, self.group_id)
+end
+
+function doc.group_ref(): GroupRef
+    return GroupRef.new()
 end
 
 return doc
