@@ -215,7 +215,7 @@ describe("formatter integration", function()
          local x = {1,  2,  3}
       ]]))
 
-      pending("fmt: off after comment, still formats comment", helpers.format([[
+      it("fmt: off after comment, still formats comment", helpers.format([[
            -- comment to format
          -- fmt: off
          local x = {1,  2,  3}
