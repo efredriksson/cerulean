@@ -6,7 +6,7 @@
 
 Cerulean is a hobby project with a small user base. The author started it without a full appreciation of how hard writing a correct formatter is.
 
-The project has used agentic coding extensively throughout development. This was done as a deliberate exercise in learning how to use that workflow well on a real codebase.
+The author used agentic coding extensively throughout development as a deliberate exercise in learning and improving this workflow on a real codebase.
 
 ## Known issues
 
@@ -14,4 +14,4 @@ The fuzzer (`make fuzz`) still finds idempotency failures: formatting the output
 
 ## Test coverage
 
-The formatter has been run against large, non-trivial Teal codebases without issues. The test suite has over 500 cases and covers a wide range of inputs.
+Cerulean has been run against large, non-trivial Teal codebases without issues. The test suite has over 500 cases and covers a wide range of inputs.

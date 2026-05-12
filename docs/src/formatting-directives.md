@@ -4,7 +4,7 @@
 >
 > — Ursula K. Le Guin, **A Wizard of Earthsea**
 
-Wrap regions you want left untouched in formatter directives:
+Surround regions you want left untouched with formatter directives:
 
 ```teal
 -- fmt: off
@@ -17,7 +17,7 @@ Everything between `-- fmt: off` and `-- fmt: on` is passed through verbatim. Th
 
 ## Scoped usage
 
-The directives respect the structure of the code — you can place them inside a function or any other block to leave just that block unformatted while the rest of the file is formatted normally:
+The directives are scope-aware. Place them inside any block to leave just that block unformatted while the rest of the file is formatted normally:
 
 ```teal
 local function formatted()

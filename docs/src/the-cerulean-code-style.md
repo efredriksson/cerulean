@@ -16,7 +16,7 @@ The default target line length is **88 characters**. When a construct exceeds th
 
 ## Supported Teal constructs
 
-Cerulean understands all Teal constructs. Everything below is parsed structurally and laid out by the formatter, not just passed through as text.
+Cerulean understands all Teal constructs. Each construct is parsed structurally and laid out by the formatter, not passed through as text.
 
 Leading, trailing, dangling, and inline-block comments are preserved through every wrapping decision. `-- fmt: off` / `-- fmt: on` regions are respected, and `require` sorting honours `-- fmt: off`.
 
@@ -26,15 +26,15 @@ What Cerulean leaves alone: long-string literals (`[[...]]`) and any region insi
 
 ## Three levels of wrapping
 
-For tables, function calls, and function signatures, Cerulean tries three layouts in order and picks the first that fits within the line limit. If a wrapped construct turns out to fit a shorter form, Cerulean joins it back.
+For tables, function calls, and function signatures, Cerulean tries three layouts in order and picks the first that fits within the line limit. If a wrapped construct fits a shorter layout, Cerulean joins it back.
 
-**Level 1 — single line.** Everything on one line:
+**Level 1: single line.** Everything on one line:
 
 ```teal
 local items = {Alpha = Alpha, Beta = Beta}
 ```
 
-**Level 2 — compact broken.** Opening delimiter stays on the first line, items share one inner line, closing delimiter on its own line:
+**Level 2: compact broken.** Opening delimiter stays on the first line, items share one inner line, closing delimiter on its own line:
 
 ```teal
 local items = {
@@ -42,7 +42,7 @@ local items = {
 }
 ```
 
-**Level 3 — one per line.** Each item on its own line, with a trailing comma added:
+**Level 3: one per line.** Each item on its own line, with a trailing comma added:
 
 ```teal
 local items = {
@@ -63,7 +63,7 @@ foo.new_number(
 )
 ```
 
-A long signature too — the return type stays attached to the closing parenthesis:
+Long signatures wrap the same way. The return type stays attached to the closing parenthesis:
 
 ```teal
 function f(
@@ -91,7 +91,7 @@ then
 end
 ```
 
-`while`/`do` and `repeat`/`until` follow the same shape — keyword alone on the opening line, condition indented beneath, closing keyword (`do` or `until`) flush left.
+`while`/`do` and `repeat`/`until` follow the same shape: keyword alone on the opening line, condition indented beneath, closing keyword (`do` or `until`) flush left.
 
 ---
 
@@ -160,7 +160,7 @@ Pass `--no-sort-requires` or set `sort_requires = false` in `tlconfig.lua` to op
 ## Indentation and spacing
 
 - Indentation is **4 spaces** by default (configurable via `--indent` / `indent_width`). Tabs are converted to the configured space width.
-- Exactly **one space** after commas, around binary operators, and around `=` in assignments and table constructors.
+- Cerulean inserts exactly **one space** after commas, around binary operators, and around `=` in assignments and table constructors.
 - Consecutive blank lines are collapsed to **at most one**.
 - Trailing whitespace is removed from every line.
 
