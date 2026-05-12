@@ -183,7 +183,7 @@ function cli.run(args: {string}, printer: Printer): integer
         printer.err(string.format("%s could not be processed.", file_word(errored)))
     end
 
-    if (opts.check_only and reformatted > 0) or errored > 0 then
+    if (opts.check_only and reformatted > 0) or errored > 0 or failed_format > 0 then
         return 1
     end
     return 0
