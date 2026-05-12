@@ -25,3 +25,5 @@ ceru --check src/
 | `--indent <n>` | `4` | Indentation width in spaces |
 | `--line-length <n>` | `88` | Target line length |
 | `--no-sort-requires` | - | Disable sorting of `require` statements |
+| `--help`, `-h` | - | Show help message and exit |
+| `--version`, `-v` | - | Print version and exit |

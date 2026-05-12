@@ -12,7 +12,10 @@ Options:
   --line-length <n>      Target line length (default: 88).
   --no-sort-requires     Disable sorting of require statements.
   --log-level <level>    Log level: nothing, info, debug (default: nothing).
-  --help, -h             Show this help message.]]
+  --help, -h             Show this help message.
+  --version, -v          Print version and exit.]]
+
+local version = "dev"
 
 local type FormatterOptions = options.FormatterOptions
 
@@ -127,18 +130,30 @@ local function format_summary(
     return ""
 end
 
-local function wants_help(args: {string}): boolean
+local function args_contains(args: {string}, option: string): boolean
     for _, value in ipairs(args) do
-        if value == "--help" or value == "-h" then
+        if value == ("--" .. option) or value == ("-" .. string.sub(option, 1, 1)) then
             return true
         end
     end
     return false
 end
 
+local function wants_help(args: {string}): boolean
+    return args_contains(args, "help")
+end
+
+local function wants_version(args: {string}): boolean
+    return args_contains(args, "version")
+end
+
 function cli.run(args: {string}, printer: Printer): integer
     if wants_help(args) then
         printer.out(help_text)
+        return 0
+    end
+    if wants_version(args) then
+        printer.out(version)
         return 0
     end
 

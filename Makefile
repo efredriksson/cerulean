@@ -37,8 +37,10 @@ install: compile
 rock:
 	luarocks make cerulean-dev-1.rockspec
 
-rock-artifacts: compile
+rock-artifacts:
 	@test -n "$(VERSION)" || (echo "Usage: make rock-artifacts VERSION=x.y.z" && exit 1)
+	sed -i 's/local version = "dev"/local version = "$(VERSION)"/' src/cerulean/cli.tl
+	$(MAKE) compile
 	sed 's/version = "dev-1"/version = "$(VERSION)-1"/; s|url = "git+https://github.com/efredriksson/cerulean"|url = "https://github.com/efredriksson/cerulean/releases/download/v$(VERSION)/cerulean-$(VERSION).tar.gz"|; s/branch = "main"/md5 = "__HASH__"/' \
 		cerulean-dev-1.rockspec > cerulean-$(VERSION)-1.rockspec
 	tar czf cerulean-$(VERSION).tar.gz \
