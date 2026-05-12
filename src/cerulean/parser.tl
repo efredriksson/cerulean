@@ -39,6 +39,7 @@ local record parser
       "tuple"
       "poly"
       "any"
+      "table"
       "unknown"
       "invalid"
       "none"
@@ -689,6 +690,7 @@ local simple_types: {TypeName: boolean} = {
     ["boolean"] = true,
     ["integer"] = true,
     ["self"] = true,
+    ["table"] = true,
 }
 
 local function node_is_require_call(n: Node): string
@@ -1382,11 +1384,6 @@ local function parse_simple_type_or_nominal(
    local st = simple_types[tk as TypeName]
    if st then
       return i + 1, new_type(ps, i, tk as TypeName) as StructuralType
-   elseif tk == "table" and ps.tokens[i + 1].tk ~= "."  then
-      local typ = new_type(ps, i, "map") as MapType
-      typ.keys = new_type(ps, i, "any")
-      typ.values = new_type(ps, i, "any")
-      return i + 1, typ
    end
 
    local typ = new_nominal(ps, i, tk)
