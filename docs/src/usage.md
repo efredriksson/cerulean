@@ -24,4 +24,4 @@ ceru --check src/
 | `--check` | off | Report files that would be reformatted; exit 1 if any |
 | `--indent <n>` | `4` | Indentation width in spaces |
 | `--line-length <n>` | `88` | Target line length |
-| `--no-sort-requires` | — | Disable sorting of `require` statements |
+| `--no-sort-requires` | - | Disable sorting of `require` statements |
