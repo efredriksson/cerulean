@@ -19,7 +19,7 @@ local renderer=require('renderer')
 local entities=require("entities")
 local physics  =  require("physics")
 
-local function update(  world :World,dt:number ) :boolean
+local function update(  world :World,dt:number,debug_flags:DebugFlags,render_ctx:RenderContext ) :boolean
   for _,e in ipairs(world.entities) do
     if e.active==true and e.physics~=nil then physics.step(e,dt) end
   end
@@ -35,7 +35,9 @@ local entities = require("entities")
 local physics = require("physics")
 local renderer = require("renderer")
 
-local function update(world: World, dt: number): boolean
+local function update(
+    world: World, dt: number, debug_flags: DebugFlags, render_ctx: RenderContext
+): boolean
     for _, e in ipairs(world.entities) do
         if e.active == true and e.physics ~= nil then
             physics.step(e, dt)
