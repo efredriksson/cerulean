@@ -77,11 +77,14 @@ local function stmt_overlaps_fmt_off(
 end
 
 local function collect_verbatim_lines(
-    source_lines: {string}, stmt: parser.Node, previous_end: integer
+    source_lines: {string},
+    stmt: parser.Node,
+    previous_end: integer,
+    fmt_off_regions: source.Regions
 ): {string}
     local first_line = stmt.y
     for _, comment in ipairs(stmt.leading_comments or {}) do
-        if comment.y > previous_end then
+        if comment.y > previous_end and fmt_off_regions:includes_line(comment.y) then
             first_line = math.min(first_line, comment.y)
         end
     end
@@ -92,10 +95,13 @@ local function collect_verbatim_lines(
     return result
 end
 
-local function blank_before_first_element(stmt: parser.Node): boolean
-    local leading = stmt.leading_comments or {}
-    if #leading > 0 then
-        return stmt.leading_comments[1].blank_line_before
+local function blank_before_fmt_off_start(
+    stmt: parser.Node, fmt_off_regions: source.Regions
+): boolean
+    for _, comment in ipairs(stmt.leading_comments or {}) do
+        if fmt_off_regions:includes_line(comment.y) then
+            return comment.blank_line_before
+        end
     end
     return stmt.blank_line_before
 end
@@ -107,14 +113,23 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
 
     for _, stmt in ipairs(block) do
         if stmt_overlaps_fmt_off(stmt, ctx.fmt_off_regions) then
+            local pre_fmt_off: {parser.Comment} = {}
+            for _, comment in ipairs(stmt.leading_comments or {}) do
+                if not ctx.fmt_off_regions:includes_line(comment.y) then
+                    table.insert(pre_fmt_off, comment)
+                end
+            end
+            line_before = render_builders.append_comment_docs(
+                parts, pre_fmt_off, line_before
+            )
             if line_before then
                 table.insert(parts, doc.hardline())
             end
-            if blank_before_first_element(stmt) then
+            if blank_before_fmt_off_start(stmt, ctx.fmt_off_regions) then
                 table.insert(parts, doc.hardline())
             end
             local verbatim_lines = collect_verbatim_lines(
-                ctx.source_lines, stmt, previous_end
+                ctx.source_lines, stmt, previous_end, ctx.fmt_off_regions
             )
             table.insert(parts, doc.raw(verbatim_lines))
         else
