@@ -1,8 +1,8 @@
 # The Cerulean Code Style
 
-> *"An army that waits is soon an army at war with itself."*
+> *"Sometimes the prize is not worth the costs. The means by which we achieve victory are as important as the victory itself."*
 >
-> — Steven Erikson, **House of Chains**
+> — Brandon Sanderson, **The Way of Kings**
 
 Cerulean enforces one style. There are no knobs for bracket placement, operator spacing, or line-breaking heuristics. The rules below describe exactly what that style is.
 
