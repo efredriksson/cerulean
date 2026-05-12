@@ -141,6 +141,94 @@ describe("formatter integration", function()
          -- fmt: off
          local a  =  5
       ]]))
+
+      it("fmt: off after multiple comments, still formats all comments", helpers.format([[
+              -- first comment
+              -- second comment
+           -- fmt: off
+           local x = {1,  2,  3}
+      ]], [[
+           -- first comment
+           -- second comment
+           -- fmt: off
+           local x = {1,  2,  3}
+      ]]))
+
+      it("fmt: off preserves blank line between pre-comment and directive", helpers.format([[
+              -- comment to format
+
+           -- fmt: off
+           local x = {1,  2,  3}
+      ]], [[
+           -- comment to format
+
+           -- fmt: off
+           local x = {1,  2,  3}
+      ]]))
+
+      it("fmt: off after comment inside nested block, still formats comment", helpers.format([[
+         local function f()
+              -- comment to format
+            -- fmt: off
+            local x = {1,  2,  3}
+         end
+      ]], [[
+         local function f()
+             -- comment to format
+            -- fmt: off
+            local x = {1,  2,  3}
+         end
+      ]]))
+
+      it("fmt: off after comment preserves blank line before comment", helpers.format([[
+         local x = 1
+
+              -- comment to format
+            -- fmt: off
+            local y = {1,  2,  3}
+      ]], [[
+         local x = 1
+
+         -- comment to format
+            -- fmt: off
+            local y = {1,  2,  3}
+      ]]))
+
+      it("fmt: off after comment in second fmt:off region of same block", helpers.format([[
+         local function demo()
+            local first = one +  two
+            -- fmt: off
+            local frozen_a  =   one+two
+            -- fmt: on
+            local middle = three +  four
+                 -- leading comment
+               -- fmt: off
+               local frozen_b  =   five+six
+            -- fmt: on
+            local last = seven +  eight
+         end
+      ]], [[
+         local function demo()
+             local first = one + two
+            -- fmt: off
+            local frozen_a  =   one+two
+             -- fmt: on
+             local middle = three + four
+             -- leading comment
+               -- fmt: off
+               local frozen_b  =   five+six
+             -- fmt: on
+             local last = seven + eight
+         end
+      ]]))
+
+      it("fmt: off after two pre-comments with blank between them", helpers.check([[
+         -- first line of logical comment
+
+         -- second line, still before fmt: off
+         -- fmt: off
+         local x = {1,  2,  3}
+      ]]))
    end)
 
    describe("multi-line expressions in local declarations", function()
@@ -223,6 +311,18 @@ describe("formatter integration", function()
          -- comment to format
          -- fmt: off
          local x = {1,  2,  3}
+      ]]))
+
+      it("fmt: on before comment, still formats comment", helpers.format([[
+         -- fmt: off
+         local x = {1,  2,  3}
+         -- fmt: on
+          -- comment to format
+      ]], [[
+         -- fmt: off
+         local x = {1,  2,  3}
+         -- fmt: on
+         -- comment to format
       ]]))
 
       it("formats anonymous function expressions with multi-statement bodies", helpers.check([[
