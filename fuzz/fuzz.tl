@@ -7,13 +7,15 @@
 -- Silent during the run; prints a summary at the end. Input parse errors are
 -- counted as informational (grammar drift) and do not fail the run. On real
 -- formatter findings, writes fuzz/regressions_spec.lua for debugging.
+local options_module = require("cerulean.options")
 local parser = require("cerulean.parser")
 local rewriter = require("cerulean.rewriter")
-local options_module = require("cerulean.options")
 
 local function read_file(path: string): string | nil
     local file = io.open(path, "r")
-    if not file then return nil end
+    if not file then
+        return nil
+    end
     local content = file:read("*a")
     file:close()
     return content
@@ -26,11 +28,17 @@ local function long_string_embed(content: string): string
     local level = 0
     local function is_unsafe(lv: integer): boolean
         local eq = string.rep("=", lv)
-        if content:find("]" .. eq .. "]", 1, true) then return true end
-        if content:sub(-(lv + 1)) == "]" .. eq then return true end
+        if content:find("]" .. eq .. "]", 1, true) then
+            return true
+        end
+        if content:sub(-(lv + 1)) == "]" .. eq then
+            return true
+        end
         return false
     end
-    while is_unsafe(level) do level = level + 1 end
+    while is_unsafe(level) do
+        level = level + 1
+    end
     local eq = string.rep("=", level)
     return "[" .. eq .. "[" .. content .. "]" .. eq .. "]"
 end
@@ -38,13 +46,16 @@ end
 local function format_parse_errors(errors: {parser.Error}): string
     local lines: {string} = {}
     for _, parse_error in ipairs(errors) do
-        table.insert(lines, string.format(
-            "%s:%d:%d: %s",
-            parse_error.filename,
-            parse_error.y,
-            parse_error.x,
-            parse_error.msg
-        ))
+        table.insert(
+            lines,
+            string.format(
+                "%s:%d:%d: %s",
+                parse_error.filename,
+                parse_error.y,
+                parse_error.x,
+                parse_error.msg
+            )
+        )
     end
     return table.concat(lines, "\n")
 end
@@ -64,10 +75,7 @@ local record Failure
 end
 
 function Failure.new(
-    kind: FailureKind,
-    path: string,
-    content: string,
-    failure_error: string
+    kind: FailureKind, path: string, content: string, failure_error: string
 ): Failure
     local self: Failure = setmetatable({}, {__index = Failure})
     self.kind = kind
@@ -149,7 +157,9 @@ local function parse_args(): Config
 end
 
 local function is_wanted(kind: FailureKind, config: Config): boolean
-    if not config.has_kind_filter then return true end
+    if not config.has_kind_filter then
+        return true
+    end
     return config.kinds[kind] == true
 end
 
@@ -175,10 +185,14 @@ local function classify(path: string, content: string): Failure | nil
 
     local ok2, result2 = pcall(rewriter.rewrite, result.output, path, opts)
     if not ok2 then
-        return Failure.new("crash", path, result.output, "second pass: " .. tostring(result2))
+        return Failure.new(
+            "crash", path, result.output, "second pass: " .. tostring(result2)
+        )
     end
     if #result2.parse_errors > 0 then
-        return Failure.new("broken_output", path, content, format_parse_errors(result2.parse_errors))
+        return Failure.new(
+            "broken_output", path, content, format_parse_errors(result2.parse_errors)
+        )
     end
     if result2.status == "failed" then
         return Failure.new("render_failed", path, result.output, "")
@@ -189,7 +203,9 @@ local function classify(path: string, content: string): Failure | nil
     return nil
 end
 
-local kind_order: {FailureKind} = { "not_idempotent", "render_failed", "broken_output", "crash" }
+local kind_order: {FailureKind} = {
+    "not_idempotent", "render_failed", "broken_output", "crash"
+}
 
 local function counts_by_kind(): {FailureKind: integer}
     local counts: {FailureKind: integer} = {
@@ -241,18 +257,34 @@ local function write_regression_spec(): string
         if failure.kind == "crash" then
             file:write("    -- " .. failure.error:gsub("\n", "\n    -- ") .. "\n")
             file:write('    it("does not crash: ' .. name .. '", function()\n')
-            file:write("        rewriter.rewrite(" .. embedded .. ', "test.tl", options_module.default())\n')
+            file:write(
+                "        rewriter.rewrite("
+                    .. embedded
+                    .. ', "test.tl", options_module.default())\n'
+            )
             file:write("    end)\n\n")
         elseif failure.kind == "render_failed" then
             file:write('    it("renders without failure: ' .. name .. '", function()\n')
-            file:write("        local result = rewriter.rewrite(" .. embedded .. ', "test.tl", options_module.default())\n')
+            file:write(
+                "        local result = rewriter.rewrite("
+                    .. embedded
+                    .. ', "test.tl", options_module.default())\n'
+            )
             file:write('        assert.are_not.equal("failed", result.status)\n')
             file:write("    end)\n\n")
         elseif failure.kind == "broken_output" then
             file:write("    -- " .. failure.error:gsub("\n", "\n    -- ") .. "\n")
-            file:write('    it("produces parseable output: ' .. name .. '", function()\n')
-            file:write("        local result = rewriter.rewrite(" .. embedded .. ', "test.tl", options_module.default())\n')
-            file:write('        local result2 = rewriter.rewrite(result.output, "test.tl", options_module.default())\n')
+            file:write(
+                '    it("produces parseable output: ' .. name .. '", function()\n'
+            )
+            file:write(
+                "        local result = rewriter.rewrite("
+                    .. embedded
+                    .. ', "test.tl", options_module.default())\n'
+            )
+            file:write(
+                '        local result2 = rewriter.rewrite(result.output, "test.tl", options_module.default())\n'
+            )
             file:write("        assert.same({}, result2.parse_errors)\n")
             file:write("    end)\n\n")
         elseif failure.kind == "not_idempotent" then
@@ -295,7 +327,13 @@ local function print_summary(config: Config)
                 table.insert(kind_names, kind)
             end
         end
-        io.stdout:write(string.format("Formatter findings (filtered to: %s): %d\n", table.concat(kind_names, ", "), #failures))
+        io.stdout:write(
+            string.format(
+                "Formatter findings (filtered to: %s): %d\n",
+                table.concat(kind_names, ", "),
+                #failures
+            )
+        )
     else
         io.stdout:write(string.format("Formatter findings: %d\n", #failures))
     end
@@ -314,14 +352,18 @@ local MAX_BATCH = 1000
 
 local function setup_generator()
     os.execute("mkdir -p fuzz/gen fuzz/corpus")
-    os.execute("grammarinator-process fuzz/Teal.g4 -o fuzz/gen/ --no-actions 2>/dev/null")
+    os.execute(
+        "grammarinator-process fuzz/Teal.g4 -o fuzz/gen/ --no-actions 2>/dev/null"
+    )
 end
 
 local function generate_batch(batch_size: integer): {string}
-    os.execute(string.format(
-        "grammarinator-generate TealGenerator.TealGenerator -r chunk -d 20 -n %d -o fuzz/corpus/test_%%d.tl --sys-path fuzz/gen/ -s grammarinator.runtime.serializer.simple_space_serializer 2>/dev/null",
-        batch_size
-    ))
+    os.execute(
+        string.format(
+            "grammarinator-generate TealGenerator.TealGenerator -r chunk -d 20 -n %d -o fuzz/corpus/test_%%d.tl --sys-path fuzz/gen/ -s grammarinator.runtime.serializer.simple_space_serializer 2>/dev/null",
+            batch_size
+        )
+    )
     local paths: {string} = {}
     for i = 0, batch_size - 1 do
         table.insert(paths, string.format("fuzz/corpus/test_%d.tl", i))
@@ -341,7 +383,9 @@ local function process_path(config: Config, path: string): boolean
         return false
     end
     local failure = classify(path, content)
-    if failure is nil then return false end
+    if failure is nil then
+        return false
+    end
     if is_wanted(failure.kind, config) then
         table.insert(failures, failure)
         return config.until_fail
@@ -360,7 +404,9 @@ while not done do
         batch_size = MAX_BATCH
     else
         batch_size = math.min(MAX_BATCH, config.count - generated_total)
-        if batch_size <= 0 then break end
+        if batch_size <= 0 then
+            break
+        end
     end
 
     local paths = generate_batch(batch_size)
