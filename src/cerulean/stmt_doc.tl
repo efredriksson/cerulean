@@ -703,6 +703,8 @@ function stmt_doc.render_statement_doc(
         return doc.text("::" .. node.label .. "::")
     elseif node.kind == "op" then
         return ctx.render_expr(node, true)
+    elseif node.kind == "pragma" then
+        return doc.text("--#pragma " .. node.pkey .. " " .. node.pvalue)
     end
 
     return nil

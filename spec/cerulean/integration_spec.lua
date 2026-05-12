@@ -343,4 +343,11 @@ describe("formatter integration", function()
       ]]))
    end)
 
+   describe("pragma", function()
+      it("preserves pragma directive unchanged", helpers.check([[
+         --#pragma arity on
+         local x = 1
+      ]]))
+   end)
+
 end)
