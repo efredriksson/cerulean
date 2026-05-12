@@ -106,14 +106,14 @@ local function from_config_file(): FormatterOptions, string
         return nil, nil
     end
     local config = chunk()
-    if not (config is {any: any}) then
+    if not (config is table) then
         return nil, "tlconfig.lua must return a table"
     end
     local formatter = config["cerulean"]
     if not formatter then
         return nil, nil
     end
-    if not (formatter is {any: any}) then
+    if not (formatter is table) then
         return nil, "tlconfig.lua: 'cerulean' must be a table"
     end
     local opts = options.default()
