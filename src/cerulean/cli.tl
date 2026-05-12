@@ -2,6 +2,18 @@ local fmt_logger = require("cerulean.fmt_logger")
 local options = require("cerulean.options")
 local rewriter = require("cerulean.rewriter")
 
+local help_text = [[Usage: ceru [options] [files|dirs...]
+
+  A formatter for Teal source code.
+
+Options:
+  --check                Check formatting; exit 1 if any file would be reformatted.
+  --indent <n>           Indentation width (default: 4).
+  --line-length <n>      Target line length (default: 88).
+  --no-sort-requires     Disable sorting of require statements.
+  --log-level <level>    Log level: nothing, info, debug (default: nothing).
+  --help, -h             Show this help message.]]
+
 local type FormatterOptions = options.FormatterOptions
 
 local record Printer
@@ -115,7 +127,21 @@ local function format_summary(
     return ""
 end
 
+local function wants_help(args: {string}): boolean
+    for _, value in ipairs(args) do
+        if value == "--help" or value == "-h" then
+            return true
+        end
+    end
+    return false
+end
+
 function cli.run(args: {string}, printer: Printer): integer
+    if wants_help(args) then
+        printer.out(help_text)
+        return 0
+    end
+
     local opts, config_err = options.from_config_file_and_args(args)
     if config_err then
         printer.err(config_err)
