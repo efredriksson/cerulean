@@ -350,20 +350,36 @@ end
 
 local MAX_BATCH = 1000
 
+local function check_grammarinator_installed()
+    local ok = os.execute("grammarinator-process --version 2>/dev/null")
+    if not ok then
+        io.stderr:write("fuzz: grammarinator not found on PATH; install with: pip install grammarinator\n")
+        os.exit(2)
+    end
+end
+
 local function setup_generator()
     os.execute("mkdir -p fuzz/gen fuzz/corpus")
-    os.execute(
+    local ok = os.execute(
         "grammarinator-process fuzz/Teal.g4 -o fuzz/gen/ --no-actions 2>/dev/null"
     )
+    if not ok then
+        io.stderr:write("fuzz: grammarinator-process failed\n")
+        os.exit(1)
+    end
 end
 
 local function generate_batch(batch_size: integer): {string}
-    os.execute(
+    local ok = os.execute(
         string.format(
             "grammarinator-generate TealGenerator.TealGenerator -r chunk -d 20 -n %d -o fuzz/corpus/test_%%d.tl --sys-path fuzz/gen/ -s grammarinator.runtime.serializer.simple_space_serializer 2>/dev/null",
             batch_size
         )
     )
+    if not ok then
+        io.stderr:write("fuzz: grammarinator-generate failed\n")
+        os.exit(1)
+    end
     local paths: {string} = {}
     for i = 0, batch_size - 1 do
         table.insert(paths, string.format("fuzz/corpus/test_%d.tl", i))
@@ -394,6 +410,7 @@ local function process_path(config: Config, path: string): boolean
 end
 
 local config = parse_args()
+check_grammarinator_installed()
 setup_generator()
 
 local generated_total = 0
