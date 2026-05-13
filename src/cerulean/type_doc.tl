@@ -207,10 +207,6 @@ function type_doc.render(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
     return render_type(type_def, TypeRenderOpts.new(generic_doc))
 end
 
-function type_doc.render_cast(type_def: parser.Type): doc.Doc
-    return render_type(type_def, TypeRenderOpts.new(nil, true))
-end
-
 -- `x as function(): T, next_field` re-parses as `function(): (T, next_field)` —
 -- the `,` is greedily consumed as a return-type separator. Callers that emit a
 -- separator after an as/is cast must use `;` when this returns true.
@@ -222,9 +218,7 @@ function type_doc.cast_absorbs_trailing_comma(casttype: parser.Type): boolean
         return type_doc.cast_absorbs_trailing_comma(casttype.t)
     end
     if casttype is parser.FunctionType then
-        -- render_cast wraps multi-return rets in parens, making them safe; a
-        -- single bare ret has no such protection.
-        return #casttype.rets.tuple == 1 and not casttype.rets.paren
+        return #casttype.rets.tuple > 0 and not casttype.rets.paren
     end
     if casttype is parser.UnionType then
         local types = casttype.types
