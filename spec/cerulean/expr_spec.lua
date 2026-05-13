@@ -180,11 +180,11 @@ describe("formatter function expressions", function()
       local x = t[ [[d]] and {} ]
    ]=]))
 
-   it("wraps cast multi-return rets to avoid trailing comma ambiguity in wrapped tables", helpers.format([[
+   it("uses semicolon after cast to function type with multi-return rets to avoid trailing comma ambiguity in wrapped tables", helpers.format([[
       return { ab_field = x is number | function(): boolean, boolean | {string: number} | nil | string }
    ]], [[
       return {
-          ab_field = x is number | function(): (boolean, boolean | {string: number} | nil | string),
+          ab_field = x is number | function(): boolean, boolean | {string: number} | nil | string;
       }
    ]]))
 

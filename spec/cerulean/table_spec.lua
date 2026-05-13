@@ -236,6 +236,26 @@ describe("formatter table constructor wrapping", function()
       return {a = x is nil | function(): string; b = 1}
    ]]))
 
+   it("uses semicolon after cast to function type with multiple returns without adding parens", helpers.format([[
+      return { a = x as function(): number, string; b = 1 }
+   ]], [[
+      return {a = x as function(): number, string; b = 1}
+   ]]))
+
+   it("uses semicolon on trailing separator when wrapped multi-return cast is last item", helpers.format([[
+      return {
+         -- force wrap
+         a = 1,
+         b = x as function(): number, string
+      }
+   ]], [[
+      return {
+          -- force wrap
+          a = 1,
+          b = x as function(): number, string;
+      }
+   ]]))
+
    it("uses comma when cast function type has no return types", helpers.format([[
       return { a = x as function(); b = 1 }
    ]], [[
