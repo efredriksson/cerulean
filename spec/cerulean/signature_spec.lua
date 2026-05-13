@@ -222,6 +222,12 @@ describe("formatter signature wrapping", function()
       ]], [[
          local a: function
       ]]))
+
+      it("do not add space for optional type only argument in function type", helpers.format([[
+         local  a:  function(  ?  string): string
+      ]], [[
+         local a: function(?string): string
+      ]]))
    end)
 
    describe("table.Type<T> qualified generic type names", function()
