@@ -100,6 +100,16 @@ describe("formatter function expressions", function()
       end
    ]]))
 
+   it("do not add lines after multi-line string expressions", helpers.format([=[
+      local s  =  [[
+      multi-line-string]]
+      local x  =  1
+   ]=], [=[
+      local s = [[
+      multi-line-string]]
+      local x = 1
+   ]=]))
+
    it("empty anonymous function renders as function() end regardless of surrounding context", helpers.format([[
       return a or function() end and {
           x = 1,
