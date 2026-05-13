@@ -3554,6 +3554,14 @@ local needs_local_or_global: {string : function(
    ["enum"] = type_needs_local_or_global,
 }
 
+local function token_yend(tk: Token): integer
+   if tk.kind == "string" then
+      local _, line_breaks = tk.tk:gsub("\n", "\n")
+      return tk.y + line_breaks
+   end
+   return tk.y
+end
+
 parse_statements = function(
     ps: ParseState,
     i: integer,
@@ -3594,7 +3602,7 @@ parse_statements = function(
       if item then
          -- Set yend from last consumed token. For block stmts (function, if, etc.)
          -- this matches what end_at already wrote; for simple stmts it was nil.
-         item.yend = ps.tokens[i - 1].y
+         item.yend = token_yend(ps.tokens[i - 1])
          -- Extract a same-line trailing comment (e.g. `local x = 1 -- note`).
          -- get_same_line_comment removes it from ps.tokens[i].comments so it
          -- won't be re-attached as a leading comment of the next statement.
