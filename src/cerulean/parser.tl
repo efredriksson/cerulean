@@ -1382,7 +1382,7 @@ local function parse_simple_type_or_nominal(
 ): integer, FirstOrderType
    local tk = ps.tokens[i].tk
    local st = simple_types[tk as TypeName]
-   if st then
+   if st and ps.tokens[i + 1].tk ~= "." then
       return i + 1, new_type(ps, i, tk as TypeName) as StructuralType
    end
 
