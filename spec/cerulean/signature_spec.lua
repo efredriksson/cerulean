@@ -217,4 +217,32 @@ describe("formatter signature wrapping", function()
          end
       ]]))
    end)
+
+   describe("table.Type<T> qualified generic type names", function()
+
+      it("parses table.Foo<K> as a parameter type in a generic function", helpers.check([[
+         function f<K>(x: table.Wrapper<K>): K
+         end
+      ]]))
+
+      it("parses table.Foo<K> in a type alias inside a record", helpers.check([[
+         local record M
+             type Alias<K> = table.Wrapper<K>
+         end
+         return M
+      ]]))
+
+      it("parses table.Foo<K> in an is expression", helpers.check([[
+         local function f<K>(x: any)
+             if x is table.Wrapper<K> then
+             end
+         end
+      ]]))
+
+      it("parses table.Foo<T> as a return type", helpers.check([[
+         local function f(...: string): table.Result<string>
+         end
+      ]]))
+
+   end)
 end)
