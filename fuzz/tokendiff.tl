@@ -1,5 +1,5 @@
 #!/usr/bin/env -S tl run
-local lexer = require("teal.lexer")
+local tl = require("tl")
 
 local type TokenEntry = record
     kind: string
@@ -12,7 +12,7 @@ local type DiffOp = record
 end
 
 local function tokenize(content: string, filename: string): {TokenEntry}
-    local tokens, errs = lexer.lex(content, filename)
+    local tokens, errs = tl.lex(content, filename)
     if errs and #errs > 0 then
         io.stderr:write("lex error in " .. filename .. ": " .. errs[1].msg .. "\n")
     end
