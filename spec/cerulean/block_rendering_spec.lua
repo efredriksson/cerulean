@@ -696,7 +696,7 @@ describe("formatter structural block rendering", function()
          end
       ]], [[
          local record A
-             f: function(B, ? C): string
+             f: function(B, ?C): string
          end
       ]]))
 

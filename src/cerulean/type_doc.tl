@@ -39,7 +39,7 @@ local function arg_name_doc(
     elseif is_variadic then
         return doc.text("...: "), type_suffix()
     else
-        local optional_str = is_optional and "? " or ""
+        local optional_str = is_optional and "?" or ""
         return doc.text(optional_str), type_suffix()
     end
 end
@@ -51,7 +51,7 @@ end
 
 local type_doc = {}
 
-local type_doc_render: function(type_def: parser.Type, ? TypeRenderOpts): doc.Doc
+local type_doc_render: function(type_def: parser.Type, ?TypeRenderOpts): doc.Doc
 
 function type_doc.render_typeargs(typeargs: {parser.TypeArgType}): doc.Doc
     local typearg_docs: {doc.Doc} = {}

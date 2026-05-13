@@ -777,7 +777,7 @@ local parse_expression_and_tk: function(
     ps: ParseState, i: integer, tk: string
 ): integer, Node
 
-local parse_statements: function(ParseState, integer, ? boolean): integer, Node
+local parse_statements: function(ParseState, integer, ?boolean): integer, Node
 local parse_argument_list: function(ParseState, integer): integer, Node, integer
 local parse_argument_type_list: function(
     ParseState, integer
