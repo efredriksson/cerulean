@@ -292,6 +292,7 @@ local record parser
       is_method: boolean
       maybe_method: boolean
       is_record_function: boolean
+      bare: boolean
       min_arity: integer
       args: TupleType
       rets: TupleType
@@ -1362,6 +1363,7 @@ local function parse_function_type(
       i, typ.args, typ.maybe_method, typ.min_arity = parse_argument_type_list(ps, i)
       i, typ.rets = parse_return_types(ps, i)
    else
+      typ.bare = true
       typ.args = new_tuple(ps, i, { new_type(ps, i, "any") }, true)
       typ.rets = new_tuple(ps, i, { new_type(ps, i, "any") }, true)
       typ.is_method = false

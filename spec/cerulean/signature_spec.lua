@@ -216,6 +216,12 @@ describe("formatter signature wrapping", function()
              -- Good to have
          end
       ]]))
+
+      it("do not add any if types are missing for function type", helpers.format([[
+         local  a:  function
+      ]], [[
+         local a: function
+      ]]))
    end)
 
    describe("table.Type<T> qualified generic type names", function()

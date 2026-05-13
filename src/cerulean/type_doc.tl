@@ -70,6 +70,9 @@ end
 local function function_type_render(
     type_def: parser.FunctionType, opts: TypeRenderOpts
 ): doc.Doc
+    if type_def.bare then
+        return doc.text("function")
+    end
     local arg_docs: {doc.Doc} = {}
     local argnames = type_def.args.argnames or {}
     for index, arg_type in ipairs(type_def.args.tuple) do
