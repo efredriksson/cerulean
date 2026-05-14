@@ -575,16 +575,24 @@ function doc.softclose(text: string): Doc
     return result
 end
 
-function doc.line(): Doc
+local function new_doc_line(flat_text: string): Doc
     local result = new_doc("line") as DocLine
-    result.flat_text = " "
+    result.flat_text = flat_text
     return result
 end
 
+function doc.line(): Doc
+    return new_doc_line(" ")
+end
+
+-- Flat text is "; " so inlining a multi-statement body never fuses the end of
+-- one statement with a leading "(" on the next into a spurious call expression.
+function doc.stmt_sep_line(): Doc
+    return new_doc_line("; ")
+end
+
 function doc.softline(): Doc
-    local result = new_doc("line") as DocLine
-    result.flat_text = ""
-    return result
+    return new_doc_line("")
 end
 
 function doc._break_text(broken_text: string, flat_text?: string): Doc

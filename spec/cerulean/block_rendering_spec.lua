@@ -1006,7 +1006,7 @@ describe("formatter structural block rendering", function()
          end
       ]], [[
          local function f()
-             walk_descendants(node, function(child) local x = 1 process(x) end)
+             walk_descendants(node, function(child) local x = 1; process(x) end)
          end
       ]]))
 
@@ -1592,6 +1592,18 @@ describe("formatter structural block rendering", function()
          local function f(): number, string
              return 1, "ok"
          end
+      ]]))
+   end)
+
+   describe("inline anonymous function statement separators", function()
+      it("preserves a semicolon between statements when the next statement starts with '('", helpers.check([[
+         local x = function() local a = 1; (b)() end
+      ]]))
+
+      it("emits a semicolon between statements when formatting an inline anonymous function whose next statement starts with '('", helpers.format([[
+         local x = function ( ) local a = 1 ; ( b ) ( ) end
+      ]], [[
+         local x = function() local a = 1; (b)() end
       ]]))
    end)
 end)

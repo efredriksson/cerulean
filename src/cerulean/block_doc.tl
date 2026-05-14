@@ -139,7 +139,9 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
 
             table.insert(
                 parts,
-                render_builders.append_lines_pre_node(stmt, line_before, doc.line())
+                render_builders.append_lines_pre_node(
+                    stmt, line_before, doc.stmt_sep_line()
+                )
             )
             local node_doc = stmt_doc.render_statement_doc(ctx, stmt)
             if node_doc is nil then
