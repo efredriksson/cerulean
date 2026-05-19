@@ -100,7 +100,7 @@ local function apply_args(
     return apply_to, nil
 end
 
-local function from_config_file(): FormatterOptions, string
+function options.from_config_file(): FormatterOptions, string
     local chunk, _load_err = loadfile("tlconfig.lua")
     if not chunk then
         return nil, nil
@@ -156,7 +156,7 @@ end
 function options.from_config_file_and_args(
     script_args: {string}
 ): FormatterOptions, string
-    local file_opts, config_err = from_config_file()
+    local file_opts, config_err = options.from_config_file()
     if config_err then
         return nil, config_err
     end

@@ -216,6 +216,46 @@ function helpers.check(source, opts)
     end
 end
 
+local FakeDaemonIO = {}
+
+function helpers.new_fake_daemon_io(input)
+    local self = setmetatable({}, {__index = FakeDaemonIO})
+    self.input = input
+    self.pos = 1
+    self.out_chunks = {}
+    self.err_chunks = {}
+    return self
+end
+
+function FakeDaemonIO:read_bytes(n)
+    if self.pos > #self.input then return nil end
+    local chunk = self.input:sub(self.pos, self.pos + n - 1)
+    self.pos = self.pos + #chunk
+    return chunk
+end
+
+function FakeDaemonIO:read_line()
+    if self.pos > #self.input then return nil end
+    local line_break = self.input:find("\n", self.pos, true)
+    if not line_break then
+        return self:read_bytes(#self.input + 1 - self.pos)
+    end
+    local line = self:read_bytes(line_break - self.pos)
+    self:read_bytes(1) -- read line break
+    return line
+end
+
+function FakeDaemonIO:write(s)
+    self.out_chunks[#self.out_chunks + 1] = s
+end
+
+function FakeDaemonIO:write_err(s)
+    self.err_chunks[#self.err_chunks + 1] = s
+end
+
+function FakeDaemonIO:output() return table.concat(self.out_chunks) end
+function FakeDaemonIO:errors() return table.concat(self.err_chunks) end
+
 -- Returns a test function that resolves FormatterOptions from a given directory
 -- (for tlconfig.lua pickup) and CLI args. Restores the working directory after.
 function helpers.resolve_options(directory, args)

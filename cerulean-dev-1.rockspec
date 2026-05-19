@@ -30,6 +30,7 @@ build = {
       ["cerulean"] = "dist/cerulean/init.lua",
       ["cerulean.ast_traversal"] = "dist/cerulean/ast_traversal.lua",
       ["cerulean.cli"] = "dist/cerulean/cli.lua",
+      ["cerulean.daemon"] = "dist/cerulean/daemon.lua",
       ["cerulean.block_doc"] = "dist/cerulean/block_doc.lua",
       ["cerulean.doc"] = "dist/cerulean/doc.lua",
       ["cerulean.expr_doc"] = "dist/cerulean/expr_doc.lua",
