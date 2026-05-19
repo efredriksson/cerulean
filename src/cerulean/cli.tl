@@ -1,6 +1,30 @@
+local daemon = require("cerulean.daemon")
 local fmt_logger = require("cerulean.fmt_logger")
 local options = require("cerulean.options")
 local rewriter = require("cerulean.rewriter")
+
+local record DaemonStdIO is daemon.DaemonIO
+end
+
+function DaemonStdIO.new(): DaemonStdIO
+    return setmetatable({}, {__index = DaemonStdIO})
+end
+
+function DaemonStdIO:read_line(): string
+    return io.stdin:read("*l")
+end
+
+function DaemonStdIO:read_bytes(byte_count: integer): string
+    return io.stdin:read(byte_count)
+end
+
+function DaemonStdIO:write(text: string)
+    io.stdout:write(text)
+end
+
+function DaemonStdIO:write_err(text: string)
+    io.stderr:write(text)
+end
 
 local help_text = [[Usage: ceru [options] [files|dirs...]
 
@@ -148,6 +172,17 @@ local function wants_version(args: {string}): boolean
 end
 
 function cli.run(args: {string}, printer: Printer): integer
+    if args[1] == "daemon" then
+        if wants_help(args) then
+            printer.out(daemon.help)
+            return 0
+        end
+
+        io.stdout:setvbuf("no")
+        io.stderr:setvbuf("no")
+        daemon.run(DaemonStdIO.new())
+        return 0
+    end
     if wants_help(args) then
         printer.out(help_text)
         return 0

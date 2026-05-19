@@ -32,7 +32,7 @@ install: compile
 	install -d $(LUADIR)/cerulean
 	cp dist/cerulean/*.lua $(LUADIR)/cerulean/
 	install -d $(BINDIR)
-	install -m 755 bin/cerulean $(BINDIR)/cerulean
+	install -m 755 bin/ceru $(BINDIR)/ceru
 
 rock:
 	luarocks make cerulean-dev-1.rockspec
