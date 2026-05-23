@@ -189,3 +189,13 @@ describe("formatter function expressions", function()
    ]]))
 
 end)
+
+describe("idempotency: ", function()
+   it("added parentheses for operators can be wrapped directly if neccessary", helpers.format([[
+      return some_condition_that_is_long_long_long_enough_to_cause_wrapping_here_now / ~ value ^ y
+   ]], [[
+      return some_condition_that_is_long_long_long_enough_to_cause_wrapping_here_now / (
+          ~value
+      ) ^ y
+   ]], { skip_ast_equivalence = true }))
+end)
