@@ -34,7 +34,9 @@ local function parenthesize_unary_operand(
     if child_prec == nil or child_prec >= parent_prec then
         return rendered
     end
-    return doc.concat({doc.text("("), rendered, doc.text(")")})
+    return doc.group(
+        doc.concat({doc.text("("), doc.indent_softline(rendered), doc.softclose(")")})
+    )
 end
 
 -- Two adjacent `-` tokens form a `--` comment start, so a unary minus applied

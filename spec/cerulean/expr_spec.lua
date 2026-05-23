@@ -198,4 +198,12 @@ describe("idempotency: ", function()
           ~value
       ) ^ y
    ]], { skip_ast_equivalence = true }))
+
+   it("unary minus on is-expression wraps the added parens when result exceeds line width", helpers.format([[
+      return -some_very_long_identifier_name_here is {string: string | number | boolean | nil}
+   ]], [[
+      return -(
+          some_very_long_identifier_name_here is {string: string | number | boolean | nil}
+      )
+   ]], { skip_ast_equivalence = true }))
 end)
