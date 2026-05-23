@@ -71,6 +71,7 @@ local record Failure
     kind: FailureKind
     path: string
     content: string
+    formatted: string
     error: string
 end
 
@@ -81,6 +82,7 @@ function Failure.new(
     self.kind = kind
     self.path = path
     self.content = content
+    self.formatted = ""
     self.error = failure_error
     return self
 end
@@ -198,7 +200,9 @@ local function classify(path: string, content: string): Failure | nil
         return Failure.new("render_failed", path, result.output, "")
     end
     if result2.output ~= result.output then
-        return Failure.new("not_idempotent", path, result.output, "")
+        local failure = Failure.new("not_idempotent", path, content, "")
+        failure.formatted = result.output
+        return failure
     end
     return nil
 end
@@ -288,9 +292,22 @@ local function write_regression_spec(): string
             file:write("        assert.same({}, result2.parse_errors)\n")
             file:write("    end)\n\n")
         elseif failure.kind == "not_idempotent" then
-            file:write('    it("second format pass matches first: ' .. name .. '", function()\n')
-            file:write("        -- the inlined source below is the formatter output of the original input in fuzz/corpus/; asserts formatting it again is a no-op\n")
-            file:write("        helpers.check(" .. embedded .. ")()\n")
+            local embedded_formatted = long_string_embed(failure.formatted)
+            file:write(
+                '    it("second format pass matches first: '
+                    .. name
+                    .. '", function()\n'
+            )
+            file:write(
+                "        -- asserts formatter(original) == expected and formatter(expected) == expected\n"
+            )
+            file:write(
+                "        helpers.format("
+                    .. embedded
+                    .. ", "
+                    .. embedded_formatted
+                    .. ", { skip_ast_equivalence = true })()\n"
+            )
             file:write("    end)\n\n")
         end
     end
@@ -354,7 +371,9 @@ local MAX_BATCH = 1000
 local function check_grammarinator_installed()
     local ok = os.execute("grammarinator-process --version 2>/dev/null")
     if not ok then
-        io.stderr:write("fuzz: grammarinator not found on PATH; install with: pip install grammarinator\n")
+        io.stderr:write(
+            "fuzz: grammarinator not found on PATH; install with: pip install grammarinator\n"
+        )
         os.exit(2)
     end
 end
