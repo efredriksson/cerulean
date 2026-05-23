@@ -1,5 +1,7 @@
 -- Wadler-Lindig pretty-printer: groups try flat first, break when they don't fit.
-local interface Doc
+local fmt_logger = require("cerulean.fmt_logger")
+
+local interface Doc is fmt_logger.Stringable
     kind: string
     render: function(self, max_width: integer, indent_width: integer): string
 end
@@ -46,13 +48,6 @@ end
 
 local record DocConcat is Doc where self.kind == "concat"
     parts: {Doc}
-end
-
-local record DocLineSuffix is Doc where self.kind == "line_suffix"
-    child: Doc
-end
-
-local record DocLineSuffixBoundary is Doc where self.kind == "line_suffix_boundary"
 end
 
 local record DocIndent is Doc where self.kind == "indent"
@@ -188,7 +183,7 @@ local function propagate_breaks(node: Doc): boolean
             end
         end
         return any_part_breaks
-    elseif node is DocIndent or node is DocLineSuffix then
+    elseif node is DocIndent then
         return propagate_breaks(node.child)
     elseif node is DocIfBreak then
         -- Same constraint: evaluate both sides before combining.
@@ -199,14 +194,12 @@ local function propagate_breaks(node: Doc): boolean
     return false
 end
 
+local function is_line(node: Doc): boolean
+    return node is DocLine or node is DocHardLine or node is DocBlankLine
+end
+
 local function has_line_break_opportunity(node: Doc): boolean
-    if
-        node is DocLine
-        or node is DocHardLine
-        or node is DocBlankLine
-        or node is DocClosed
-        or node is DocBreakParent
-    then
+    if is_line(node) or node is DocClosed or node is DocBreakParent then
         return true
     end
     if node is DocRaw then
@@ -226,7 +219,7 @@ local function has_line_break_opportunity(node: Doc): boolean
         return true
     end
 
-    if node is DocIndent or node is DocGroup or node is DocLineSuffix then
+    if node is DocIndent or node is DocGroup then
         if node.child == nil then
             return false
         end
@@ -319,8 +312,6 @@ local function fits(
             )
         elseif node is DocBreakParent then
             -- propagate_breaks already set group.should_break; nothing to measure here.
-        elseif node is DocLineSuffix or node is DocLineSuffixBoundary then
-
         elseif node is DocHardLine then
             return true
         elseif node is DocBlankLine then
@@ -428,13 +419,6 @@ local function render_doc(root: Doc, state: RenderState)
             if current_group_id ~= nil then
                 state.broken_groups[current_group_id] = true
             end
-        elseif node is DocLineSuffix then
-            table.insert(
-                state.line_suffixes,
-                RenderCommand.new(node.child, indent, node_flat, current_group_id)
-            )
-        elseif node is DocLineSuffixBoundary then
-            push_pending_line_suffixes(commands, state)
         elseif node is DocLine then
             if node_flat then
                 append_text(state, node.flat_text or "")
@@ -545,8 +529,96 @@ local function render(to_render: Doc, max_width: integer, indent_width: integer)
     return table.concat(state.lines, "\n")
 end
 
+local function quote_literal(text: string): string
+    return '"' .. text .. '"'
+end
+
+local function wrap_container(label: string, children: {string}): string
+    return label .. "[ " .. table.concat(children, ", ") .. " ]"
+end
+
+local function group_ref(group_id: integer): string
+    if group_id ~= nil then
+        return "#" .. tostring(group_id)
+    end
+    return ""
+end
+
+local function group_label(node: DocGroup): string
+    local label = node.should_break and "group!" or "group"
+    return label .. group_ref(node.group_id)
+end
+
+local function if_break_label(node: DocIfBreak): string
+    return "if_break" .. group_ref(node.target_group_id)
+end
+
+local function line_keyword(node: DocLine): string
+    return "line(" .. quote_literal(node.flat_text or "") .. ")"
+end
+
+local function to_string_node(node: Doc, indent: string): string
+    if node is DocText then
+        return quote_literal(node.text or "")
+    elseif node is DocRaw then
+        local children: {string} = {}
+        for _, raw_line in ipairs(node.raw_lines or {}) do
+            table.insert(children, quote_literal(raw_line))
+        end
+        return wrap_container("raw", children)
+    elseif node is DocClosed then
+        return string.format(
+            "close(text=%s, sep=%s)",
+            quote_literal(node.close_text or ""),
+            quote_literal(node.close_flat_sep or "")
+        )
+    elseif node is DocBreakText then
+        return string.format(
+            "break_text(flat=%s, broken=%s)",
+            quote_literal(node.flat_text or ""),
+            quote_literal(node.broken_text or "")
+        )
+    elseif node is DocLine then
+        return line_keyword(node)
+    elseif node is DocIndent then
+        local indent_step = "  "
+        local child = to_string_node(node.child, indent .. indent_step)
+        return wrap_container("indent", {child})
+    elseif node is DocIfBreak then
+        local flat_child = to_string_node(node.flat_child, indent)
+        local break_child = to_string_node(node.break_child, indent)
+        local children = {"flat=" .. flat_child, "break=" .. break_child}
+        return wrap_container(if_break_label(node), children)
+    elseif node is DocGroup then
+        local child = to_string_node(node.child, indent)
+        return wrap_container(group_label(node), {child})
+    elseif node is DocConcat then
+        local parts: {string} = {}
+        for index, part in ipairs(node.parts or {}) do
+            if index > 1 then
+                local prev = node.parts[index - 1]
+                if is_line(prev) or part is DocClosed then
+                    table.insert(parts, ",\n" .. indent)
+                else
+                    table.insert(parts, ", ")
+                end
+            end
+
+            table.insert(parts, to_string_node(part, indent))
+        end
+        return "[ " .. table.concat(parts) .. " ]"
+    end
+    return node.kind
+end
+
+local function to_string(to_render: Doc): string
+    return to_string_node(to_render, "")
+end
+
+local doc_mt <const>: metatable<Doc> = {__tostring = to_string}
+
 local function new_doc(kind: string): Doc
-    return {kind = kind, render = render}
+    return setmetatable({kind = kind, render = render}, doc_mt)
 end
 
 function doc.text(text: string): Doc
@@ -630,25 +702,30 @@ function doc.break_parent(): Doc
     return result
 end
 
-function doc.line_suffix(child: Doc): Doc
-    local result = new_doc("line_suffix") as DocLineSuffix
-    result.child = child
-    return result
-end
-
-function doc.line_suffix_boundary(): Doc
-    local result = new_doc("line_suffix_boundary") as DocLineSuffixBoundary
-    return result
-end
-
 function doc.blankline(): Doc
     local result = new_doc("blankline") as DocBlankLine
     return result
 end
 
 function doc.concat(parts: {Doc}): Doc
+    local flat_parts: {Doc} = {}
+    local function add_if_non_empyt(part: Doc)
+        if not (part is DocText and part.text == "") then
+            table.insert(flat_parts, part)
+        end
+    end
+
+    for _, part in ipairs(parts) do
+        if part is DocConcat then
+            for _, nested in ipairs(part.parts) do
+                add_if_non_empyt(nested)
+            end
+        else
+            add_if_non_empyt(part)
+        end
+    end
     local result = new_doc("concat") as DocConcat
-    result.parts = parts
+    result.parts = flat_parts
     return result
 end
 

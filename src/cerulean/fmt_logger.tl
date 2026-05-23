@@ -1,4 +1,8 @@
-local fmt_logger = {}
+local interface Stringable
+    metamethod __tostring: function(self): string
+end
+
+local fmt_logger = {Stringable = Stringable}
 
 local LEVEL_NUMBERS: {string: integer} = {nothing = 0, info = 1, debug = 2}
 
@@ -16,17 +20,19 @@ local function should_log_for(level_name: string): boolean
     return LEVEL_NUMBERS[current_level] >= LEVEL_NUMBERS[level_name]
 end
 
-local function log_internal(msg: string, level: string, ...: string | number | boolean)
+local function log_internal(
+    msg: string, level: string, ...: string | number | boolean | Stringable
+)
     if should_log_for(level) then
         io.stderr:write(string.format("[fmt:%s] %s\n", level, string.format(msg, ...)))
     end
 end
 
-function fmt_logger.info(msg: string, ...: string | number | boolean)
+function fmt_logger.info(msg: string, ...: string | number | boolean | Stringable)
     log_internal(msg, "info", ...)
 end
 
-function fmt_logger.debug(msg: string, ...: string | number | boolean)
+function fmt_logger.debug(msg: string, ...: string | number | boolean | Stringable)
     log_internal(msg, "debug", ...)
 end
 

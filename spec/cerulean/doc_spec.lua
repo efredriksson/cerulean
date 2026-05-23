@@ -81,37 +81,6 @@ describe("formatter doc primitives", function()
 
         assert.same("alpha\nbeta [broken]", render(tree, 88))
     end)
-
-    it("flushes line_suffix content before hardline", function()
-        local tree = doc.concat({
-            doc.text("value"),
-            doc.line_suffix(doc.text(" -- keep")),
-            doc.hardline(),
-            doc.text("next"),
-        })
-
-        assert.same("value -- keep\nnext", render(tree, 88))
-    end)
-
-    it("flushes line_suffix content at explicit boundary", function()
-        local tree = doc.concat({
-            doc.text("{"),
-            doc.line_suffix(doc.text(" -- trailing")),
-            doc.line_suffix_boundary(),
-            doc.text("}"),
-        })
-
-        assert.same("{ -- trailing}", render(tree, 88))
-    end)
-
-    it("flushes pending line_suffix at end of document", function()
-        local tree = doc.concat({
-            doc.text("value"),
-            doc.line_suffix(doc.text(" -- keep")),
-        })
-
-        assert.same("value -- keep", render(tree, 88))
-    end)
 end)
 
 describe("formatter doc close node", function()
@@ -188,5 +157,84 @@ describe("formatter doc trim_lines", function()
         }))
 
         assert.same("f()\nend", render(tree, 5))
+    end)
+
+    local function introspect(root)
+        return tostring(root)
+    end
+
+    it("introspects a text leaf as a quoted literal", function()
+        assert.same('"hello"', introspect(doc.text("hello")))
+    end)
+
+    it("introspects atomic kinds as bare keywords", function()
+        assert.same("hardline", introspect(doc.hardline()))
+        assert.same("blankline", introspect(doc.blankline()))
+        assert.same("break_parent", introspect(doc.break_parent()))
+    end)
+
+    it("introspects line kinds with their flat text", function()
+        assert.same('line(" ")', introspect(doc.line()))
+        assert.same('line("")', introspect(doc.softline()))
+        assert.same('line("; ")', introspect(doc.stmt_sep_line()))
+    end)
+
+    it("introspects a concat of texts that fit on one line", function()
+        local tree = doc.concat({doc.text("a"), doc.text("b"), doc.text("c")})
+        assert.same('[ "a", "b", "c" ]', introspect(tree))
+    end)
+
+    it("introspects a concat by breaking after each line-kind child", function()
+        local tree = doc.concat({
+            doc.text("a"),
+            doc.text("b"),
+            doc.line(),
+            doc.text("c"),
+            doc.hardline(),
+        })
+        assert.same(
+            '[ "a", "b", line(" "),\n"c", hardline ]', introspect(tree)
+        )
+    end)
+
+    it("introspects groups with their id", function()
+        local tagged = doc.group_ref()
+        local tree = tagged:group(doc.text("x"))
+        assert.same(
+            "group#" .. tostring(tagged.group_id) .. '[ "x" ]', introspect(tree)
+        )
+    end)
+
+    it("introspects if_break target ids and both branches", function()
+        local tagged = doc.group_ref()
+        local tree = tagged:if_break(doc.text("brk"), doc.text("flt"))
+        local expected = "if_break#"
+            .. tostring(tagged.group_id)
+            .. '[ flat="flt", break="brk" ]'
+        assert.same(expected, introspect(tree))
+    end)
+
+    it("introspects raw lines as quoted children", function()
+        assert.same('raw[ "one", "two" ]', introspect(doc.raw({"one", "two"})))
+    end)
+
+    it("introspects close with text and flat separator", function()
+        assert.same('close(text=")", sep=" ")', introspect(doc.close(")")))
+        assert.same('close(text="]", sep="")', introspect(doc.softclose("]")))
+    end)
+
+    it("introspects break_text with both branches", function()
+        assert.same(
+            'break_text(flat="", broken=",")', introspect(doc.if_wrapped(","))
+        )
+    end)
+
+    it("introspects a group whose inner concat has line-kind children", function()
+        local tree = doc.group(doc.concat({
+            doc.text("a"), doc.hardline(), doc.text("b"),
+        }))
+        assert.same(
+            'group[ [ "a", hardline,\n"b" ] ]', introspect(tree)
+        )
     end)
 end)
