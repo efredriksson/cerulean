@@ -288,7 +288,8 @@ local function write_regression_spec(): string
             file:write("        assert.same({}, result2.parse_errors)\n")
             file:write("    end)\n\n")
         elseif failure.kind == "not_idempotent" then
-            file:write('    it("is idempotent: ' .. name .. '", function()\n')
+            file:write('    it("second format pass matches first: ' .. name .. '", function()\n')
+            file:write("        -- the inlined source below is the formatter output of the original input in fuzz/corpus/; asserts formatting it again is a no-op\n")
             file:write("        helpers.check(" .. embedded .. ")()\n")
             file:write("    end)\n\n")
         end
