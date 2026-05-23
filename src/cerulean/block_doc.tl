@@ -191,9 +191,9 @@ function block_doc.render_block(
         end
     end
 
-    return doc.concat({get_prelude(), block_doc_node, doc.hardline()}):render(
-        max_width, indent_width
-    )
+    local full_doc = doc.concat({get_prelude(), block_doc_node, doc.hardline()})
+    fmt_logger.debug("doc IR:\n%s", full_doc)
+    return full_doc:render(max_width, indent_width)
 end
 
 return block_doc
