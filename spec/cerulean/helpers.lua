@@ -4,7 +4,17 @@ local lfs = require("lfs")
 local parser = require("cerulean.parser")
 local rewriter = require("cerulean.rewriter")
 local options_module = require("cerulean.options")
+local fmt_logger = require("cerulean.fmt_logger")
 local assert = require("luassert")
+
+local function apply_env_log_level()
+    local level = os.getenv("CERULEAN_TEST_LOG_LEVEL")
+    if level and level ~= "" then
+        fmt_logger.set_level(level)
+    end
+end
+
+apply_env_log_level()
 
 local function default_opts()
     return options_module.default()
