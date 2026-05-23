@@ -1780,7 +1780,7 @@ do
                end
             end
 
-            e1 = { f = ps.filename, y = e1.y, x = e1.x, kind = "op", op = op, e1 = e1, e2 = key }
+            e1 = { f = ps.filename, y = e1.y, x = e1.x, kind = "op", op = op, e1 = e1, e2 = key, yend = key.yend or key.y }
             fmt_logger.debug(
                 "[expr] %s op node: base y=%s op_tk=%s op_y=%s -> node y=%s",
                 op.op,
@@ -1877,7 +1877,7 @@ do
                return i, failstore(ps, tkop, e1)
             end
 
-            e1 = { f = ps.filename, y = e1.y, x = e1.x, kind = "op", op = op, e1 = e1, e2 = idx }
+            e1 = { f = ps.filename, y = e1.y, x = e1.x, kind = "op", op = op, e1 = e1, e2 = idx, yend = ps.tokens[i - 1].y }
          elseif tkop.kind == "string" or tkop.kind == "{" then
             local op: Operator = new_operator(tkop, 2, "@funcall")
 
