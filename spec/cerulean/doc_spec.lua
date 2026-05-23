@@ -1,240 +1,266 @@
 require("tl").loader()
 
-local assert = require("luassert")
 local doc = require("cerulean.doc")
+local helpers = require("spec.cerulean.helpers")
 
-local function render(root, width)
-    return root:render(width or 88, 4)
-end
+local group_ref = doc.group_ref()
 
 describe("formatter doc primitives", function()
-    it("renders line as space when group fits and newline when it does not", function()
-        local tree = doc.group(doc.concat({
+    it("renders line as a space when the group fits", helpers.renders(
+        doc.group(doc.concat({
+            doc.text("alpha"), doc.line(), doc.text("beta"),
+        })), 88,
+    [[
+        alpha beta
+    ]]))
+
+    it("renders line as a newline when the group breaks", helpers.renders(
+        doc.group(doc.concat({
+            doc.text("alpha"), doc.line(), doc.text("beta"),
+        })), 6,
+    [[
+        alpha
+        beta
+    ]]))
+
+    it("renders softline as empty when the group fits", helpers.renders(
+        doc.group(doc.concat({
+            doc.text("alpha"), doc.softline(), doc.text("beta"),
+        })), 88,
+    [[
+        alphabeta
+    ]]))
+
+    it("renders softline as a newline when the group breaks", helpers.renders(
+        doc.group(doc.concat({
+            doc.text("alpha"), doc.softline(), doc.text("beta"),
+        })), 6,
+    [[
+        alpha
+        beta
+    ]]))
+
+    it("renders the if_break flat branch when its group fits", helpers.renders(
+        group_ref:group(doc.concat({
             doc.text("alpha"),
             doc.line(),
+            group_ref:if_break(doc.text("[broken]"), doc.text("[flat]")),
             doc.text("beta"),
-        }))
+        })), 88,
+    [[
+        alpha [flat]beta
+    ]]))
 
-        assert.same("alpha beta", render(tree, 88))
-        assert.same("alpha\nbeta", render(tree, 6))
-    end)
-
-    it("renders softline as empty string when group fits", function()
-        local tree = doc.group(doc.concat({
-            doc.text("alpha"),
-            doc.softline(),
-            doc.text("beta"),
-        }))
-
-        assert.same("alphabeta", render(tree, 88))
-        assert.same("alpha\nbeta", render(tree, 6))
-    end)
-
-    it("renders if_break branches based on current group break state", function()
-        local tagged_group = doc.group_ref()
-        local tree = tagged_group:group(doc.concat({
+    it("renders the if_break break branch when its group breaks", helpers.renders(
+        group_ref:group(doc.concat({
             doc.text("alpha"),
             doc.line(),
-            tagged_group:if_break(doc.text("[broken]"), doc.text("[flat]")),
+            group_ref:if_break(doc.text("[broken]"), doc.text("[flat]")),
             doc.text("beta"),
-        }))
+        })), 6,
+    [[
+        alpha
+        [broken]beta
+    ]]))
 
-        assert.same("alpha [flat]beta", render(tree, 88))
-        assert.same("alpha\n[broken]beta", render(tree, 6))
-    end)
-
-    it("supports targeting another group by id in if_break", function()
-        local tagged_group = doc.group_ref()
-        local tree = doc.concat({
-            tagged_group:group(doc.concat({
-                doc.text("alpha"),
-                doc.line(),
-                doc.text("beta"),
+    it("renders the if_break flat branch when its target group fits", helpers.renders(
+        doc.concat({
+            group_ref:group(doc.concat({
+                doc.text("alpha"), doc.line(), doc.text("beta"),
             })),
             doc.hardline(),
-            tagged_group:if_break(doc.text("outer-broken"), doc.text("outer-flat")),
-        })
+            group_ref:if_break(doc.text("outer-broken"), doc.text("outer-flat")),
+        }), 88,
+    [[
+        alpha beta
+        outer-flat
+    ]]))
 
-        assert.same("alpha beta\nouter-flat", render(tree, 88))
-        assert.same("alpha\nbeta\nouter-broken", render(tree, 6))
-    end)
+    it("renders the if_break break branch when its target group breaks", helpers.renders(
+        doc.concat({
+            group_ref:group(doc.concat({
+                doc.text("alpha"), doc.line(), doc.text("beta"),
+            })),
+            doc.hardline(),
+            group_ref:if_break(doc.text("outer-broken"), doc.text("outer-flat")),
+        }), 6,
+    [[
+        alpha
+        beta
+        outer-broken
+    ]]))
 
-    it("keeps flat if_break branch for unbreakable target groups that only overflow width", function()
-        local tagged_group = doc.group_ref()
-        local tree = doc.concat({
-            tagged_group:group(doc.text("supercalifragilisticexpialidocious")),
-            tagged_group:if_break(doc.text("[broken]"), doc.text("[flat]")),
-        })
+    it("keeps the flat if_break branch for unbreakable groups that overflow width", helpers.renders(
+        doc.concat({
+            group_ref:group(doc.text("supercalifragilisticexpialidocious")),
+            group_ref:if_break(doc.text("[broken]"), doc.text("[flat]")),
+        }), 6,
+    [[
+        supercalifragilisticexpialidocious[flat]
+    ]]))
 
-        assert.same("supercalifragilisticexpialidocious[flat]", render(tree, 6))
-    end)
-
-    it("break_parent forces the containing group to break", function()
-        local tagged_group = doc.group_ref()
-        local tree = tagged_group:group(doc.concat({
+    it("forces the containing group to break when break_parent is present", helpers.renders(
+        group_ref:group(doc.concat({
             doc.text("alpha"),
             doc.line(),
             doc.text("beta"),
             doc.break_parent(),
-            tagged_group:if_break(doc.text(" [broken]"), doc.text(" [flat]")),
-        }))
-
-        assert.same("alpha\nbeta [broken]", render(tree, 88))
-    end)
+            group_ref:if_break(doc.text(" [broken]"), doc.text(" [flat]")),
+        })), 88,
+    [[
+        alpha
+        beta [broken]
+    ]]))
 end)
 
 describe("formatter doc close node", function()
-    it("appends close text inline when the group renders flat", function()
-        local tree = doc.group(doc.concat({
+    it("appends close text inline when the group renders flat", helpers.renders(
+        doc.group(doc.concat({
             doc.text("function()"),
             doc.close("end"),
-        }))
+        })), 88,
+    [[
+        function() end
+    ]]))
 
-        assert.same("function() end", render(tree, 88))
-    end)
-
-    it("accounts for close text width when deciding if the group fits flat", function()
-        -- "function()end" is 13 chars
-        local tree = doc.group(doc.concat({
+    it("renders close text inline when its width fits flat", helpers.renders(
+        doc.group(doc.concat({
             doc.text("function()"),
             doc.close("end"),
-        }))
+        })), 14,
+    [[
+        function() end
+    ]]))
 
-        assert.same("function() end", render(tree, 14))
-        assert.same("function()\nend", render(tree, 13))
-    end)
+    it("breaks before close text when its width does not fit flat", helpers.renders(
+        doc.group(doc.concat({
+            doc.text("function()"),
+            doc.close("end"),
+        })), 13,
+        [[
+            function()
+            end
+        ]]))
 
-    it("places close text on a new line at the enclosing indent when broken", function()
-        local tree = doc.group(doc.concat({
+    it("places close text on a new line at the enclosing indent when broken", helpers.renders(
+        doc.group(doc.concat({
             doc.text("function()"),
             doc.indent(doc.concat({
                 doc.line(),
                 doc.text("body"),
             })),
             doc.close("end"),
-        }))
-
-        assert.same("function()\n    body\nend", render(tree, 10))
-    end)
+        })), 10,
+        [[
+            function()
+                body
+            end
+        ]]))
 end)
 
 describe("formatter doc trim_lines", function()
-    it("adds no space and no line break when the wrapped content is empty in flat mode", function()
-        local tree = doc.group(doc.concat({
+    it("adds no space or line break when wrapped content is empty in flat mode", helpers.renders(
+        doc.group(doc.concat({
             doc.text("f()"),
             doc.indent(doc.concat({doc.line(), doc.trim_lines(doc.text(""))})),
             doc.close("end"),
-        }))
+        })), 88,
+    [[
+        f() end
+    ]]))
 
-        assert.same("f() end", render(tree, 88))
-    end)
-
-    it("appends a space after content when the group renders flat", function()
-        local tree = doc.group(doc.concat({
-            doc.text("f()"),
-            doc.indent(doc.concat({doc.line(), doc.trim_lines(doc.text("body"))})),
-            doc.close("end"),
-        }))
-
-        assert.same("f() body end", render(tree, 88))
-    end)
-
-    it("breaks the line after content when the group is broken", function()
-        local tree = doc.group(doc.concat({
-            doc.text("f()"),
-            doc.indent(doc.concat({doc.line(), doc.trim_lines(doc.text("body"))})),
-            doc.close("end"),
-        }))
-
-        assert.same("f()\n    body\nend", render(tree, 10))
-    end)
-
-    it("adds no space and no line break when the wrapped content is empty in broken mode", function()
-        local tree = doc.group(doc.concat({
+    it("adds no space or line break when wrapped content is empty in broken mode", helpers.renders(
+        doc.group(doc.concat({
             doc.text("f()"),
             doc.indent(doc.concat({doc.line(), doc.trim_lines(doc.text(""))})),
             doc.close("end"),
-        }))
+        })), 5,
+        [[
+            f()
+            end
+        ]]))
 
-        assert.same("f()\nend", render(tree, 5))
-    end)
+    it("appends a space after content when the group renders flat", helpers.renders(
+        doc.group(doc.concat({
+            doc.text("f()"),
+            doc.indent(doc.concat({doc.line(), doc.trim_lines(doc.text("body"))})),
+            doc.close("end"),
+        })), 88,
+    [[
+        f() body end
+    ]]))
 
-    local function introspect(root)
-        return tostring(root)
-    end
+    it("breaks the line after content when the group is broken", helpers.renders(
+        doc.group(doc.concat({
+            doc.text("f()"),
+            doc.indent(doc.concat({doc.line(), doc.trim_lines(doc.text("body"))})),
+            doc.close("end"),
+        })), 10,
+        [[
+            f()
+                body
+            end
+        ]]))
+end)
 
-    it("introspects a text leaf as a quoted literal", function()
-        assert.same('"hello"', introspect(doc.text("hello")))
-    end)
+describe("formatter doc introspection", function()
+    it("introspects a text leaf as a quoted literal", helpers.introspects(
+        doc.text("hello"), '"hello"'
+    ))
+    it("introspects hardline as a bare keyword", helpers.introspects(
+        doc.hardline(), "hardline"
+    ))
+    it("introspects blankline as a bare keyword", helpers.introspects(
+        doc.blankline(), "blankline"
+    ))
+    it("introspects break_parent as a bare keyword", helpers.introspects(
+        doc.break_parent(), "break_parent"
+    ))
+    it("introspects line with its single-space flat text", helpers.introspects(
+        doc.line(), 'line(" ")'
+    ))
+    it("introspects softline with its empty flat text", helpers.introspects(
+        doc.softline(), 'line("")'
+    ))
+    it("introspects stmt_sep_line with its statement-separator flat text", helpers.introspects(
+        doc.stmt_sep_line(), 'line("; ")'
+    ))
+    it("introspects a concat of texts that fit on one line", helpers.introspects(
+        doc.concat({doc.text("a"), doc.text("b"), doc.text("c")}),
+        '[ "a", "b", "c" ]'
+    ))
+    it("introspects a concat by breaking after each line-kind child", helpers.introspects(
+        doc.concat({
+            doc.text("a"), doc.text("b"), doc.line(), doc.text("c"), doc.hardline(),
+        }),
+        '[ "a", "b", line(" "),\n"c", hardline ]'
+    ))
 
-    it("introspects atomic kinds as bare keywords", function()
-        assert.same("hardline", introspect(doc.hardline()))
-        assert.same("blankline", introspect(doc.blankline()))
-        assert.same("break_parent", introspect(doc.break_parent()))
-    end)
+    local intro_group = doc.group_ref()
+    it("introspects a group with its id", helpers.introspects(
+        intro_group:group(doc.text("x")),
+        "group#" .. intro_group.group_id .. '[ "x" ]'
+    ))
 
-    it("introspects line kinds with their flat text", function()
-        assert.same('line(" ")', introspect(doc.line()))
-        assert.same('line("")', introspect(doc.softline()))
-        assert.same('line("; ")', introspect(doc.stmt_sep_line()))
-    end)
-
-    it("introspects a concat of texts that fit on one line", function()
-        local tree = doc.concat({doc.text("a"), doc.text("b"), doc.text("c")})
-        assert.same('[ "a", "b", "c" ]', introspect(tree))
-    end)
-
-    it("introspects a concat by breaking after each line-kind child", function()
-        local tree = doc.concat({
-            doc.text("a"),
-            doc.text("b"),
-            doc.line(),
-            doc.text("c"),
-            doc.hardline(),
-        })
-        assert.same(
-            '[ "a", "b", line(" "),\n"c", hardline ]', introspect(tree)
-        )
-    end)
-
-    it("introspects groups with their id", function()
-        local tagged = doc.group_ref()
-        local tree = tagged:group(doc.text("x"))
-        assert.same(
-            "group#" .. tostring(tagged.group_id) .. '[ "x" ]', introspect(tree)
-        )
-    end)
-
-    it("introspects if_break target ids and both branches", function()
-        local tagged = doc.group_ref()
-        local tree = tagged:if_break(doc.text("brk"), doc.text("flt"))
-        local expected = "if_break#"
-            .. tostring(tagged.group_id)
-            .. '[ flat="flt", break="brk" ]'
-        assert.same(expected, introspect(tree))
-    end)
-
-    it("introspects raw lines as quoted children", function()
-        assert.same('raw[ "one", "two" ]', introspect(doc.raw({"one", "two"})))
-    end)
-
-    it("introspects close with text and flat separator", function()
-        assert.same('close(text=")", sep=" ")', introspect(doc.close(")")))
-        assert.same('close(text="]", sep="")', introspect(doc.softclose("]")))
-    end)
-
-    it("introspects break_text with both branches", function()
-        assert.same(
-            'break_text(flat="", broken=",")', introspect(doc.if_wrapped(","))
-        )
-    end)
-
-    it("introspects a group whose inner concat has line-kind children", function()
-        local tree = doc.group(doc.concat({
-            doc.text("a"), doc.hardline(), doc.text("b"),
-        }))
-        assert.same(
-            'group[ [ "a", hardline,\n"b" ] ]', introspect(tree)
-        )
-    end)
+    local intro_if_break = doc.group_ref()
+    it("introspects if_break with target id and both branches", helpers.introspects(
+        intro_if_break:if_break(doc.text("brk"), doc.text("flt")),
+        "if_break#" .. intro_if_break.group_id .. '[ flat="flt", break="brk" ]'
+    ))
+    it("introspects raw lines as quoted children", helpers.introspects(
+        doc.raw({"one", "two"}), 'raw[ "one", "two" ]'
+    ))
+    it("introspects close with text and flat separator", helpers.introspects(
+        doc.close(")"), 'close(text=")", sep=" ")'
+    ))
+    it("introspects softclose with text and empty separator", helpers.introspects(
+        doc.softclose("]"), 'close(text="]", sep="")'
+    ))
+    it("introspects break_text with both branches", helpers.introspects(
+        doc.if_wrapped(","), 'break_text(flat="", broken=",")'
+    ))
+    it("introspects a group whose inner concat has line-kind children", helpers.introspects(
+        doc.group(doc.concat({doc.text("a"), doc.hardline(), doc.text("b"),})),
+        'group[ [ "a", hardline,\n"b" ] ]'
+    ))
 end)
