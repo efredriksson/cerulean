@@ -256,6 +256,20 @@ end
 function FakeDaemonIO:output() return table.concat(self.out_chunks) end
 function FakeDaemonIO:errors() return table.concat(self.err_chunks) end
 
+-- Returns a test function that asserts `tree` renders to `expected` at `width`.
+function helpers.renders(tree, width, expected)
+    return function()
+        assert.same(dedent(expected), dedent(tree:render(width, 4)))
+    end
+end
+
+-- Returns a test function that asserts tostring(node) equals expected.
+function helpers.introspects(node, expected)
+    return function()
+        assert.same(expected, tostring(node))
+    end
+end
+
 -- Returns a test function that resolves FormatterOptions from a given directory
 -- (for tlconfig.lua pickup) and CLI args. Restores the working directory after.
 function helpers.resolve_options(directory, args)
