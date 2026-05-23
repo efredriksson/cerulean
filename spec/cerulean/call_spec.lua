@@ -521,6 +521,20 @@ describe("formatter function call wrapping", function()
       ):MIZ()
    ]]))
 
+   it("does not add blank line when collapsing a multiline call followed by subscript access", helpers.format([[
+      local function f()
+          x = 1
+          u(
+              a
+          )[1]()
+      end
+   ]], [[
+      local function f()
+          x = 1
+          u(a)[1]()
+      end
+   ]]))
+
    it("function call with logical or and function calls formats correctly and is idempotent", helpers.format([[
       f1(arg1, val1 or val2 .. f2() .. "some very very very very long string that comes after this hello")
    ]], [[
