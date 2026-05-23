@@ -2734,6 +2734,14 @@ local function parse_nested_type(
    return i
 end
 
+local function token_yend(tk: Token): integer
+   if tk.kind == "string" then
+      local _, line_breaks = tk.tk:gsub("\n", "\n")
+      return tk.y + line_breaks
+   end
+   return tk.y
+end
+
 parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, boolean
    def.enum_items = {}
    while ps.tokens[i].tk ~= "$EOF$" and ps.tokens[i].tk ~= "end" do
@@ -2741,7 +2749,7 @@ parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, 
       i, item = verify_kind(ps, i, "string", "string")
       if item then
          item.leading_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
-         item.yend = item.y
+         item.yend = token_yend(ps.tokens[i - 1])
          item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
          table.insert(def.enum_items, item)
       end
@@ -3553,14 +3561,6 @@ local needs_local_or_global: {string : function(
    ["record"] = type_needs_local_or_global,
    ["enum"] = type_needs_local_or_global,
 }
-
-local function token_yend(tk: Token): integer
-   if tk.kind == "string" then
-      local _, line_breaks = tk.tk:gsub("\n", "\n")
-      return tk.y + line_breaks
-   end
-   return tk.y
-end
 
 parse_statements = function(
     ps: ParseState,

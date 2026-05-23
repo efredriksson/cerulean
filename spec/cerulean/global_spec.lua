@@ -88,6 +88,17 @@ describe("formatter global declarations", function()
       ]]))
    end)
 
+   describe("enum with multiline string value", function()
+      it("is idempotent when enum value is a long string spanning multiple lines", helpers.check([==[
+         local enum tT
+             [[
+               multiline string
+             ]]
+             "a"
+         end
+      ]==]))
+   end)
+
    describe("global type forward declaration", function()
       it("preserves global type with no body", helpers.check([[
          global type Foo
