@@ -59,7 +59,11 @@ local function parenthesize_if_lower_prec(
     rendered: doc.Doc, op_prec: integer, parent_prec: integer
 ): doc.Doc
     if op_prec < parent_prec then
-        return doc.concat({doc.text("("), rendered, doc.text(")")})
+        return doc.group(
+            doc.concat(
+                {doc.text("("), doc.indent_softline(rendered), doc.softclose(")")}
+            )
+        )
     end
     return rendered
 end
