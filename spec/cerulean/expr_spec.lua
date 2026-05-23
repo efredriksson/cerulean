@@ -206,4 +206,20 @@ describe("idempotency: ", function()
           some_very_long_identifier_name_here is {string: string | number | boolean | nil}
       )
    ]], { skip_ast_equivalence = true }))
+
+   it("no extra blank line after multiline call arg ending in field access", helpers.format([=[
+      f(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa or [[ multiline string
+          ]] % (x_and_long_variable_name_here_to_prevent_collapse).S,
+      c
+      )
+   ]=], [=[
+      f(
+          aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+              or [[ multiline string
+          ]] % (
+                  x_and_long_variable_name_here_to_prevent_collapse
+              ).S,
+          c
+      )
+   ]=], { skip_ast_equivalence = true }))
 end)
