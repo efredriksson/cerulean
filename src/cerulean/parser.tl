@@ -3090,6 +3090,7 @@ parse_record_body = function(
                last_entry.is_string_key = true
                last_entry.string_key_token = v.tk
                last_entry.is_longstring_key = v.is_longstring
+               last_entry.line = v.y
             end
          elseif ps.tokens[i].tk == "=" then
             local next_word = ps.tokens[i + 1].tk
