@@ -856,6 +856,15 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("trailing comma in record where table acts as magic trailing comma", helpers.format([[
+         local record V where { x = 1 , } end
+      ]], [[
+         local record V where {
+             x = 1,
+         }
+         end
+      ]]))
+
       it("format records that is userdata", helpers.format([[
          local record A
             is userdata
