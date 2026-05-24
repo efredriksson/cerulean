@@ -590,4 +590,15 @@ describe("formatter function call wrapping", function()
           false
       )
    ]]))
+
+   it("does not collapse call when first arg is a string with embedded newline", helpers.format([==[
+      f("\
+      ", a)
+      ]==], [==[
+      f(
+          "\
+      ",
+          a
+      )
+   ]==]))
 end)

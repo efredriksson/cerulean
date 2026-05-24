@@ -284,18 +284,21 @@ local function fits(
         local current_group_id = command.current_group_id
 
         if node is DocText then
-            remaining_width = remaining_width - #(node.text or "")
+            if node.text:find("\n") then
+                return false
+            end
+            remaining_width = remaining_width - #node.text
         elseif node is DocRaw then
             return false
         elseif node is DocBreakText then
             if flat then
-                remaining_width = remaining_width - #(node.flat_text or "")
+                remaining_width = remaining_width - #node.flat_text
             else
-                remaining_width = remaining_width - #(node.broken_text or "")
+                remaining_width = remaining_width - #node.broken_text
             end
         elseif node is DocLine then
             if flat then
-                remaining_width = remaining_width - #(node.flat_text or "")
+                remaining_width = remaining_width - #node.flat_text
             else
                 return true
             end
