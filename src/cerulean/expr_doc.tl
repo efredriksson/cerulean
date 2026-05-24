@@ -299,7 +299,7 @@ local function render_op(
             {
                 render_expr(ctx, left, operator.prec, same_indent_on_line),
                 doc.text("[" .. spacing),
-                render_root_expr(ctx, right, same_indent_on_line),
+                render_root_expr(ctx, right, false),
                 doc.text(spacing .. "]"),
             }
         )

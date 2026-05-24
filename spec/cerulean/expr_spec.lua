@@ -217,6 +217,13 @@ describe("idempotency: ", function()
       ) ^ 1
    ]=], { skip_ast_equivalence = true }))
 
+   it("and-or continuation inside subscript keeps indent on second pass in binary op wrapper", helpers.check([=[
+      return ... > (
+          ~f.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx({}).C[a and b
+              or vvvvvvvvvvvvvvvvvvvvvvvvvvvvv]
+      ) ^ true
+   ]=], { skip_ast_equivalence = true }))
+
    it("no extra blank line after multiline call arg ending in field access", helpers.format([=[
       f(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa or [[ multiline string
           ]] % (x_and_long_variable_name_here_to_prevent_collapse).S,
