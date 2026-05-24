@@ -242,6 +242,16 @@ describe("formatter global declarations", function()
       ]]))
    end)
 
+   describe("record with string key containing embedded newline", function()
+      it("does not add blank line before string-key field with embedded newline", helpers.check([=[
+         local type a = record
+             x: boolean
+             ["\
+         "]: boolean
+         end
+      ]=]))
+   end)
+
    describe("optional parameters in function types", function()
       it("preserves optional parameter that is not the last parameter", helpers.check([[
          global o: function(a: string, b?: number, c: boolean)
