@@ -70,19 +70,12 @@ local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc
     )
 end
 
-local function has_any_comments(items: parser.Node): boolean
-    return render_builders.any_items_have_comments(items)
+function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.Doc
+    local force_wrap = render_builders.any_items_have_comments(items)
         or items.trailing_comma
         or #(items.dangling_comments or {}) > 0
-end
-
-function table_doc.build_table_doc(
-    ctx: RenderContext, items: parser.Node, separator_char?: string
-): doc.Doc
-    local force_wrap = has_any_comments(items)
     local line_doc = render_builders.item_line_doc(force_wrap)
     local parts: {doc.Doc} = {}
-    local sep_char = separator_char or ","
 
     local line_before = false
     for index, item in ipairs(items) do
@@ -94,8 +87,7 @@ function table_doc.build_table_doc(
         table.insert(parts, build_table_item_text(ctx, item))
         trivia_doc.append_inline(parts, item.trailing_trivia)
 
-        local effective_sep = (item_value_needs_semicolon(item.value) and ";")
-            or sep_char
+        local effective_sep = (item_value_needs_semicolon(item.value) and ";") or ","
         local sep = item.trailing_comment and effective_sep or effective_sep .. " "
         if index < #items then
             table.insert(parts, doc.text(sep))

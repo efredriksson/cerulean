@@ -232,7 +232,7 @@ local function render_record_like_header_doc(
         table.insert(parts, doc.text(" where "))
         local where_exp = where_macroexp.exp
         if where_exp.kind == "literal_table" then
-            table.insert(parts, table_doc.build_table_doc(ctx, where_exp, ";"))
+            table.insert(parts, table_doc.build_table_doc(ctx, where_exp))
         else
             table.insert(parts, ctx.render_expr(where_exp))
         end
