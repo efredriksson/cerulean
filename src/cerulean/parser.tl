@@ -1927,7 +1927,8 @@ do
             if not cast.casttype then
                return i, failstore(ps, tkop, e1)
             end
-            e1 = { f = ps.filename, y = tkop.y, x = tkop.x, kind = "op", op = op, e1 = e1, e2 = cast, conststr = e1.conststr }
+            cast.yend = ps.tokens[i - 1].y
+            e1 = { f = ps.filename, y = tkop.y, x = tkop.x, kind = "op", op = op, e1 = e1, e2 = cast, conststr = e1.conststr, yend = cast.yend }
          else
             break
          end
