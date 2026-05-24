@@ -628,12 +628,10 @@ local function new_typeid(): integer
     return last_typeid
 end
 
--- fmt: off
 local type_mt: metatable<Type> = {
     __tostring = function(_t: Type): string return "?" end,
 }
 
--- fmt: on
 local function a_type<T is Type>(w: Where, typename: TypeName, t: T): T
     t.typeid = new_typeid()
     t.f = w.f
@@ -802,2888 +800,3127 @@ local parse_record_body: function(
 local parse_type_body_fns: {BodyTypeName: ParseBody}
 
 do
--- fmt: off
+    local function fail(ps: ParseState, i: integer, msg: string): integer
+        if not ps.tokens[i] then
+            local eof = ps.tokens[#ps.tokens]
+            table.insert(
+                ps.errs,
+                {
+                    filename = ps.filename,
+                    y = eof.y,
+                    x = eof.x,
+                    msg = msg or "unexpected end of file",
+                }
+            )
+            return #ps.tokens
+        end
+        table.insert(
+            ps.errs,
+            {
+                filename = ps.filename,
+                y = ps.tokens[i].y,
+                x = ps.tokens[i].x,
+                msg = assert(msg, "syntax error, but no error message provided"),
+            }
+        )
+        return math.min(#ps.tokens, i + 1)
+    end
 
-local function fail(ps: ParseState, i: integer, msg: string): integer
-   if not ps.tokens[i] then
-      local eof = ps.tokens[#ps.tokens]
-      table.insert(
-          ps.errs,
-          { filename = ps.filename, y = eof.y, x = eof.x, msg = msg or "unexpected end of file" }
-      )
-      return #ps.tokens
-   end
-   table.insert(
-       ps.errs,
-       { filename = ps.filename, y = ps.tokens[i].y, x = ps.tokens[i].x, msg = assert(msg, "syntax error, but no error message provided") }
-   )
-   return math.min(#ps.tokens, i + 1)
-end
+    local function end_at(node: Node, tk: Token)
+        node.yend = tk.y
+        node.xend = tk.x + #tk.tk - 1
+    end
 
-local function end_at(node: Node, tk: Token)
-   node.yend = tk.y
-   node.xend = tk.x + #tk.tk - 1
-end
+    local function verify_tk(ps: ParseState, i: integer, tk: string): integer
+        if ps.tokens[i].tk == tk then
+            return i + 1
+        end
+        return fail(ps, i, "syntax error, expected '" .. tk .. "'")
+    end
 
-local function verify_tk(ps: ParseState, i: integer, tk: string): integer
-   if ps.tokens[i].tk == tk then
-      return i + 1
-   end
-   return fail(ps, i, "syntax error, expected '" .. tk .. "'")
-end
+    local function verify_end(
+        ps: ParseState, i: integer, istart: integer, node: Node
+    ): integer
+        if ps.tokens[i].tk == "end" then
+            local endy, endx = ps.tokens[i].y, ps.tokens[i].x
+            node.yend = endy
+            node.xend = endx + 2
+            if node.kind ~= "function" and endy ~= node.y and endx ~= node.x then
+                if not ps.end_alignment_hint then
+                    ps.end_alignment_hint = {
+                        filename = ps.filename,
+                        y = node.y,
+                        x = node.x,
+                        msg = "syntax error hint: construct starting here is not aligned with its 'end' at "
+                            .. ps.filename
+                            .. ":"
+                            .. endy
+                            .. ":"
+                            .. endx
+                            .. ":",
+                    }
+                end
+            end
+            return i + 1
+        end
+        end_at(node, ps.tokens[i])
+        if ps.end_alignment_hint then
+            table.insert(ps.errs, ps.end_alignment_hint)
+            ps.end_alignment_hint = nil
+        end
+        local location = ps.filename
+            .. ":"
+            .. ps.tokens[istart].y
+            .. ":"
+            .. ps.tokens[istart].x
+            .. ":"
+        return fail(
+            ps,
+            i,
+            "syntax error, expected 'end' to close construct started at " .. location
+        )
+    end
 
-local function verify_end(
-    ps: ParseState,
-    i: integer,
-    istart: integer,
-    node: Node
-): integer
-   if ps.tokens[i].tk == "end" then
-      local endy, endx = ps.tokens[i].y, ps.tokens[i].x
-      node.yend = endy
-      node.xend = endx + 2
-      if node.kind ~= "function" and endy ~= node.y and endx ~= node.x then
-         if not ps.end_alignment_hint then
-            ps.end_alignment_hint = { filename = ps.filename, y = node.y, x = node.x, msg = "syntax error hint: construct starting here is not aligned with its 'end' at " .. ps.filename .. ":" .. endy .. ":" .. endx .. ":" }
-         end
-      end
-      return i + 1
-   end
-   end_at(node, ps.tokens[i])
-   if ps.end_alignment_hint then
-      table.insert(ps.errs, ps.end_alignment_hint)
-      ps.end_alignment_hint = nil
-   end
-   local location = ps.filename .. ":" .. ps.tokens[istart].y .. ":" .. ps.tokens[istart].x .. ":"
-   return fail(ps, i, "syntax error, expected 'end' to close construct started at " .. location)
-end
+    local node_mt: metatable<Node> = {
+        __tostring = function(n: Node): string
+            return n.f .. ":" .. n.y .. ":" .. n.x .. " " .. n.kind
+        end,
+    }
 
-local node_mt: metatable<Node> = {
-   __tostring = function(n: Node): string
-      return n.f .. ":" .. n.y .. ":" .. n.x .. " " .. n.kind
-   end
-}
+    local function new_node(ps: ParseState, i: integer, kind?: NodeKind): Node
+        local t = ps.tokens[i]
+        return setmetatable(
+            {
+                f = ps.filename,
+                y = t.y,
+                x = t.x,
+                tk = t.tk,
+                kind = kind or (t.kind as NodeKind),
+            },
+            node_mt
+        )
+    end
 
-local function new_node(ps: ParseState, i: integer, kind?: NodeKind): Node
-   local t = ps.tokens[i]
-   return setmetatable(
-       { f = ps.filename, y = t.y, x = t.x, tk = t.tk, kind = kind or (t.kind as NodeKind) },
-       node_mt
-   )
-end
+    local function new_type(ps: ParseState, i: integer, typename: TypeName): Type
+        local token = ps.tokens[i]
+        local t: Type = setmetatable({}, type_mt)
+        t.typeid = new_typeid()
+        t.f = ps.filename
+        t.x = token.x
+        t.y = token.y
+        t.typename = typename
+        return t
+    end
 
-local function new_type(ps: ParseState, i: integer, typename: TypeName): Type
-   local token = ps.tokens[i]
-   local t: Type = setmetatable({}, type_mt)
-   t.typeid = new_typeid()
-   t.f = ps.filename
-   t.x = token.x
-   t.y = token.y
-   t.typename = typename
-   return t
-end
+    local function split_source_lines(input: string): {string}
+        local lines: {string} = {}
+        local start = 1
 
-local function split_source_lines(input: string): {string}
-   local lines: {string} = {}
-   local start = 1
+        while true do
+            local newline = input:find("\n", start, true)
+            if newline == nil then
+                table.insert(lines, input:sub(start))
+                break
+            end
 
-   while true do
-      local newline = input:find("\n", start, true)
-      if newline == nil then
-         table.insert(lines, input:sub(start))
-         break
-      end
+            table.insert(lines, input:sub(start, newline - 1))
+            start = newline + 1
+        end
 
-      table.insert(lines, input:sub(start, newline - 1))
-      start = newline + 1
-   end
+        if #lines == 0 then
+            table.insert(lines, "")
+        end
 
-   if #lines == 0 then
-      table.insert(lines, "")
-   end
+        return lines
+    end
 
-   return lines
-end
+    local function new_first_order_type(
+        ps: ParseState, i: integer, tn: BodyTypeName
+    ): FirstOrderType
+        return new_type(ps, i, tn as TypeName) as FirstOrderType
+    end
 
-local function new_first_order_type(
-    ps: ParseState,
-    i: integer,
-    tn: BodyTypeName
-): FirstOrderType
-   return new_type(ps, i, tn as TypeName) as FirstOrderType
-end
+    local function new_generic(
+        ps: ParseState, i: integer, typeargs: {TypeArgType}, typ: FirstOrderType
+    ): GenericType
+        local gt = new_type(ps, i, "generic") as GenericType
+        gt.typeargs = typeargs
+        gt.t = typ
+        return gt
+    end
 
-local function new_generic(
-    ps: ParseState,
-    i: integer,
-    typeargs: {TypeArgType},
-    typ: FirstOrderType
-): GenericType
-   local gt = new_type(ps, i, "generic") as GenericType
-   gt.typeargs = typeargs
-   gt.t = typ
-   return gt
-end
+    local function new_typedecl(
+        ps: ParseState, i: integer, def: FirstClassType
+    ): TypeDeclType
+        local t = new_type(ps, i, "typedecl") as TypeDeclType
+        t.def = def
+        return t
+    end
 
-local function new_typedecl(
-    ps: ParseState,
-    i: integer,
-    def: FirstClassType
-): TypeDeclType
-   local t = new_type(ps, i, "typedecl") as TypeDeclType
-   t.def = def
-   return t
-end
+    local function new_tuple(
+        ps: ParseState, i: integer, types?: {Type}, is_va?: boolean
+    ): TupleType, {Type}
+        local t = new_type(ps, i, "tuple") as TupleType
+        t.is_va = is_va
+        t.tuple = types or {}
+        return t, t.tuple
+    end
 
-local function new_tuple(
-    ps: ParseState,
-    i: integer,
-    types?: {Type},
-    is_va?: boolean
-): TupleType, {Type}
-   local t = new_type(ps, i, "tuple") as TupleType
-   t.is_va = is_va
-   t.tuple = types or {}
-   return t, t.tuple
-end
+    local function new_nominal(ps: ParseState, i: integer, name?: string): NominalType
+        local t = new_type(ps, i, "nominal") as NominalType
+        if name then
+            t.names = {name}
+        end
+        return t
+    end
 
-local function new_nominal(ps: ParseState, i: integer, name?: string): NominalType
-   local t = new_type(ps, i, "nominal") as NominalType
-   if name then
-      t.names = { name }
-   end
-   return t
-end
+    local function verify_kind(
+        ps: ParseState, i: integer, kind: TokenKind, node_kind?: NodeKind
+    ): integer, Node
+        if ps.tokens[i].kind == kind then
+            return i + 1, new_node(ps, i, node_kind)
+        end
+        return fail(ps, i, "syntax error, expected " .. kind)
+    end
 
-local function verify_kind(
-    ps: ParseState,
-    i: integer,
-    kind: TokenKind,
-    node_kind?: NodeKind
-): integer, Node
-   if ps.tokens[i].kind == kind then
-      return i + 1, new_node(ps, i, node_kind)
-   end
-   return fail(ps, i, "syntax error, expected " .. kind)
-end
+    local type SkipFunction = function(ParseState, integer): integer, Node | boolean
 
-local type SkipFunction = function(ParseState, integer): integer, Node | boolean
+    local function skip(
+        ps: ParseState, i: integer, skip_fn: SkipFunction
+    ): integer, Node | boolean
+        local err_ps: ParseState = {
+            filename = ps.filename,
+            tokens = ps.tokens,
+            errs = {},
+            source_lines = ps.source_lines,
+            required_modules = {},
+        }
+        return skip_fn(err_ps, i)
+    end
 
-local function skip(
-    ps: ParseState,
-    i: integer,
-    skip_fn: SkipFunction
-): integer, Node | boolean
-   local err_ps: ParseState = {
-      filename = ps.filename,
-      tokens = ps.tokens,
-      errs = {},
-      source_lines = ps.source_lines,
-      required_modules = {},
-   }
-   return skip_fn(err_ps, i)
-end
+    local function failskip(
+        ps: ParseState, i: integer, msg: string, skip_fn: SkipFunction, starti?: integer
+    ): integer
+        local skip_i = skip(ps, starti or i, skip_fn)
+        fail(ps, i, msg)
+        return skip_i
+    end
 
-local function failskip(
-    ps: ParseState,
-    i: integer,
-    msg: string,
-    skip_fn: SkipFunction,
-    starti?: integer
-): integer
-   local skip_i = skip(ps, starti or i, skip_fn)
-   fail(ps, i, msg)
-   return skip_i
-end
+    local function parse_type_body(
+        ps: ParseState, i: integer, istart: integer, node: Node, tn: BodyTypeName
+    ): integer, GenericType | FirstOrderType
+        local typeargs: {TypeArgType}
+        local def: FirstOrderType
+        i, typeargs = parse_typeargs_if_any(ps, i)
 
-local function parse_type_body(
-    ps: ParseState,
-    i: integer,
-    istart: integer,
-    node: Node,
-    tn: BodyTypeName
-): integer, GenericType | FirstOrderType
-   local typeargs: {TypeArgType}
-   local def: FirstOrderType
-   i, typeargs = parse_typeargs_if_any(ps, i)
+        def = new_first_order_type(ps, istart, tn)
 
-   def = new_first_order_type(ps, istart, tn)
+        local ok: boolean
+        i, ok = parse_type_body_fns[tn](ps, i, def)
+        if not ok then
+            return fail(ps, i, "expected a type")
+        end
 
-   local ok: boolean
-   i, ok = parse_type_body_fns[tn](ps, i, def)
-   if not ok then
-      return fail(ps, i, "expected a type")
-   end
+        i = verify_end(ps, i, istart, node)
 
-   i = verify_end(ps, i, istart, node)
+        if typeargs then
+            return i, new_generic(ps, istart, typeargs, def)
+        end
 
-   if typeargs then
-      return i, new_generic(ps, istart, typeargs, def)
-   end
+        return i, def
+    end
 
-   return i, def
-end
+    local function skip_type_body(ps: ParseState, i: integer): integer, boolean
+        local tn = ps.tokens[i].tk as BodyTypeName
+        i = i + 1
+        assert(parse_type_body_fns[tn], tn .. " has no parse body function")
+        local ii, tt = parse_type_body(ps, i, i - 1, {} as Node, tn)
+        return ii, not not tt
+    end
 
-local function skip_type_body(ps: ParseState, i: integer): integer, boolean
-   local tn = ps.tokens[i].tk as BodyTypeName
-   i = i + 1
-   assert(parse_type_body_fns[tn], tn .. " has no parse body function")
-   local ii, tt = parse_type_body(ps, i, i - 1, {} as Node, tn)
-   return ii, not not tt
-end
+    local function parse_table_value(ps: ParseState, i: integer): integer, Node, integer
+        local next_word = ps.tokens[i].tk
+        if next_word == "record" or next_word == "interface" then
+            local skip_i, e = skip(ps, i, skip_type_body as SkipFunction)
+            if e then
+                fail(
+                    ps,
+                    i,
+                    next_word == "record"
+                        and "syntax error: this syntax is no longer valid; declare nested record inside a record" or "syntax error: cannot declare interface inside a table; use a statement"
+                )
+                return skip_i, new_node(ps, i, "error_node")
+            end
+        elseif next_word == "enum" and ps.tokens[i + 1].kind == "string" then
+            i = failskip(
+                ps,
+                i,
+                "syntax error: this syntax is no longer valid; declare nested enum inside a record",
+                skip_type_body as SkipFunction
+            )
+            return i, new_node(ps, i - 1, "error_node")
+        end
 
-local function parse_table_value(ps: ParseState, i: integer): integer, Node, integer
-   local next_word = ps.tokens[i].tk
-   if next_word == "record" or next_word == "interface" then
-      local skip_i, e = skip(ps, i, skip_type_body as SkipFunction)
-      if e then
-         fail(ps, i, next_word == "record"
-                     and "syntax error: this syntax is no longer valid; declare nested record inside a record"
-                     or "syntax error: cannot declare interface inside a table; use a statement")
-         return skip_i, new_node(ps, i, "error_node")
-      end
-   elseif next_word == "enum" and ps.tokens[i + 1].kind == "string" then
-      i = failskip(
-          ps,
-          i,
-          "syntax error: this syntax is no longer valid; declare nested enum inside a record",
-          skip_type_body as SkipFunction
-      )
-      return i, new_node(ps, i - 1, "error_node")
-   end
+        local e: Node
+        i, e = parse_expression(ps, i)
+        if not e then
+            e = new_node(ps, i - 1, "error_node")
+        end
+        return i, e
+    end
 
-   local e: Node
-   i, e = parse_expression(ps, i)
-   if not e then
-      e = new_node(ps, i - 1, "error_node")
-   end
-   return i, e
-end
+    local get_attached_comments: function(
+        token: Token, previous_token?: Token
+    ): {Comment}
+    local get_same_line_comment: function(token: Token, line: integer): Comment
+    local take_same_line_comments: function(token: Token, line: integer): {Comment}
+    local take_all_token_comments: function(token: Token): {Comment}
 
-local get_attached_comments: function(token: Token, previous_token?: Token): {Comment}
-local get_same_line_comment: function(token: Token, line: integer): Comment
-local take_same_line_comments: function(token: Token, line: integer): {Comment}
-local take_all_token_comments: function(token: Token): {Comment}
+    local function token_yend(tk: Token): integer
+        if tk.kind == "string" then
+            local _, line_breaks = tk.tk:gsub("\n", "\n")
+            return tk.y + line_breaks
+        end
+        return tk.y
+    end
 
-local function token_yend(tk: Token): integer
-   if tk.kind == "string" then
-      local _, line_breaks = tk.tk:gsub("\n", "\n")
-      return tk.y + line_breaks
-   end
-   return tk.y
-end
+    local function parse_table_item(
+        ps: ParseState, i: integer, n?: integer
+    ): integer, Node, integer
+        local node = new_node(ps, i, "literal_table_item")
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        if comments then
+            node.leading_comments = comments
+        end
+        if ps.tokens[i].kind == "$EOF$" then
+            return fail(ps, i, "unexpected eof")
+        end
 
-local function parse_table_item(
-    ps: ParseState,
-    i: integer,
-    n?: integer
-): integer, Node, integer
-   local node = new_node(ps, i, "literal_table_item")
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   if comments then
-      node.leading_comments = comments
-   end
-   if ps.tokens[i].kind == "$EOF$" then
-      return fail(ps, i, "unexpected eof")
-   end
+        if ps.tokens[i].tk == "[" then
+            node.key_parsed = "long"
+            i = i + 1
+            i, node.key = parse_expression_and_tk(ps, i, "]")
+            i = verify_tk(ps, i, "=")
+            i, node.value = parse_table_value(ps, i)
+            node.yend = token_yend(ps.tokens[i - 1])
+            return i, node, n
+        elseif ps.tokens[i].kind == "identifier" then
+            if ps.tokens[i + 1].tk == "=" then
+                node.key_parsed = "short"
+                i, node.key = verify_kind(ps, i, "identifier", "string")
+                node.key.conststr = node.key.tk
+                node.key.tk = '"' .. node.key.tk .. '"'
+                i = verify_tk(ps, i, "=")
+                node.leading_inline_trivia = take_same_line_comments(
+                    ps.tokens[i], ps.tokens[i - 1].y
+                )
+                i, node.value = parse_table_value(ps, i)
+                node.yend = token_yend(ps.tokens[i - 1])
+                return i, node, n
+            elseif ps.tokens[i + 1].tk == ":" then
+                node.key_parsed = "short"
+                local orig_i = i
+                local try_ps: ParseState = {
+                    filename = ps.filename,
+                    tokens = ps.tokens,
+                    errs = {},
+                    source_lines = ps.source_lines,
+                    required_modules = ps.required_modules,
+                }
+                i, node.key = verify_kind(try_ps, i, "identifier", "string")
+                node.key.conststr = node.key.tk
+                node.key.tk = '"' .. node.key.tk .. '"'
+                i = verify_tk(try_ps, i, ":")
+                i, node.itemtype = parse_type(try_ps, i)
+                if node.itemtype and ps.tokens[i].tk == "=" then
+                    i = verify_tk(try_ps, i, "=")
+                    i, node.value = parse_table_value(try_ps, i)
+                    if node.value then
+                        for _, e in ipairs(try_ps.errs) do
+                            table.insert(ps.errs, e)
+                        end
+                        node.yend = token_yend(ps.tokens[i - 1])
+                        return i, node, n
+                    end
+                end
+                -- backtrack:
+                node.itemtype = nil
+                i = orig_i
+            end
+        end
 
-   if ps.tokens[i].tk == "[" then
-      node.key_parsed = "long"
-      i = i + 1
-      i, node.key = parse_expression_and_tk(ps, i, "]")
-      i = verify_tk(ps, i, "=")
-      i, node.value = parse_table_value(ps, i)
-      node.yend = token_yend(ps.tokens[i - 1])
-      return i, node, n
-   elseif ps.tokens[i].kind == "identifier" then
-      if ps.tokens[i + 1].tk == "=" then
-         node.key_parsed = "short"
-         i, node.key = verify_kind(ps, i, "identifier", "string")
-         node.key.conststr = node.key.tk
-         node.key.tk = '"' .. node.key.tk .. '"'
-         i = verify_tk(ps, i, "=")
-         node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-         i, node.value = parse_table_value(ps, i)
-         node.yend = token_yend(ps.tokens[i - 1])
-         return i, node, n
-      elseif ps.tokens[i + 1].tk == ":" then
-         node.key_parsed = "short"
-         local orig_i = i
-         local try_ps: ParseState = {
+        node.key = new_node(ps, i, "integer")
+        node.key_parsed = "implicit"
+        node.key.constnum = n
+        node.key.tk = tostring(n)
+        i, node.value = parse_expression(ps, i)
+        if not node.value then
+            return fail(ps, i, "expected an expression")
+        end
+        node.yend = token_yend(ps.tokens[i - 1])
+        return i, node, n + 1
+    end
+
+    local type ParseItem = function<T>(
+        ParseState, integer, ?integer
+    ): integer, T, integer
+
+    local function parse_list<T>(
+        ps: ParseState,
+        i: integer,
+        list: {T},
+        close: {string: boolean},
+        sep: SeparatorMode,
+        parse_item: ParseItem<T>
+    ): integer, {T}
+        local n = 1
+        while ps.tokens[i].kind ~= "$EOF$" do
+            if close[ps.tokens[i].tk] then
+                end_at(list as Node, ps.tokens[i])
+                break
+            end
+            local item: T
+            local oldn = n
+            i, item, n = parse_item(ps, i, n)
+            n = n or oldn
+            if item and item is Node then
+                -- Two trailing positions render as "after this item":
+                --   `x --[[c]],`  → drained from separator token
+                --   `x, --[[c]] y` → looked up on the next item's token
+                -- Only drain on a separator; a closing bracket's comments belong
+                -- to the bracket-list's end_comments, not to this item.
+                local is_separator = ps.tokens[i].tk == "," or ps.tokens[i].tk == ";"
+                if is_separator then
+                    item.trailing_trivia = take_all_token_comments(ps.tokens[i])
+                end
+                local comment_token = (is_separator and ps.tokens[i + 1])
+                    or ps.tokens[i]
+                item.trailing_comment = get_same_line_comment(
+                    comment_token, item.yend or item.y
+                )
+            end
+            table.insert(list, item)
+            if ps.tokens[i].tk == "," then
+                i = i + 1
+                if sep == "sep" and close[ps.tokens[i].tk] then
+                    fail(ps, i, "unexpected '" .. ps.tokens[i].tk .. "'")
+                    return i, list
+                end
+            elseif sep == "term" and ps.tokens[i].tk == ";" then
+                i = i + 1
+            elseif not close[ps.tokens[i].tk] then
+                local options: {string} = {}
+                for k, _ in pairs(close) do
+                    table.insert(options, "'" .. k .. "'")
+                end
+                table.sort(options)
+                local first = options[1]:sub(2, -2)
+                local msg: string
+                if first == ")" and ps.tokens[i].tk == "=" then
+                    msg = "syntax error, cannot perform an assignment here (did you mean '=='?)"
+                    i = failskip(ps, i, msg, parse_expression as SkipFunction, i + 1)
+                else
+                    table.insert(options, "','")
+                    msg = "syntax error, expected one of: "
+                        .. table.concat(options, ", ")
+                    fail(ps, i, msg)
+                end
+                if first ~= "}" and ps.tokens[i].y ~= ps.tokens[i - 1].y then
+                    table.insert(
+                        ps.tokens,
+                        i,
+                        {
+                            tk = first,
+                            y = ps.tokens[i - 1].y,
+                            x = ps.tokens[i - 1].x + 1,
+                            kind = "keyword",
+                        } as Token
+                    )
+                    return i, list
+                end
+            end
+        end
+        return i, list
+    end
+
+    local function parse_bracket_list<T>(
+        ps: ParseState,
+        i: integer,
+        list: {T},
+        open: string,
+        close: string,
+        sep: SeparatorMode,
+        parse_item: ParseItem<T>
+    ): integer, {T}
+        i = verify_tk(ps, i, open)
+        i = parse_list(ps, i, list, {[close] = true}, sep, parse_item)
+        i = verify_tk(ps, i, close)
+        return i, list
+    end
+
+    local function parse_table_literal(ps: ParseState, i: integer): integer, Node
+        local node = new_node(ps, i, "literal_table")
+        node.leading_comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        i, node = parse_bracket_list(ps, i, node, "{", "}", "term", parse_table_item)
+        node.dangling_comments = get_attached_comments(
+            ps.tokens[i - 1], ps.tokens[i - 2]
+        )
+        node.trailing_comma = #node > 0
+            and (ps.tokens[i - 2].tk == "," or ps.tokens[i - 2].tk == ";")
+        local items = node
+        local previous_end: integer | nil = nil
+        for _, item in ipairs(items) do
+            local leading = item.leading_comments or {}
+            if #leading > 0 then
+                previous_end = leading[#leading].yend
+            end
+            if previous_end ~= nil then
+                item.blank_line_before = item.y > previous_end + 1
+            end
+            previous_end = item.yend
+        end
+        return i, node
+    end
+
+    local function parse_trying_list<T>(
+        ps: ParseState,
+        i: integer,
+        list: {T},
+        parse_item: ParseItem<T>,
+        ret_lookahead?: boolean
+    ): integer, {T}
+        local try_ps: ParseState = {
             filename = ps.filename,
             tokens = ps.tokens,
             errs = {},
             source_lines = ps.source_lines,
             required_modules = ps.required_modules,
-         }
-         i, node.key = verify_kind(try_ps, i, "identifier", "string")
-         node.key.conststr = node.key.tk
-         node.key.tk = '"' .. node.key.tk .. '"'
-         i = verify_tk(try_ps, i, ":")
-         i, node.itemtype = parse_type(try_ps, i)
-         if node.itemtype and ps.tokens[i].tk == "=" then
-            i = verify_tk(try_ps, i, "=")
-            i, node.value = parse_table_value(try_ps, i)
-            if node.value then
-               for _, e in ipairs(try_ps.errs) do
-                  table.insert(ps.errs, e)
-               end
-               node.yend = token_yend(ps.tokens[i - 1])
-               return i, node, n
-            end
-         end
-         -- backtrack:
-         node.itemtype = nil
-         i = orig_i
-      end
-   end
-
-   node.key = new_node(ps, i, "integer")
-   node.key_parsed = "implicit"
-   node.key.constnum = n
-   node.key.tk = tostring(n)
-   i, node.value = parse_expression(ps, i)
-   if not node.value then
-      return fail(ps, i, "expected an expression")
-   end
-   node.yend = token_yend(ps.tokens[i - 1])
-   return i, node, n + 1
-end
-
-local type ParseItem = function<T>(ParseState, integer, ? integer): integer, T, integer
-
-local function parse_list<T>(
-    ps: ParseState,
-    i: integer,
-    list: {T},
-    close: {string:boolean},
-    sep: SeparatorMode,
-    parse_item: ParseItem<T>
-): integer, {T}
-   local n = 1
-   while ps.tokens[i].kind ~= "$EOF$" do
-      if close[ps.tokens[i].tk] then
-         end_at(list as Node, ps.tokens[i])
-         break
-      end
-      local item: T
-      local oldn = n
-      i, item, n = parse_item(ps, i, n)
-      n = n or oldn
-      if item and item is Node then
-         -- Two trailing positions render as "after this item":
-         --   `x --[[c]],`  → drained from separator token
-         --   `x, --[[c]] y` → looked up on the next item's token
-         -- Only drain on a separator; a closing bracket's comments belong
-         -- to the bracket-list's end_comments, not to this item.
-         local is_separator = ps.tokens[i].tk == "," or ps.tokens[i].tk == ";"
-         if is_separator then
-            item.trailing_trivia = take_all_token_comments(ps.tokens[i])
-         end
-         local comment_token = (is_separator and ps.tokens[i + 1]) or ps.tokens[i]
-         item.trailing_comment = get_same_line_comment(comment_token, item.yend or item.y)
-      end
-      table.insert(list, item)
-      if ps.tokens[i].tk == "," then
-         i = i + 1
-         if sep == "sep" and close[ps.tokens[i].tk] then
-            fail(ps, i, "unexpected '" .. ps.tokens[i].tk .. "'")
+        }
+        local tryi, item: integer, T = parse_item(try_ps, i)
+        if not item then
             return i, list
-         end
-      elseif sep == "term" and ps.tokens[i].tk == ";" then
-         i = i + 1
-      elseif not close[ps.tokens[i].tk] then
-         local options: {string} = {}
-         for k, _ in pairs(close) do
-            table.insert(options, "'" .. k .. "'")
-         end
-         table.sort(options)
-         local first = options[1]:sub(2, -2)
-         local msg: string
-         if first == ")" and ps.tokens[i].tk == "=" then
-            msg = "syntax error, cannot perform an assignment here (did you mean '=='?)"
-            i = failskip(ps, i, msg, parse_expression as SkipFunction, i + 1)
-         else
-            table.insert(options, "','")
-            msg = "syntax error, expected one of: " .. table.concat(options, ", ")
-            fail(ps, i, msg)
-         end
-         if first ~= "}" and ps.tokens[i].y ~= ps.tokens[i - 1].y then
-            table.insert(
-                ps.tokens,
-                i,
-                { tk = first, y = ps.tokens[i - 1].y, x = ps.tokens[i - 1].x + 1, kind = "keyword" } as Token
+        end
+        for _, e in ipairs(try_ps.errs) do
+            table.insert(ps.errs, e)
+        end
+        i = tryi
+        table.insert(list, item)
+        while
+            ps.tokens[i].tk == ","
+            and (
+                not ret_lookahead
+                or (
+                    not (
+                        ps.tokens[i + 1].kind == "identifier"
+                        and ps.tokens[i + 2]
+                        and ps.tokens[i + 2].tk == ":"
+                    )
+                )
             )
-            return i, list
-         end
-      end
-   end
-   return i, list
-end
-
-local function parse_bracket_list<T>(
-    ps: ParseState,
-    i: integer,
-    list: {T},
-    open: string,
-    close: string,
-    sep: SeparatorMode,
-    parse_item: ParseItem<T>
-): integer, {T}
-   i = verify_tk(ps, i, open)
-   i = parse_list(ps, i, list, { [close] = true }, sep, parse_item)
-   i = verify_tk(ps, i, close)
-   return i, list
-end
-
-local function parse_table_literal(ps: ParseState, i: integer): integer, Node
-   local node = new_node(ps, i, "literal_table")
-   node.leading_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   i, node = parse_bracket_list(ps, i, node, "{", "}", "term", parse_table_item)
-   node.dangling_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
-   node.trailing_comma = #node > 0
-            and (ps.tokens[i - 2].tk == "," or ps.tokens[i - 2].tk == ";")
-   local items = node
-   local previous_end: integer | nil = nil
-   for _, item in ipairs(items) do
-      local leading = item.leading_comments or {}
-      if #leading > 0 then
-         previous_end = leading[#leading].yend
-      end
-      if previous_end ~= nil then
-         item.blank_line_before = item.y > previous_end + 1
-      end
-      previous_end = item.yend
-   end
-   return i, node
-end
-
-local function parse_trying_list<T>(
-    ps: ParseState,
-    i: integer,
-    list: {T},
-    parse_item: ParseItem<T>,
-    ret_lookahead?: boolean
-): integer, {T}
-   local try_ps: ParseState = {
-      filename = ps.filename,
-      tokens = ps.tokens,
-      errs = {},
-      source_lines = ps.source_lines,
-      required_modules = ps.required_modules,
-   }
-   local tryi, item: integer, T = parse_item(try_ps, i)
-   if not item then
-      return i, list
-   end
-   for _, e in ipairs(try_ps.errs) do
-      table.insert(ps.errs, e)
-   end
-   i = tryi
-   table.insert(list, item)
-   while ps.tokens[i].tk == ","
-   and (not ret_lookahead
-        or (not (ps.tokens[i + 1].kind == "identifier"
-                 and ps.tokens[i + 2] and ps.tokens[i + 2].tk == ":")))
-   do
-      if item is Node then
-         item.trailing_trivia = take_all_token_comments(ps.tokens[i])
-      end
-      i = i + 1
-      i, item = parse_item(ps, i)
-      if not item then
-         break
-      end
-      table.insert(list, item)
-   end
-   return i, list
-end
-
-local function parse_anglebracket_list<T is Type>(
-    ps: ParseState,
-    i: integer,
-    parse_item: ParseItem<T>
-): integer, {T}
-   local second = ps.tokens[i + 1]
-   if second.tk == ">" then
-      return fail(ps, i + 1, "type argument list cannot be empty")
-   elseif second.tk == ">>" then
-      second.tk = ">"
-      fail(ps, i + 1, "type argument list cannot be empty")
-      return i + 1
-   end
-
-   local types: {T} = {}
-   i = verify_tk(ps, i, "<")
-   i = parse_list(ps, i, types, { [">"] = true, [">>"] = true, }, "sep", parse_item)
-   if ps.tokens[i].tk == ">" then
-      i = i + 1
-   elseif ps.tokens[i].tk == ">>" then
-      ps.tokens[i].tk = ">"
-   else
-      return fail(ps, i, "syntax error, expected '>'")
-   end
-   return i, types
-end
-
-local function parse_typearg(ps: ParseState, i: integer): integer, TypeArgType, integer
-   local name = ps.tokens[i].tk
-   local constraint: Type
-   local t = new_type(ps, i, "typearg") as TypeArgType
-   i = verify_kind(ps, i, "identifier")
-   if ps.tokens[i].tk == "is" then
-      i = i + 1
-      i, constraint = parse_interface_name(ps, i)
-   end
-   t.typearg = name
-   t.constraint = constraint
-   return i, t
-end
-
-local function parse_return_types(ps: ParseState, i: integer): integer, TupleType
-   local iprev = i - 1
-   local t: TupleType
-   i, t = parse_type_list(ps, i, "rets")
-   if #t.tuple == 0 then
-      t.x = ps.tokens[iprev].x
-      t.y = ps.tokens[iprev].y
-   end
-   return i, t
-end
-
-parse_typeargs_if_any = function(ps: ParseState, i: integer): integer, {TypeArgType}
-   if ps.tokens[i].tk == "<" then
-      return parse_anglebracket_list(ps, i, parse_typearg)
-   end
-   return i
-end
-
-local function parse_function_type(
-    ps: ParseState,
-    i: integer
-): integer, GenericType | FunctionType
-   local istart = i
-   local typeargs: {TypeArgType}
-   local typ = new_type(ps, i, "function") as FunctionType
-   i = i + 1
-
-   i, typeargs = parse_typeargs_if_any(ps, i)
-   if ps.tokens[i].tk == "(" then
-      i, typ.args, typ.maybe_method, typ.min_arity = parse_argument_type_list(ps, i)
-      i, typ.rets = parse_return_types(ps, i)
-   else
-      typ.bare = true
-      typ.args = new_tuple(ps, i, { new_type(ps, i, "any") }, true)
-      typ.rets = new_tuple(ps, i, { new_type(ps, i, "any") }, true)
-      typ.is_method = false
-      typ.min_arity = 0
-   end
-   typ.yend = ps.tokens[i - 1].y
-
-   if typeargs then
-      return i, new_generic(ps, istart, typeargs, typ)
-   end
-
-   return i, typ
-end
-
-local function parse_simple_type_or_nominal(
-    ps: ParseState,
-    i: integer
-): integer, FirstOrderType
-   local tk = ps.tokens[i].tk
-   local st = simple_types[tk as TypeName]
-   if st and ps.tokens[i + 1].tk ~= "." then
-      return i + 1, new_type(ps, i, tk as TypeName) as StructuralType
-   end
-
-   local typ = new_nominal(ps, i, tk)
-   i = i + 1
-   while ps.tokens[i].tk == "." do
-      i = i + 1
-      if ps.tokens[i].kind == "identifier" then
-         table.insert(typ.names, ps.tokens[i].tk)
-         i = i + 1
-      else
-         return fail(ps, i, "syntax error, expected identifier")
-      end
-   end
-
-   if ps.tokens[i].tk == "<" then
-      i, typ.typevals = parse_anglebracket_list(ps, i, parse_type)
-   end
-   return i, typ
-end
-
-local function parse_base_type(
-    ps: ParseState,
-    i: integer
-): integer, FirstClassType, integer
-   local tk = ps.tokens[i].tk
-   if ps.tokens[i].kind == "identifier" then
-      return parse_simple_type_or_nominal(ps, i)
-   elseif tk == "{" then
-      local istart = i
-      i = i + 1
-      local t: Type
-      i, t = parse_type(ps, i)
-      if not t then
-         return i
-      end
-      if ps.tokens[i].tk == "}" then
-         local decl = new_type(ps, istart, "array") as ArrayType
-         decl.elements = t
-         end_at(decl as Node, ps.tokens[i])
-         i = verify_tk(ps, i, "}")
-         return i, decl
-      elseif ps.tokens[i].tk == "," then
-         local decl = new_type(ps, istart, "tupletable") as TupleTableType
-         decl.types = { t }
-         local n = 2
-         repeat
+        do
+            if item is Node then
+                item.trailing_trivia = take_all_token_comments(ps.tokens[i])
+            end
             i = i + 1
-            i, decl.types[n] = parse_type(ps, i)
-            if not decl.types[n] then
-               break
+            i, item = parse_item(ps, i)
+            if not item then
+                break
             end
-            n = n + 1
-         until ps.tokens[i].tk ~= ","
-         end_at(decl as Node, ps.tokens[i])
-         i = verify_tk(ps, i, "}")
-         return i, decl
-      elseif ps.tokens[i].tk == ":" then
-         local decl = new_type(ps, istart, "map") as MapType
-         i = i + 1
-         decl.keys = t
-         i, decl.values = parse_type(ps, i)
-         if not decl.values then
-            return i
-         end
-         end_at(decl as Node, ps.tokens[i])
-         i = verify_tk(ps, i, "}")
-         return i, decl
-      end
-      return fail(ps, i, "syntax error; did you forget a '}'?")
-   elseif tk == "function" then
-      return parse_function_type(ps, i)
-   elseif tk == "nil" then
-      return i + 1, new_type(ps, i, "nil") as NilType
-   end
-   return fail(ps, i, "expected a type")
-end
-
-parse_type = function(ps: ParseState, i: integer): integer, FirstClassType, integer
-   if ps.tokens[i].tk == "(" then
-      i = i + 1
-      local t: Type
-      i, t = parse_type(ps, i)
-      i = verify_tk(ps, i, ")")
-      if t then
-         t.paren = true
-      end
-      return i, t
-   end
-
-   local bt: FirstClassType
-   local istart = i
-   i, bt = parse_base_type(ps, i)
-   if not bt then
-      return i
-   end
-   if ps.tokens[i].tk == "|" then
-      local u = new_type(ps, istart, "union") as UnionType
-      u.types = { bt }
-      while ps.tokens[i].tk == "|" do
-         i = i + 1
-         i, bt = parse_base_type(ps, i)
-         if not bt then
-            return i
-         end
-         table.insert(u.types, bt)
-      end
-      bt = u
-   end
-   return i, bt
-end
-
-parse_type_list = function(
-    ps: ParseState,
-    i: integer,
-    mode: ParseTypeListMode
-): integer, TupleType
-   local t, list = new_tuple(ps, i)
-
-   local first_token = ps.tokens[i].tk
-   if mode == "rets" or mode == "decltuple" then
-      if first_token == ":" then
-         i = i + 1
-      else
-         return i, t
-      end
-   end
-
-   local optional_paren = false
-   if ps.tokens[i].tk == "(" then
-      optional_paren = true
-      i = i + 1
-   end
-
-   local prev_i = i
-   i = parse_trying_list(ps, i, list, parse_type, mode == "rets")
-   if i == prev_i and ps.tokens[i].tk ~= ")" then
-      fail(ps, i - 1, "expected a type list")
-   end
-
-   if mode == "rets" and ps.tokens[i].tk == "..." then
-      i = i + 1
-      local nrets = #list
-      if nrets > 0 then
-         t.is_va = true
-      else
-         fail(ps, i, "unexpected '...'")
-      end
-   end
-
-   if optional_paren then
-      i = verify_tk(ps, i, ")")
-      t.paren = true
-   end
-
-   return i, t
-end
-
-local function parse_function_args_rets_body(
-    ps: ParseState,
-    i: integer,
-    node: Node
-): integer, Node
-   local istart = i - 1
-   i, node.typeargs = parse_typeargs_if_any(ps, i)
-   i, node.args, node.min_arity = parse_argument_list(ps, i)
-   i, node.rets = parse_return_types(ps, i)
-   node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-   i, node.body = parse_statements(ps, i)
-   end_at(node, ps.tokens[i])
-   i = verify_end(ps, i, istart, node)
-   return i, node
-end
-
-local function parse_function_value(ps: ParseState, i: integer): integer, Node
-   local node = new_node(ps, i, "function")
-   i = verify_tk(ps, i, "function")
-   return parse_function_args_rets_body(ps, i, node)
-end
-
-local function unquote(str: string): string, boolean
-   local f = str:sub(1, 1)
-   if f == '"' or f == "'" then
-      return str:sub(2, -2), false
-   end
-   f = str:match("^%[=*%[")
-   local l = #f + 1
-   return str:sub(l, -l), true
-end
-
-local function parse_literal(ps: ParseState, i: integer): integer, Node
-   local tk = ps.tokens[i].tk
-   local kind = ps.tokens[i].kind
-   if kind == "identifier" then
-      return verify_kind(ps, i, "identifier", "variable")
-   elseif kind == "string" then
-      local node = new_node(ps, i, "string")
-      node.conststr, node.is_longstring = unquote(tk)
-      node.yend = token_yend(ps.tokens[i])
-      return i + 1, node
-   elseif kind == "number" or kind == "integer" then
-      local n = tonumber(tk)
-      local node: Node
-      i, node = verify_kind(ps, i, kind)
-      node.constnum = n
-      return i, node
-   elseif tk == "true" then
-      return verify_kind(ps, i, "keyword", "boolean")
-   elseif tk == "false" then
-      return verify_kind(ps, i, "keyword", "boolean")
-   elseif tk == "nil" then
-      return verify_kind(ps, i, "keyword", "nil")
-   elseif tk == "function" then
-      return parse_function_value(ps, i)
-   elseif tk == "{" then
-      return parse_table_literal(ps, i)
-   elseif kind == "..." then
-      return verify_kind(ps, i, "...")
-   elseif kind == "$ERR$" then
-      return fail(ps, i, "invalid token")
-   end
-   return fail(ps, i, "syntax error")
-end
-
-local function node_is_require_call_or_pcall(n: Node): string
-   local r = node_is_require_call(n)
-   if r then
-      return r
-   end
-   if node_is_funcall(n)
-      and n.e1 and n.e1.tk == "pcall"
-      and n.e2 and #n.e2 == 2
-      and n.e2[1].kind == "variable" and n.e2[1].tk == "require"
-      and n.e2[2].kind == "string" and n.e2[2].conststr
-   then
-      return n.e2[2].conststr
-   end
-   return nil
-end
-
-do
-   local precedences: {integer:{string:integer}} = {
-      [1] = {
-         ["not"] = 11,
-         ["#"] = 11,
-         ["-"] = 11,
-         ["~"] = 11,
-      },
-      [2] = {
-         ["or"] = 1,
-         ["and"] = 2,
-         ["is"] = 3,
-         ["<"] = 3,
-         [">"] = 3,
-         ["<="] = 3,
-         [">="] = 3,
-         ["~="] = 3,
-         ["=="] = 3,
-         ["|"] = 4,
-         ["~"] = 5,
-         ["&"] = 6,
-         ["<<"] = 7,
-         [">>"] = 7,
-         [".."] = 8,
-         ["+"] = 9,
-         ["-"] = 9,
-         ["*"] = 10,
-         ["/"] = 10,
-         ["//"] = 10,
-         ["%"] = 10,
-         ["^"] = 12,
-         ["as"] = 50,
-         ["@funcall"] = 100,
-         ["@index"] = 100,
-         ["."] = 100,
-         [":"] = 100,
-      },
-   }
-
-   local is_right_assoc: {string:boolean} = {
-      ["^"] = true,
-      [".."] = true,
-   }
-
-   local function new_operator(tk: Token, arity: integer, op: string): Operator
-      return { y = tk.y, x = tk.x, arity = arity, op = op, prec = precedences[arity][op] }
-   end
-
-   an_operator = function(node: Node, arity: integer, op: string): Operator
-      return { y = node.y, x = node.x, arity = arity, op = op, prec = precedences[arity][op] }
-   end
-
-   local args_starters: {TokenKind:boolean} = {
-      ["("] = true,
-      ["{"] = true,
-      ["string"] = true,
-   }
-
-   local E: function(ParseState, integer, Node, integer): integer, Node
-
-   local function after_valid_prefixexp(
-       ps: ParseState,
-       prevnode: Node,
-       i: integer
-   ): boolean
-      return ps.tokens[i - 1].kind == ")"
-         or (prevnode.kind == "op"
-             and (prevnode.op.op == "@funcall"
-                  or prevnode.op.op == "@index"
-                  or prevnode.op.op == "."
-                  or prevnode.op.op == ":")
-             )
-         or prevnode.kind == "identifier"
-         or prevnode.kind == "variable"
-   end
-
-   local function failstore(ps: ParseState, tkop: Token, e1: Node): Node
-      return { f = ps.filename, y = tkop.y, x = tkop.x, kind = "paren", e1 = e1, failstore = true }
-   end
-
-   local function P(ps: ParseState, i: integer): integer, Node
-      if ps.tokens[i].kind == "$EOF$" then
-         return i
-      end
-      local e1: Node
-      local t1 = ps.tokens[i]
-      if precedences[1][t1.tk] ~= nil then
-         local op: Operator = new_operator(t1, 1, t1.tk)
-         i = i + 1
-         local op_trailing_trivia = take_all_token_comments(ps.tokens[i])
-         local prev_i = i
-         i, e1 = P(ps, i)
-         if not e1 then
-            fail(ps, prev_i, "expected an expression")
-            return i
-         end
-         e1 = { f = ps.filename, y = t1.y, x = t1.x, kind = "op", op = op, e1 = e1, yend = e1.yend or e1.y }
-         e1.op_leading_trivia = {}
-         e1.op_trailing_trivia = op_trailing_trivia
-      elseif ps.tokens[i].tk == "(" then
-         i = i + 1
-         local prev_i = i
-         i, e1 = parse_expression_and_tk(ps, i, ")")
-         if not e1 then
-            fail(ps, prev_i, "expected an expression")
-            return i
-         end
-         e1 = { f = ps.filename, y = t1.y, x = t1.x, kind = "paren", e1 = e1, yend = ps.tokens[i - 1].y }
-      else
-         i, e1 = parse_literal(ps, i)
-      end
-
-      if not e1 then
-         return i
-      end
-
-      while true do
-         local tkop = ps.tokens[i]
-         if tkop.kind == "," or tkop.kind == ")" then
-            break
-         end
-         if tkop.tk == "." or tkop.tk == ":" then
-            local op: Operator = new_operator(tkop, 2, tkop.tk)
-
-            local prev_i = i
-
-            local key: Node
-            i = i + 1
-            if ps.tokens[i].kind ~= "identifier" then
-               local skipped = skip(ps, i, parse_type as SkipFunction)
-               if skipped > i + 1 then
-                  fail(ps, i, "syntax error, cannot declare a type here (missing 'local' or 'global'?)")
-                  return skipped, failstore(ps, tkop, e1)
-               end
-            end
-            i, key = verify_kind(ps, i, "identifier")
-            if not key then
-               return i, failstore(ps, tkop, e1)
-            end
-
-            if op.op == ":" then
-               if not args_starters[ps.tokens[i].kind] then
-                  if ps.tokens[i].tk == "=" then
-                     fail(ps, i, "syntax error, cannot perform an assignment here (missing 'local' or 'global'?)")
-                  else
-                     fail(ps, i, "expected a function call for a method")
-                  end
-                  return i, failstore(ps, tkop, e1)
-               end
-
-               if not after_valid_prefixexp(ps, e1, prev_i) then
-                  fail(ps, prev_i, "cannot call a method on this expression")
-                  return i, failstore(ps, tkop, e1)
-               end
-            end
-
-            e1 = { f = ps.filename, y = e1.y, x = e1.x, kind = "op", op = op, e1 = e1, e2 = key, yend = key.yend or key.y }
-            fmt_logger.debug(
-                "[expr] %s op node: base y=%s op_tk=%s op_y=%s -> node y=%s",
-                op.op,
-                e1.e1.y,
-                tkop.tk,
-                tkop.y,
-                e1.y
-            )
-         elseif tkop.tk == "(" then
-            local prev_tk = ps.tokens[i - 1]
-            if tkop.y > prev_tk.y then
-               table.insert(
-                   ps.tokens,
-                   i,
-                   { y = prev_tk.y, x = prev_tk.x + #prev_tk.tk, tk = ";", kind = ";" } as Token
-               )
-               break
-            end
-
-            local op: Operator = new_operator(tkop, 2, "@funcall")
-
-            local prev_i = i
-
-            local args = new_node(ps, i, "expression_list")
-            local open_paren_leading_trivia = take_same_line_comments(ps.tokens[i + 1], ps.tokens[i].y)
-            i, args = parse_bracket_list(ps, i, args, "(", ")", "sep", parse_expression)
-            if #open_paren_leading_trivia > 0 then
-               args.leading_inline_trivia = open_paren_leading_trivia
-            end
-
-            local function leftmost_y(node: Node): integer
-               if node.kind == "op" and node.e1 then
-                  return leftmost_y(node.e1)
-               end
-               return node.y
-            end
-
-            local previous_end: integer | nil = nil
-            for _, arg_node in ipairs(args) do
-               local leading = arg_node.leading_comments or {}
-               if #leading > 0 then
-                  previous_end = leading[#leading].yend
-               end
-               if previous_end ~= nil then
-                  local left_y = leftmost_y(arg_node)
-                  arg_node.blank_line_before = left_y > previous_end + 1
-                  fmt_logger.debug(
-                      "[call args] blank_line_before=%s kind=%s y=%s leftmost_y=%s previous_end=%s",
-                      arg_node.blank_line_before,
-                      arg_node.kind,
-                      arg_node.y,
-                      left_y,
-                      previous_end
-                  )
-               end
-               previous_end = arg_node.yend or arg_node.y
-            end
-
-            -- Capture a comment that immediately follows the closing ')' on the
-            -- same line, but only for multi-line calls where ')' is on its own
-            -- line. For single-line calls like `f() -- note` the comment belongs
-            -- to the surrounding statement and is extracted there instead.
-            local close_paren_line = ps.tokens[i - 1].y
-            if close_paren_line > args.y then
-               args.trailing_comment = get_same_line_comment(ps.tokens[i], close_paren_line)
-            end
-
-            if not after_valid_prefixexp(ps, e1, prev_i) then
-               fail(ps, prev_i, "cannot call this expression")
-               return i, failstore(ps, tkop, e1)
-            end
-
-            local funcall_yend = math.max(args.yend or args.y, args.y)
-            e1 = { f = ps.filename, y = e1.y, x = e1.x, yend = funcall_yend, kind = "op", op = op, e1 = e1, e2 = args }
-            fmt_logger.debug(
-                "[expr] @funcall op node: base y=%s args_y=%s -> node y=%s",
-                e1.e1.y,
-                args.y,
-                e1.y
-            )
-
-            table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
-         elseif tkop.tk == "[" then
-            local op: Operator = new_operator(tkop, 2, "@index")
-
-            local prev_i = i
-
-            local idx: Node
-            i = i + 1
-            i, idx = parse_expression_and_tk(ps, i, "]")
-
-            if not after_valid_prefixexp(ps, e1, prev_i) then
-               fail(ps, prev_i, "cannot index this expression")
-               return i, failstore(ps, tkop, e1)
-            end
-
-            e1 = { f = ps.filename, y = e1.y, x = e1.x, kind = "op", op = op, e1 = e1, e2 = idx, yend = ps.tokens[i - 1].y }
-         elseif tkop.kind == "string" or tkop.kind == "{" then
-            local op: Operator = new_operator(tkop, 2, "@funcall")
-
-            local prev_i = i
-
-            local args = new_node(ps, i, "expression_list")
-            local argument: Node
-            if tkop.kind == "string" then
-               argument = new_node(ps, i)
-               argument.conststr, argument.is_longstring = unquote(tkop.tk)
-               i = i + 1
-            else
-               i, argument = parse_table_literal(ps, i)
-            end
-
-            if not after_valid_prefixexp(ps, e1, prev_i) then
-               if tkop.kind == "string" then
-                  fail(ps, prev_i, "cannot use a string here; if you're trying to call the previous expression, wrap it in parentheses")
-               else
-                  fail(ps, prev_i, "cannot use a table here; if you're trying to call the previous expression, wrap it in parentheses")
-               end
-               return i, failstore(ps, tkop, e1)
-            end
-
-            table.insert(args, argument)
-            e1 = { f = ps.filename, y = args.y, x = args.x, kind = "op", op = op, e1 = e1, e2 = args }
-
-            table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
-         elseif tkop.tk == "as" or tkop.tk == "is" then
-            local op: Operator = new_operator(tkop, 2, tkop.tk)
-
-            i = i + 1
-            local cast = new_node(ps, i, "cast")
-            if ps.tokens[i].tk == "(" then
-               i, cast.casttype = parse_type_list(ps, i, "casttype")
-            else
-               i, cast.casttype = parse_type(ps, i)
-            end
-            if not cast.casttype then
-               return i, failstore(ps, tkop, e1)
-            end
-            cast.yend = ps.tokens[i - 1].y
-            e1 = { f = ps.filename, y = tkop.y, x = tkop.x, kind = "op", op = op, e1 = e1, e2 = cast, conststr = e1.conststr, yend = cast.yend }
-         else
-            break
-         end
-      end
-
-      return i, e1
-   end
-
-   E = function(
-       ps: ParseState,
-       i: integer,
-       lhs: Node,
-       min_precedence: integer
-   ): integer, Node
-      local lookahead = ps.tokens[i].tk
-      while precedences[2][lookahead] and precedences[2][lookahead] >= min_precedence do
-         local t1 = ps.tokens[i]
-         local op_leading_trivia = take_all_token_comments(ps.tokens[i])
-         local op: Operator = new_operator(t1, 2, t1.tk)
-         i = i + 1
-         local op_trailing_trivia = take_all_token_comments(ps.tokens[i])
-         local rhs: Node
-         i, rhs = P(ps, i)
-         if not rhs then
-            fail(ps, i, "expected an expression")
-            return i
-         end
-         lookahead = ps.tokens[i].tk
-         while precedences[2][lookahead] and ((precedences[2][lookahead] > (precedences[2][op.op]))
-            or (is_right_assoc[lookahead] and (precedences[2][lookahead] == precedences[2][op.op]))) do
-            i, rhs = E(ps, i, rhs, precedences[2][lookahead])
-            if not rhs then
-               fail(ps, i, "expected an expression")
-               return i
-            end
-            lookahead = ps.tokens[i].tk
-         end
-         lhs = { f = ps.filename, y = t1.y, x = t1.x, kind = "op", op = op, e1 = lhs, e2 = rhs, yend = rhs.yend or rhs.y }
-         lhs.op_leading_trivia = op_leading_trivia
-         lhs.op_trailing_trivia = op_trailing_trivia
-      end
-      return i, lhs
-   end
-
-   parse_expression = function(ps: ParseState, i: integer): integer, Node, integer
-      local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-      local lhs: Node
-      local istart = i
-      i, lhs = P(ps, i)
-      if lhs then
-         i, lhs = E(ps, i, lhs, 0)
-      end
-      if lhs then
-         if comments then
-            lhs.leading_comments = comments
-         end
-         return i, lhs, 0
-      end
-      if i == istart then
-         i = fail(ps, i, "expected an expression")
-      end
-      return i
-   end
-end
-
-parse_expression_and_tk = function(
-    ps: ParseState,
-    i: integer,
-    tk: string
-): integer, Node
-   local e: Node
-   i, e = parse_expression(ps, i)
-   if not e then
-      e = new_node(ps, i - 1, "error_node")
-   end
-   if ps.tokens[i].tk == tk then
-      i = i + 1
-   else
-      local msg = "syntax error, expected '" .. tk .. "'"
-      if ps.tokens[i].tk == "=" then
-         msg = "syntax error, cannot perform an assignment here (did you mean '=='?)"
-      end
-
-      for n = 0, 19 do
-         local t = ps.tokens[i + n]
-         if t.kind == "$EOF$" then
-            break
-         end
-         if t.tk == tk then
-            fail(ps, i, msg)
-            return i + n + 1, e
-         end
-      end
-      i = fail(ps, i, msg)
-   end
-   return i, e
-end
-
-local function parse_variable_name(ps: ParseState, i: integer): integer, Node, integer
-   local node: Node
-   i, node = verify_kind(ps, i, "identifier")
-   if not node then
-      return i
-   end
-   if ps.tokens[i].tk == "<" then
-      i = i + 1
-      local annotation: Node
-      i, annotation = verify_kind(ps, i, "identifier")
-      if annotation then
-         if not is_attribute[annotation.tk] then
-            fail(ps, i, "unknown variable annotation: " .. annotation.tk)
-         end
-         node.attribute = annotation.tk as Attribute
-      else
-         fail(ps, i, "expected a variable annotation")
-      end
-      i = verify_tk(ps, i, ">")
-   end
-   return i, node
-end
-
-local function parse_argument(ps: ParseState, i: integer): integer, Node, integer
-   local node: Node
-   if ps.tokens[i].tk == "..." then
-      i, node = verify_kind(ps, i, "...", "argument")
-      node.opt = true
-   else
-      i, node = verify_kind(ps, i, "identifier", "argument")
-   end
-   if ps.tokens[i].tk == "..." then
-      fail(ps, i, "'...' needs to be declared as a typed argument")
-   end
-   if ps.tokens[i].tk == "?" then
-      i = i + 1
-      if node then
-         node.opt = true
-      end
-   end
-   if ps.tokens[i].tk == ":" then
-      i = i + 1
-      local argtype: Type
-
-      i, argtype = parse_type(ps, i)
-
-      if node then
-         node.argtype = argtype
-      end
-   end
-   return i, node, 0
-end
-
-parse_argument_list = function(ps: ParseState, i: integer): integer, Node, integer
-   local node = new_node(ps, i, "argument_list")
-   i, node = parse_bracket_list(ps, i, node, "(", ")", "sep", parse_argument)
-   local opts = false
-   local min_arity = 0
-   for a, fnarg in ipairs(node) do
-      if fnarg.tk == "..." then
-         if a ~= #node then
-            fail(ps, i, "'...' can only be last argument")
-            break
-         end
-      elseif fnarg.opt then
-         opts = true
-      elseif opts then
-         return fail(ps, i, "non-optional arguments cannot follow optional arguments")
-      else
-         min_arity = min_arity + 1
-      end
-   end
-   return i, node, min_arity
-end
-
-local function parse_argument_type(
-    ps: ParseState,
-    i: integer
-): integer, ArgumentInfo, integer
-   local opt = 0
-   local is_va = false
-   local is_self = false
-   local argument_name: string = nil
-
-   if ps.tokens[i].kind == "identifier" then
-      if ps.tokens[i + 1].tk == "?" then
-         opt = i + 1
-         if ps.tokens[i + 2].tk == ":" then
-            argument_name = ps.tokens[i].tk
-            i = i + 3
-         end
-      elseif ps.tokens[i + 1].tk == ":" then
-         argument_name = ps.tokens[i].tk
-         i = i + 2
-      end
-   elseif ps.tokens[i].kind == "?" then
-      opt = i
-      i = i + 1
-   elseif ps.tokens[i].tk == "..." then
-      if ps.tokens[i + 1].tk == "?" then
-         fail(
-             ps,
-             i + 1,
-             "cannot mix '?' and '...' in a declaration; '...' already implies optional"
-         )
-         i = i + 1
-      end
-      if ps.tokens[i + 1].tk == ":" then
-         i = i + 2
-         is_va = true
-      else
-         return fail(
-             ps,
-             i,
-             "cannot have untyped '...' when declaring the type of an argument"
-         )
-      end
-   end
-
-   local typ: Type; i, typ = parse_type(ps, i)
-   if typ then
-      if not is_va and ps.tokens[i].tk == "..." then
-         i = i + 1
-         is_va = true
-         if opt > 0 then
-            fail(
-                ps,
-                opt,
-                "cannot mix '?' and '...' in a declaration; '...' already implies optional"
-            )
-         end
-      end
-
-      if argument_name == "self" then
-         is_self = true
-      end
-   end
-
-   return i, {
-      i = i,
-      type = typ,
-      name = argument_name,
-      is_va = is_va,
-      is_self = is_self,
-      opt = (opt > 0) or is_va,
-   }, 0
-end
-
-parse_argument_type_list = function(
-    ps: ParseState,
-    i: integer
-): integer, TupleType, boolean, integer
-   local ars: {ArgumentInfo} = {}
-   i = parse_bracket_list(ps, i, ars, "(", ")", "sep", parse_argument_type)
-   local t, list = new_tuple(ps, i)
-   t.argnames = {}
-   t.is_optional = {}
-   local n = #ars
-   local min_arity = 0
-   for l, ar in ipairs(ars) do
-      list[l] = ar.type
-      t.argnames[l] = ar.name
-      t.is_optional[l] = ar.opt
-      if ar.is_va and l < n then
-         fail(ps, ar.i, "'...' can only be last argument")
-      end
-      if not ar.opt then
-         min_arity = min_arity + 1
-      end
-   end
-   if n > 0 and ars[n].is_va then
-      t.is_va = true
-   end
-   return i, t, (n > 0 and ars[1].is_self), min_arity
-end
-
-local function parse_identifier(ps: ParseState, i: integer): integer, Node, integer
-   if ps.tokens[i].kind == "identifier" then
-      return i + 1, new_node(ps, i, "identifier")
-   end
-   i = fail(ps, i, "syntax error, expected identifier")
-   return i, new_node(ps, i, "error_node")
-end
-
-local function parse_local_function(ps: ParseState, i: integer): integer, Node
-   i = verify_tk(ps, i, "local")
-   i = verify_tk(ps, i, "function")
-   local node = new_node(ps, i - 2, "local_function")
-   i, node.name = parse_identifier(ps, i)
-   return parse_function_args_rets_body(ps, i, node)
-end
-
-local function parse_function(
-    ps: ParseState,
-    i: integer,
-    fk: FunctionKind
-): integer, Node
-   local orig_i = i
-   i = verify_tk(ps, i, "function")
-   local fn = new_node(ps, i - 1, "global_function")
-   local names: {Node} = {}
-   i, names[1] = parse_identifier(ps, i)
-   while ps.tokens[i].tk == "." do
-      i = i + 1
-      i, names[#names + 1] = parse_identifier(ps, i)
-   end
-   if ps.tokens[i].tk == ":" then
-      i = i + 1
-      i, names[#names + 1] = parse_identifier(ps, i)
-      fn.is_method = true
-   end
-
-   if #names > 1 then
-      fn.kind = "record_function"
-      local owner = names[1]
-      owner.kind = "type_identifier"
-      for i2 = 2, #names - 1 do
-         local dot = an_operator(names[i2], 2, ".")
-         names[i2].kind = "identifier"
-         owner = { f = ps.filename, y = names[i2].y, x = names[i2].x, kind = "op", op = dot, e1 = owner, e2 = names[i2] }
-      end
-      fn.fn_owner = owner
-   end
-   fn.name = names[#names]
-
-   local selfx, selfy = ps.tokens[i].x, ps.tokens[i].y
-   i = parse_function_args_rets_body(ps, i, fn)
-   if fn.is_method and fn.args then
-      table.insert(
-          fn.args,
-          1,
-          { f = ps.filename, x = selfx, y = selfy, tk = "self", kind = "identifier", is_self = true } as Node
-      )
-      fn.min_arity = fn.min_arity + 1
-   end
-
-   if not fn.name then
-      return orig_i + 1
-   end
-
-   if fn.kind == "record_function" and fk == "global" then
-      fail(ps, orig_i, "record functions cannot be annotated as 'global'")
-   elseif fn.kind == "global_function" and fk == "record" then
-      fn.implicit_global_function = true
-   end
-
-   return i, fn
-end
-
-local function parse_if_block(
-    ps: ParseState,
-    i: integer,
-    n: integer,
-    node: Node,
-    is_else?: boolean
-): integer, Node
-   local block = new_node(ps, i, "if_block")
-   i = i + 1
-   block.if_parent = node
-   block.if_block_n = n
-   if not is_else then
-      block.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-      i, block.exp = parse_expression_and_tk(ps, i, "then")
-      if not block.exp then
-         return i
-      end
-   end
-   block.trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
-   i, block.body = parse_statements(ps, i)
-   if not block.body then
-      return i
-   end
-   block.yend, block.xend = block.body.yend, block.body.xend
-   table.insert(node.if_blocks, block)
-   return i, node
-end
-
-local function parse_if(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local istart = i
-   local node = new_node(ps, i, "if")
-   node.if_blocks = {}
-   i, node = parse_if_block(ps, i, 1, node)
-   if not node then
-      return i
-   end
-   local n = 2
-   while ps.tokens[i].tk == "elseif" do
-      i, node = parse_if_block(ps, i, n, node)
-      if not node then
-         return i
-      end
-      n = n + 1
-   end
-   if ps.tokens[i].tk == "else" then
-      i, node = parse_if_block(ps, i, n, node, true)
-      if not node then
-         return i
-      end
-   end
-   i = verify_end(ps, i, istart, node)
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function parse_while(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local istart = i
-   local node = new_node(ps, i, "while")
-   i = verify_tk(ps, i, "while")
-   node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-   i, node.exp = parse_expression_and_tk(ps, i, "do")
-   node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-   i, node.body = parse_statements(ps, i)
-   i = verify_end(ps, i, istart, node)
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function parse_fornum(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local istart = i
-   local node = new_node(ps, i, "fornum")
-   i = i + 1
-   i, node.var = parse_identifier(ps, i)
-   i = verify_tk(ps, i, "=")
-   node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-   i, node.from = parse_expression_and_tk(ps, i, ",")
-   i, node.to = parse_expression(ps, i)
-   if ps.tokens[i].tk == "," then
-      i = i + 1
-      i, node.step = parse_expression_and_tk(ps, i, "do")
-   else
-      i = verify_tk(ps, i, "do")
-   end
-   node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-   i, node.body = parse_statements(ps, i)
-   i = verify_end(ps, i, istart, node)
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function parse_forin(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local istart = i
-   local node = new_node(ps, i, "forin")
-   i = i + 1
-   node.vars = new_node(ps, i, "variable_list")
-   i, node.vars = parse_list(
-       ps,
-       i,
-       node.vars,
-       { ["in"] = true },
-       "sep",
-       parse_identifier
-   )
-   i = verify_tk(ps, i, "in")
-   node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-   node.exps = new_node(ps, i, "expression_list")
-   i = parse_list(ps, i, node.exps, { ["do"] = true }, "sep", parse_expression)
-   if #node.exps < 1 then
-      return fail(ps, i, "missing iterator expression in generic for")
-   elseif #node.exps > 3 then
-      return fail(ps, i, "too many expressions in generic for")
-   end
-   i = verify_tk(ps, i, "do")
-   node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-   i, node.body = parse_statements(ps, i)
-   i = verify_end(ps, i, istart, node)
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function parse_for(ps: ParseState, i: integer): integer, Node
-   if ps.tokens[i + 1].kind == "identifier" and ps.tokens[i + 2].tk == "=" then
-      return parse_fornum(ps, i)
-   else
-      return parse_forin(ps, i)
-   end
-end
-
-local function parse_repeat(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local node = new_node(ps, i, "repeat")
-   i = verify_tk(ps, i, "repeat")
-   node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-   i, node.body = parse_statements(ps, i)
-   node.body.is_repeat = true
-   i = verify_tk(ps, i, "until")
-   node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-   i, node.exp = parse_expression(ps, i)
-   end_at(node, ps.tokens[i - 1])
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function parse_do(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local istart = i
-   local node = new_node(ps, i, "do")
-   i = verify_tk(ps, i, "do")
-   i, node.body = parse_statements(ps, i)
-   i = verify_end(ps, i, istart, node)
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function parse_break(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local node = new_node(ps, i, "break")
-   i = verify_tk(ps, i, "break")
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function parse_goto(ps: ParseState, i: integer): integer, Node
-   local node = new_node(ps, i, "goto")
-   i = verify_tk(ps, i, "goto")
-   node.label = ps.tokens[i].tk
-   i = verify_kind(ps, i, "identifier")
-   return i, node
-end
-
-local function parse_label(ps: ParseState, i: integer): integer, Node
-   local node = new_node(ps, i, "label")
-   i = verify_tk(ps, i, "::")
-   node.label = ps.tokens[i].tk
-   i = verify_kind(ps, i, "identifier")
-   i = verify_tk(ps, i, "::")
-   return i, node
-end
-
-local stop_statement_list: {string:boolean} = {
-   ["end"] = true,
-   ["else"] = true,
-   ["elseif"] = true,
-   ["until"] = true,
-}
-
-local stop_return_list: {string:boolean} = {
-   [";"] = true,
-   ["$EOF$"] = true,
-}
-
-for k, v in pairs(stop_statement_list) do
-   stop_return_list[k] = v
-end
-
-local function parse_return(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local node = new_node(ps, i, "return")
-   i = verify_tk(ps, i, "return")
-   if not stop_return_list[ps.tokens[i].tk] then
-      node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-   end
-   node.exps = new_node(ps, i, "expression_list")
-   i = parse_list(ps, i, node.exps, stop_return_list, "sep", parse_expression)
-   if ps.tokens[i].kind == ";" then
-      i = i + 1
-      if ps.tokens[i].kind ~= "$EOF$" and not stop_statement_list[ps.tokens[i].tk] then
-         return fail(ps, i, "return must be the last statement of its block")
-      end
-   end
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function store_field_in_record(
-    ps: ParseState,
-    i: integer,
-    field_name: string,
-    newt: Type,
-    def: RecordLikeType,
-    node: parser.Node,
-    end_i: integer,
-    comments?: {Comment},
-    meta?: string
-): boolean
-   local field_order: {string}
-   local fields: {string:Type}
-   local nodes: {string: parser.Node}
-   local field_comments: {string:{{Comment}}}
-   if meta then
-      field_order, fields, nodes, field_comments = def.meta_field_order, def.meta_fields, def.nodes, def.meta_field_comments
-   else
-      field_order, fields, nodes, field_comments = def.field_order, def.fields, def.nodes, def.field_comments
-   end
-
-   if comments and not field_comments then
-      field_comments = {}
-      if meta then
-         def.meta_field_comments = field_comments
-      else
-         def.field_comments = field_comments
-      end
-   end
-
-   nodes[field_name] = node
-
-   local entry_line = node ~= nil and node.y or newt.y
-   local entry = parser.FieldEntry.new(field_name, newt, node, comments or {}, meta ~= nil, entry_line)
-   entry.yend = ps.tokens[end_i - 1].y
-   entry.trailing_comment = get_same_line_comment(ps.tokens[end_i], entry.yend)
-   table.insert(def.field_entries, entry)
-
-   if not fields[field_name] then
-      fields[field_name] = newt
-      if comments then
-         field_comments[field_name] = {comments}
-      end
-      table.insert(field_order, field_name)
-      return true
-   end
-
-   local oldt = fields[field_name]
-   local oldf: Type = oldt is GenericType and oldt.t or oldt
-   local newf: Type = newt is GenericType and newt.t or newt
-
-   local function store_comment_for_poly(poly: PolyType)
-      if comments then
-         if not field_comments[field_name] then
-            field_comments[field_name] = {}
-            for idx = 1, #poly.types - 1 do
-               field_comments[field_name][idx] = {}
-            end
-         end
-         table.insert(
-             field_comments[field_name], comments
-         )
-      elseif field_comments and field_comments[field_name] then
-         table.insert(field_comments[field_name], {})
-      end
-   end
-
-   if newf is FunctionType then
-      if oldf is FunctionType then
-         local p = new_type(ps, i, "poly") as PolyType
-         p.types = { oldt as FunctionType, newt as FunctionType }
-         fields[field_name] = p
-         store_comment_for_poly(p)
-         return true
-      elseif oldt is PolyType then
-         table.insert(oldt.types, newt as FunctionType)
-         store_comment_for_poly(oldt)
-         return true
-      end
-   end
-   fail(
-       ps,
-       i,
-       "attempt to redeclare field '" .. field_name .. "' (only functions can be overloaded)"
-   )
-   return false
-end
-
-local function set_declname(def: Type, declname: string)
-   if def is GenericType then
-      def = def.t
-   end
-
-   if def is parser.RecordType or def is parser.InterfaceType or def is EnumType then
-      if not (def as parser.HasDeclName).declname then
-         (def as parser.HasDeclName).declname = declname
-      end
-   end
-end
-
-local function comment_len(comment: tl.LexerComment): integer
-   local _, comment_line_breaks = comment.text:gsub("\n", "\n")
-   return comment_line_breaks + 1
-end
-
-local function make_comment(lc: tl.LexerComment): Comment
-   return { x = lc.x, y = lc.y, text = lc.text, blank_line_before = false, yend = lc.y + comment_len(lc) - 1 }
-end
-
-get_attached_comments = function(token: Token, previous_token?: Token): {Comment}
-   local token_comments = token.comments
-   if token_comments == nil or #token_comments == 0 then
-      return nil
-   end
-
-   local last_lc = token_comments[#token_comments]
-
-   local diff_y = token.y - last_lc.y
-   if diff_y < 0 then
-      return nil
-   end
-
-   local attached_comments: {Comment} = {}
-   for j = 1, #token_comments do
-      table.insert(attached_comments, make_comment(token_comments[j]))
-   end
-
-   for i = 2, #attached_comments do
-      if attached_comments[i].y - attached_comments[i - 1].yend > 1 then
-         attached_comments[i].blank_line_before = true
-      end
-   end
-
-   if not (previous_token is nil) and attached_comments[1].y > previous_token.y + 1 then
-      attached_comments[1].blank_line_before = true
-   end
-
-   return attached_comments
-end
-
-get_same_line_comment = function(token: Token, line: integer): Comment
-   local token_comments = token.comments
-   if token_comments == nil then
-      return nil
-   end
-   for i, lc in ipairs(token_comments) do
-      if lc.y == line then
-         table.remove(token_comments, i)
-         return make_comment(lc)
-      end
-   end
-   return nil
-end
-
--- Drains every comment on the given line from token.comments. Use after
--- a block-opening keyword so trailing inline trivia does not leak into
--- the first body statement's leading comments.
-take_same_line_comments = function(token: Token, line: integer): {Comment}
-   local lc_list = token.comments
-   if lc_list == nil or #lc_list == 0 then
-      return {}
-   end
-   local result: {Comment} = {}
-   local i = 1
-   while i <= #lc_list do
-      if lc_list[i].y == line then
-         table.insert(result, make_comment(lc_list[i]))
-         table.remove(lc_list, i)
-      else
-         i = i + 1
-      end
-   end
-   return result
-end
-
--- Mutates token.comments so a downstream get_attached_comments call
--- cannot re-pick the same comment.
-take_all_token_comments = function(token: Token): {Comment}
-   local lc_list = token.comments
-   if lc_list == nil or #lc_list == 0 then
-      return {}
-   end
-   local result: {Comment} = {}
-   for j = 1, #lc_list do
-      table.insert(result, make_comment(lc_list[j]))
-   end
-   for j = #lc_list, 1, -1 do
-      table.remove(lc_list, j)
-   end
-   return result
-end
-
-local function parse_nested_type(
-    ps: ParseState,
-    i: integer,
-    def: RecordLikeType,
-    tn: BodyTypeName
-): integer, boolean
-   local istart = i
-   i = i + 1
-   local iv = i
-
-   local v: Node
-   i, v = verify_kind(ps, i, "identifier", "type_identifier")
-   if not v then
-      return fail(ps, i, "expected a variable name")
-   end
-
-   local nt: Node = new_node(ps, istart, "newtype")
-
-   local ndef: Type
-   i, ndef = parse_type_body(ps, i, istart, nt, tn)
-   if not ndef then
-      return i
-   end
-
-   set_declname(ndef, v.tk)
-
-   nt.newtype = new_typedecl(ps, istart, ndef)
-
-   store_field_in_record(
-       ps,
-       iv,
-       v.tk,
-       nt.newtype,
-       def,
-       nt,
-       i,
-       get_attached_comments(ps.tokens[istart], ps.tokens[istart-1])
-   )
-   return i
-end
-
-parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, boolean
-   def.enum_items = {}
-   while ps.tokens[i].tk ~= "$EOF$" and ps.tokens[i].tk ~= "end" do
-      local item: Node
-      i, item = verify_kind(ps, i, "string", "string")
-      if item then
-         item.leading_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
-         item.yend = token_yend(ps.tokens[i - 1])
-         item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
-         table.insert(def.enum_items, item)
-      end
-   end
-
-   local previous_end: integer | nil = nil
-   for _, item in ipairs(def.enum_items) do
-      local leading = item.leading_comments or {}
-      if #leading > 0 then
-         previous_end = leading[#leading].yend
-      end
-      if previous_end ~= nil then
-         item.blank_line_before = item.y > previous_end + 1
-      end
-      previous_end = item.yend
-   end
-
-   def.dangling_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   return i, true
-end
-
-local metamethod_names: {string:boolean} = {
-   ["__add"] = true,
-   ["__sub"] = true,
-   ["__mul"] = true,
-   ["__div"] = true,
-   ["__mod"] = true,
-   ["__pow"] = true,
-   ["__unm"] = true,
-   ["__idiv"] = true,
-   ["__band"] = true,
-   ["__bor"] = true,
-   ["__bxor"] = true,
-   ["__bnot"] = true,
-   ["__shl"] = true,
-   ["__shr"] = true,
-   ["__concat"] = true,
-   ["__len"] = true,
-   ["__eq"] = true,
-   ["__lt"] = true,
-   ["__le"] = true,
-   ["__index"] = true,
-   ["__newindex"] = true,
-   ["__call"] = true,
-   ["__tostring"] = true,
-   ["__pairs"] = true,
-   ["__gc"] = true,
-   ["__close"] = true,
-   ["__is"] = true,
-}
-
-local function parse_macroexp(
-    ps: ParseState,
-    istart: integer,
-    iargs: integer
-): integer, Node
-   local node = new_node(ps, istart, "macroexp")
-
-   local i: integer
-   if ps.tokens[istart + 1].tk == "<" then
-      i, node.typeargs = parse_anglebracket_list(ps, istart + 1, parse_typearg)
-   else
-      i = iargs
-   end
-
-   i, node.args, node.min_arity = parse_argument_list(ps, i)
-   i, node.rets = parse_return_types(ps, i)
-   i = verify_tk(ps, i, "return")
-   i, node.exp = parse_expression(ps, i)
-   end_at(node, ps.tokens[i])
-   i = verify_end(ps, i, istart, node)
-   return i, node
-end
-
-local function parse_where_clause(
-    ps: ParseState,
-    i: integer,
-    def: RecordLikeType
-): integer, Node
-   local node = new_node(ps, i, "macroexp")
-
-   node.is_method = true
-   node.args = new_node(ps, i, "argument_list")
-   node.args[1] = new_node(ps, i, "argument")
-   node.args[1].tk = "self"
-   node.args[1].argtype = new_type(ps, i, "self")
-   ;(node.args[1].argtype as SelfType).display_type = def
-   node.min_arity = 1
-   node.rets = new_tuple(ps, i)
-   node.rets.tuple[1] = new_type(ps, i, "boolean")
-   i, node.exp = parse_expression(ps, i)
-   end_at(node, ps.tokens[i - 1])
-   return i, node
-end
-
-parse_interface_name = function(
-    ps: ParseState,
-    i: integer
-): integer, FirstOrderType, integer
-   local istart = i
-   local typ: FirstOrderType
-   i, typ = parse_simple_type_or_nominal(ps, i)
-   if not typ then
-      return i
-   end
-   if not typ is NominalType then
-      return fail(ps, istart, "expected an interface")
-   end
-   return i, typ
-end
-
-local function parse_array_interface_type(
-    ps: ParseState,
-    i: integer,
-    def: RecordLikeType
-): integer, ArrayType
-   local first = def.interface_list[1]
-   if first and first is ArrayType then
-      return failskip(
+            table.insert(list, item)
+        end
+        return i, list
+    end
+
+    local function parse_anglebracket_list<T is Type>(
+        ps: ParseState, i: integer, parse_item: ParseItem<T>
+    ): integer, {T}
+        local second = ps.tokens[i + 1]
+        if second.tk == ">" then
+            return fail(ps, i + 1, "type argument list cannot be empty")
+        elseif second.tk == ">>" then
+            second.tk = ">"
+            fail(ps, i + 1, "type argument list cannot be empty")
+            return i + 1
+        end
+
+        local types: {T} = {}
+        i = verify_tk(ps, i, "<")
+        i = parse_list(
             ps,
             i,
-            "duplicated declaration of array element type",
-            parse_type as SkipFunction
-      )
-   end
-   local t: Type
-   i, t = parse_base_type(ps, i)
-   if not t then
-      return i
-   end
-   if not t is ArrayType then
-      fail(ps, i, "expected an array declaration")
-      return i
-   end
-   def.elements = t.elements
-   return i, t
-end
-
-local function fail_if_duplicate_userdata(ps: ParseState, i: integer, interface_list: {Type})
-   local userdata_count = 0
-   for _, iface in ipairs(interface_list) do
-      if iface is NominalType and #iface.names == 1 and iface.names[1] == "userdata" then
-         userdata_count = userdata_count + 1
-      end
-   end
-   if userdata_count > 1 then
-      fail(ps, i, "duplicated 'userdata' declaration")
-   end
-end
-
-parse_record_body = function(
-    ps: ParseState,
-    i: integer,
-    def: RecordLikeType
-): integer, boolean
-   def.fields = {}
-   def.nodes = {}
-   def.field_order = {}
-   def.field_entries = {}
-   def.interface_list = {}
-
-   if ps.tokens[i].tk == "{" then
-      local atype: Type
-      i, atype = parse_array_interface_type(ps, i, def)
-      if atype then
-         def.interface_list = { atype }
-      end
-   end
-
-   if ps.tokens[i].tk == "is" then
-      i = i + 1
-
-      if ps.tokens[i].tk == "{" then
-         local atype: Type
-         i, atype = parse_array_interface_type(ps, i, def)
-         if ps.tokens[i].tk == "," then
+            types,
+            {
+                [">"] = true,
+                [">>"] = true,
+            },
+            "sep",
+            parse_item
+        )
+        if ps.tokens[i].tk == ">" then
             i = i + 1
-            i, def.interface_list = parse_trying_list(ps, i, {}, parse_interface_name)
-         else
-            def.interface_list = {}
-         end
-         if atype then
-            table.insert(def.interface_list, 1, atype)
-         end
-      else
-         i, def.interface_list = parse_trying_list(ps, i, {}, parse_interface_name)
-      end
+        elseif ps.tokens[i].tk == ">>" then
+            ps.tokens[i].tk = ">"
+        else
+            return fail(ps, i, "syntax error, expected '>'")
+        end
+        return i, types
+    end
 
-      fail_if_duplicate_userdata(ps, i, def.interface_list)
-   end
+    local function parse_typearg(
+        ps: ParseState, i: integer
+    ): integer, TypeArgType, integer
+        local name = ps.tokens[i].tk
+        local constraint: Type
+        local t = new_type(ps, i, "typearg") as TypeArgType
+        i = verify_kind(ps, i, "identifier")
+        if ps.tokens[i].tk == "is" then
+            i = i + 1
+            i, constraint = parse_interface_name(ps, i)
+        end
+        t.typearg = name
+        t.constraint = constraint
+        return i, t
+    end
 
-   if ps.tokens[i].tk == "where" then
-      local wstart = i
-      i = i + 1
-      local where_macroexp: Node
-      i, where_macroexp = parse_where_clause(ps, i, def)
+    local function parse_return_types(ps: ParseState, i: integer): integer, TupleType
+        local iprev = i - 1
+        local t: TupleType
+        i, t = parse_type_list(ps, i, "rets")
+        if #t.tuple == 0 then
+            t.x = ps.tokens[iprev].x
+            t.y = ps.tokens[iprev].y
+        end
+        return i, t
+    end
 
-      local typ = new_type(ps, wstart, "function") as FunctionType
-      typ.is_method = true
-      typ.min_arity = 1
-      typ.args = new_tuple(ps, wstart, {
-         a_type(where_macroexp as Where, "self", { display_type = def } as SelfType),
-      })
-      typ.rets = new_tuple(ps, wstart, { new_type(ps, wstart, "boolean") })
-      typ.macroexp = where_macroexp as parser.Node
+    parse_typeargs_if_any = function(ps: ParseState, i: integer): integer, {TypeArgType}
+        if ps.tokens[i].tk == "<" then
+            return parse_anglebracket_list(ps, i, parse_typearg)
+        end
+        return i
+    end
 
-      def.meta_fields = {}
-      def.meta_field_order = {}
-      def.meta_fields["__is"] = typ
-      table.insert(def.meta_field_order, "__is")
-   end
+    local function parse_function_type(
+        ps: ParseState, i: integer
+    ): integer, GenericType | FunctionType
+        local istart = i
+        local typeargs: {TypeArgType}
+        local typ = new_type(ps, i, "function") as FunctionType
+        i = i + 1
 
-   while not (ps.tokens[i].kind == "$EOF$" or ps.tokens[i].tk == "end") do
-      local tn = ps.tokens[i].tk as BodyTypeName
-      if ps.tokens[i].tk == "userdata" and ps.tokens[i + 1].tk ~= ":" then
-         table.insert(def.interface_list, new_nominal(ps, i, "userdata"))
-         fail_if_duplicate_userdata(ps, i, def.interface_list)
-         i = i + 1
-      elseif ps.tokens[i].tk == "{" then
-         return fail(
-             ps,
-             i,
-             "syntax error: this syntax is no longer valid; declare array interface at the top with 'is {...}'"
-         )
-      elseif ps.tokens[i].tk == "type" and ps.tokens[i + 1].tk ~= ":" then
-         local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-         i = i + 1
-         local iv = i
-
-         local lt: Node
-         i, lt = parse_type_declaration(ps, i, "local_type")
-         if not lt then
-            return fail(ps, i, "expected a type definition")
-         end
-
-         local v = lt.var
-         if not v then
-            return fail(ps, i, "expected a variable name")
-         end
-
-         local nt = lt.value
-         nt.typeargs = lt.typeargs
-         nt.is_type_declaration = lt.is_type_declaration
-         if not nt or not nt.newtype then
-            return fail(ps, i, "expected a type definition")
-         end
-
-         local ntt = nt.newtype
-         if ntt.is_alias then
-            ntt.is_nested_alias = true
-         end
-
-         store_field_in_record(ps, iv, v.tk, nt.newtype, def, nt, i, comments)
-      elseif parse_type_body_fns[tn] and ps.tokens[i + 1].tk ~= ":" then
-         if def.typename == "interface" and tn == "record" then
-            i = failskip(
-                ps,
-                i,
-                "interfaces cannot contain record definitions",
-                skip_type_body as SkipFunction
+        i, typeargs = parse_typeargs_if_any(ps, i)
+        if ps.tokens[i].tk == "(" then
+            i, typ.args, typ.maybe_method, typ.min_arity = parse_argument_type_list(
+                ps, i
             )
-         else
-            i = parse_nested_type(ps, i, def, tn)
-         end
-      else
-         local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-         local is_metamethod = false
-         if ps.tokens[i].tk == "metamethod" and ps.tokens[i + 1].tk ~= ":" then
-            is_metamethod = true
+            i, typ.rets = parse_return_types(ps, i)
+        else
+            typ.bare = true
+            typ.args = new_tuple(ps, i, {new_type(ps, i, "any")}, true)
+            typ.rets = new_tuple(ps, i, {new_type(ps, i, "any")}, true)
+            typ.is_method = false
+            typ.min_arity = 0
+        end
+        typ.yend = ps.tokens[i - 1].y
+
+        if typeargs then
+            return i, new_generic(ps, istart, typeargs, typ)
+        end
+
+        return i, typ
+    end
+
+    local function parse_simple_type_or_nominal(
+        ps: ParseState, i: integer
+    ): integer, FirstOrderType
+        local tk = ps.tokens[i].tk
+        local st = simple_types[tk as TypeName]
+        if st and ps.tokens[i + 1].tk ~= "." then
+            return i + 1, new_type(ps, i, tk as TypeName) as StructuralType
+        end
+
+        local typ = new_nominal(ps, i, tk)
+        i = i + 1
+        while ps.tokens[i].tk == "." do
             i = i + 1
-         end
-
-         local v: Node
-         local is_string_key = false
-         if ps.tokens[i].tk == "[" then
-            is_string_key = true
-            i, v = parse_literal(ps, i + 1)
-            if v and not v.conststr then
-               return fail(ps, i, "expected a string literal")
+            if ps.tokens[i].kind == "identifier" then
+                table.insert(typ.names, ps.tokens[i].tk)
+                i = i + 1
+            else
+                return fail(ps, i, "syntax error, expected identifier")
             end
-            i = verify_tk(ps, i, "]")
-         else
-            i, v = verify_kind(ps, i, "identifier", "variable")
-         end
-         local iv = i
-         if not v then
-            return fail(ps, i, "expected a variable name")
-         end
+        end
 
-         if ps.tokens[i].tk == ":" then
+        if ps.tokens[i].tk == "<" then
+            i, typ.typevals = parse_anglebracket_list(ps, i, parse_type)
+        end
+        return i, typ
+    end
+
+    local function parse_base_type(
+        ps: ParseState, i: integer
+    ): integer, FirstClassType, integer
+        local tk = ps.tokens[i].tk
+        if ps.tokens[i].kind == "identifier" then
+            return parse_simple_type_or_nominal(ps, i)
+        elseif tk == "{" then
+            local istart = i
             i = i + 1
             local t: Type
             i, t = parse_type(ps, i)
             if not t then
-               return fail(ps, i, "expected a type")
+                return i
             end
-            if t is FunctionType and t.maybe_method then
-               t.is_method = true
+            if ps.tokens[i].tk == "}" then
+                local decl = new_type(ps, istart, "array") as ArrayType
+                decl.elements = t
+                end_at(decl as Node, ps.tokens[i])
+                i = verify_tk(ps, i, "}")
+                return i, decl
+            elseif ps.tokens[i].tk == "," then
+                local decl = new_type(ps, istart, "tupletable") as TupleTableType
+                decl.types = {t}
+                local n = 2
+                repeat
+                    i = i + 1
+                    i, decl.types[n] = parse_type(ps, i)
+                    if not decl.types[n] then
+                        break
+                    end
+                    n = n + 1
+                until ps.tokens[i].tk ~= ","
+                end_at(decl as Node, ps.tokens[i])
+                i = verify_tk(ps, i, "}")
+                return i, decl
+            elseif ps.tokens[i].tk == ":" then
+                local decl = new_type(ps, istart, "map") as MapType
+                i = i + 1
+                decl.keys = t
+                i, decl.values = parse_type(ps, i)
+                if not decl.values then
+                    return i
+                end
+                end_at(decl as Node, ps.tokens[i])
+                i = verify_tk(ps, i, "}")
+                return i, decl
             end
-
-            local field_name = v.conststr or v.tk
-            if is_metamethod then
-               if not def.meta_fields then
-                  def.meta_fields = {}
-                  def.meta_field_order = {}
-               end
-               if not metamethod_names[field_name] then
-                  fail(ps, i - 1, "not a valid metamethod: " .. field_name)
-               end
-            end
-
-            if ps.tokens[i].tk == "=" and ps.tokens[i + 1].tk == "macroexp" then
-               local tt: Type = t is GenericType and t.t or t
-
-               if tt is FunctionType then
-                  local macroexp_node: Node
-                  i, macroexp_node = parse_macroexp(ps, i + 1, i + 2)
-                  tt.macroexp = macroexp_node as parser.Node
-               else
-                  fail(ps, i + 1, "macroexp must have a function type")
-               end
-            end
-
-            store_field_in_record(
-                ps,
-                iv,
-                field_name,
-                t,
-                def,
-                nil,
-                i,
-                comments,
-                is_metamethod and "meta" or nil
-            )
-            if is_string_key then
-               local last_entry = def.field_entries[#def.field_entries]
-               last_entry.is_string_key = true
-               last_entry.string_key_token = v.tk
-               last_entry.is_longstring_key = v.is_longstring
-               last_entry.line = v.y
-            end
-         elseif ps.tokens[i].tk == "=" then
-            local next_word = ps.tokens[i + 1].tk
-            if next_word == "record" or next_word == "enum" then
-               return fail(
-                   ps,
-                   i,
-                   "syntax error: this syntax is no longer valid; use '" .. next_word .. " " .. v.tk .. "'"
-               )
-            elseif next_word == "functiontype" then
-               return fail(ps, i, "syntax error: this syntax is no longer valid; use 'type " .. v.tk .. " = function('...")
-            else
-               return fail(
-                   ps,
-                   i,
-                   "syntax error: this syntax is no longer valid; use 'type " .. v.tk .. " = '..."
-               )
-            end
-         else
-            fail(
-                ps,
-                i,
-                "syntax error: expected ':' for an attribute or '=' for a nested type"
-            )
-         end
-      end
-   end
-
-   local previous_end: integer | nil = nil
-   for _, entry in ipairs(def.field_entries) do
-      local leading = entry.leading_comments or {}
-      if #leading > 0 then
-         previous_end = leading[#leading].yend
-      end
-      if previous_end ~= nil then
-         entry.blank_line_before = entry.line > previous_end + 1
-      end
-      previous_end = entry.yend
-   end
-
-   return i, true
-end
-
-parse_type_body_fns = {
-   ["interface"] = parse_record_body as ParseBody,
-   ["record"] = parse_record_body as ParseBody,
-   ["enum"] = parse_enum_body as ParseBody,
-}
-
-local function parse_newtype(ps: ParseState, i: integer): integer, Node
-   local node: Node = new_node(ps, i, "newtype")
-   local def: FirstClassType
-   local tn = ps.tokens[i].tk as BodyTypeName
-   local istart = i
-
-   if parse_type_body_fns[tn] then
-      i, def = parse_type_body(ps, i + 1, istart, node, tn)
-   else
-      i, def = parse_type(ps, i)
-   end
-   if not def then
-      return fail(ps, i, "expected a type")
-   end
-
-   node.newtype = new_typedecl(ps, istart, def)
-
-   if def is NominalType then
-      node.newtype.is_alias = true
-   elseif def is GenericType then
-      local deft = def.t
-      if deft is NominalType then
-         node.newtype.is_alias = true
-      end
-   end
-
-   return i, node
-end
-
-local function parse_assignment_expression_list(
-    ps: ParseState,
-    i: integer,
-    asgn: Node
-): integer, Node
-   asgn.exps = new_node(ps, i, "expression_list")
-   local eq_line = ps.tokens[i].y
-   repeat
-      i = i + 1
-      if #asgn.exps == 0 then
-         asgn.leading_inline_trivia = take_same_line_comments(ps.tokens[i], eq_line)
-      end
-      local val: Node
-      i, val = parse_expression(ps, i)
-      if not val then
-         if #asgn.exps == 0 then
-            asgn.exps = nil
-         end
-         return i
-      end
-      if ps.tokens[i].tk == "," then
-         val.trailing_trivia = take_all_token_comments(ps.tokens[i])
-         val.trailing_comment = get_same_line_comment(ps.tokens[i + 1], val.yend or val.y)
-      end
-      table.insert(asgn.exps, val)
-   until ps.tokens[i].tk ~= ","
-   return i, asgn
-end
-
-local parse_call_or_assignment: function(ps: ParseState, i: integer): integer, Node
-do
-   local function is_lvalue(node: Node): boolean
-      node.is_lvalue = node.kind == "variable"
-                       or (node.kind == "op"
-                           and (node.op.op == "@index" or node.op.op == "."))
-      return node.is_lvalue
-   end
-
-   local function parse_variable(ps: ParseState, i: integer): integer, Node, integer
-      local node: Node
-      i, node = parse_expression(ps, i)
-      if not (node and is_lvalue(node)) then
-         return fail(ps, i, "expected a variable")
-      end
-      return i, node
-   end
-
-   parse_call_or_assignment = function(ps: ParseState, i: integer): integer, Node
-      local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-      local exp: Node
-      local istart = i
-      i, exp = parse_expression(ps, i)
-      if not exp then
-         return i
-      end
-
-      if node_is_funcall(exp) or exp.failstore then
-         if exp then
-            exp.leading_comments = comments
-         end
-         return i, exp
-      end
-
-      if not is_lvalue(exp) then
-         return fail(ps, i, "syntax error")
-      end
-
-      local asgn: Node = new_node(ps, istart, "assignment")
-      asgn.vars = new_node(ps, istart, "variable_list")
-      asgn.vars[1] = exp
-      if ps.tokens[i].tk == "," then
-         asgn.vars[1].trailing_trivia = take_all_token_comments(ps.tokens[i])
-         i = i + 1
-         i = parse_trying_list(ps, i, asgn.vars, parse_variable)
-         if #asgn.vars < 2 then
-            return fail(ps, i, "syntax error")
-         end
-      end
-
-      local last_var = asgn.vars[#asgn.vars]
-      last_var.trailing_trivia = take_all_token_comments(ps.tokens[i])
-      if ps.tokens[i].tk ~= "=" then
-         verify_tk(ps, i, "=")
-         return i
-      end
-
-      i, asgn = parse_assignment_expression_list(ps, i, asgn)
-      if asgn then
-         asgn.leading_comments = comments
-      end
-      return i, asgn
-   end
-end
-
-local function parse_variable_declarations(
-    ps: ParseState,
-    i: integer,
-    node_name: NodeKind
-): integer, Node
-   local asgn: Node = new_node(ps, i, node_name)
-
-   asgn.vars = new_node(ps, i, "variable_list")
-   i = parse_trying_list(ps, i, asgn.vars, parse_variable_name)
-   if #asgn.vars == 0 then
-      return fail(ps, i, "expected a local variable definition")
-   end
-
-   local last_var = asgn.vars[#asgn.vars]
-   last_var.trailing_trivia = take_all_token_comments(ps.tokens[i])
-
-   i, asgn.decltuple = parse_type_list(ps, i, "decltuple")
-
-   if ps.tokens[i].tk == "=" then
-      local next_word = ps.tokens[i + 1].tk
-      local tn = next_word as BodyTypeName
-      if parse_type_body_fns[tn] then
-         local scope = node_name == "local_declaration" and "local" or "global"
-         return failskip(
-             ps,
-             i + 1,
-             "syntax error: this syntax is no longer valid; use '" .. scope .. " " .. next_word .. " " .. asgn.vars[1].tk .. "'",
-             skip_type_body as SkipFunction
-         )
-      elseif next_word == "functiontype" then
-         local scope = node_name == "local_declaration" and "local" or "global"
-         return failskip(ps, i + 1, "syntax error: this syntax is no longer valid; use '" .. scope .. " type " .. asgn.vars[1].tk .. " = function('...", parse_function_type as SkipFunction)
-      end
-
-      i, asgn = parse_assignment_expression_list(ps, i, asgn)
-   end
-   return i, asgn
-end
-
-local function parse_type_require(ps: ParseState, i: integer, asgn: Node): integer, Node
-   local istart = i
-   i, asgn.value = parse_expression(ps, i)
-   if not asgn.value then
-      return i
-   end
-   if asgn.value.op and asgn.value.op.op ~= "@funcall" and asgn.value.op.op ~= "." then
-      fail(
-          ps,
-          istart,
-          "require() in type declarations cannot be part of larger expressions"
-      )
-      return i
-   end
-   if not node_is_require_call(asgn.value) then
-      fail(ps, istart, "require() for type declarations must have a literal argument")
-      return i
-   end
-   return i, asgn
-end
-
-local function parse_special_type_declaration(
-    ps: ParseState,
-    i: integer,
-    asgn: Node
-): boolean, integer, Node
-   if ps.tokens[i].tk == "require" then
-      return true, parse_type_require(ps, i, asgn)
-   elseif ps.tokens[i].tk == "pcall" then
-      fail(ps, i, "pcall() cannot be used in type declarations")
-      return true, i
-   end
-   return false, i, asgn
-end
-
-parse_type_declaration = function(
-    ps: ParseState,
-    i: integer,
-    node_name: NodeKind
-): integer, Node
-   local asgn: Node = new_node(ps, i, node_name)
-   local var: Node
-
-   i, var = verify_kind(ps, i, "identifier")
-   if not var then
-      return fail(ps, i, "expected a type name")
-   end
-   local typeargs: {TypeArgType}
-   local itypeargs = i
-   i, typeargs = parse_typeargs_if_any(ps, i)
-
-   asgn.var = var
-   asgn.is_type_declaration = true
-
-   if node_name == "global_type" and ps.tokens[i].tk ~= "=" then
-      return i, asgn
-   end
-
-   i = verify_tk(ps, i, "=")
-   local istart = i
-
-   if ps.tokens[i].kind == "identifier" then
-      local is_done: boolean
-      is_done, i, asgn = parse_special_type_declaration(ps, i, asgn)
-      if is_done then
-         return i, asgn
-      end
-   end
-
-   i, asgn.value = parse_newtype(ps, i)
-   if not asgn.value then
-      return i
-   end
-
-   local nt = asgn.value.newtype
-   if nt is TypeDeclType then
-      if typeargs then
-         local def = nt.def
-         if def is GenericType then
-            fail(
-                ps,
-                itypeargs,
-                "cannot declare type arguments twice in type declaration"
-            )
-         else
-            nt.def = new_generic(ps, istart, typeargs, def)
-            asgn.typeargs = typeargs
-         end
-      end
-
-      set_declname(nt.def, asgn.var.tk)
-   end
-
-   return i, asgn
-end
-
-local function parse_type_constructor(
-    ps: ParseState,
-    i: integer,
-    node_name: NodeKind,
-    tn: BodyTypeName
-): integer, Node
-   local asgn: Node = new_node(ps, i, node_name)
-   local nt: Node = new_node(ps, i, "newtype")
-   asgn.value = nt
-   asgn.is_type_declaration = false
-   local istart = i
-   local def: Type
-
-   i = i + 2
-
-   i, asgn.var = verify_kind(ps, i, "identifier")
-   if not asgn.var then
-      return fail(ps, i, "expected a type name")
-   end
-
-   i, def = parse_type_body(ps, i, istart, nt, tn)
-   if not def then
-      return i
-   end
-
-   set_declname(def, asgn.var.tk)
-
-   nt.newtype = new_typedecl(ps, istart, def)
-
-   return i, asgn
-end
-
-local function skip_type_declaration(ps: ParseState, i: integer): integer, Node
-   return parse_type_declaration(ps, i + 1, "local_type")
-end
-
-local function parse_local_macroexp(ps: ParseState, i: integer): integer, Node
-   local istart = i
-   i = i + 2
-   local node = new_node(ps, i, "local_macroexp")
-   i, node.name = parse_identifier(ps, i)
-   i, node.macrodef = parse_macroexp(ps, istart, i)
-   end_at(node, ps.tokens[i - 1])
-   return i, node
-end
-
-local function parse_local(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local ntk = ps.tokens[i + 1].tk
-   local tn = ntk as TypeName
-
-   local node: Node
-   if ntk == "function" then
-      i, node = parse_local_function(ps, i)
-   elseif ntk == "type" and ps.tokens[i + 2].kind == "identifier" then
-      i, node = parse_type_declaration(ps, i + 2, "local_type")
-   elseif ntk == "macroexp" and ps.tokens[i + 2].kind == "identifier" then
-      i, node = parse_local_macroexp(ps, i)
-   elseif parse_type_body_fns[tn as BodyTypeName] and ps.tokens[i + 2].kind == "identifier" then
-      i, node = parse_type_constructor(ps, i, "local_type", tn as BodyTypeName)
-      if node then
-         node.dangling_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
-      end
-   else
-      i, node = parse_variable_declarations(ps, i + 1, "local_declaration")
-   end
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function parse_global(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local ntk = ps.tokens[i + 1].tk
-   local tn = ntk as TypeName
-
-   local node: Node
-   if ntk == "function" then
-      i, node = parse_function(ps, i + 1, "global")
-   elseif ntk == "type" and ps.tokens[i + 2].kind == "identifier" then
-      i, node = parse_type_declaration(ps, i + 2, "global_type")
-   elseif parse_type_body_fns[tn as BodyTypeName] and ps.tokens[i + 2].kind == "identifier" then
-      i, node = parse_type_constructor(ps, i, "global_type", tn as BodyTypeName)
-   elseif ps.tokens[i + 1].kind == "identifier" then
-      i, node = parse_variable_declarations(ps, i + 1, "global_declaration")
-   else
-      return parse_call_or_assignment(ps, i)
-   end
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function parse_record_function(ps: ParseState, i: integer): integer, Node
-   local comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   local node: Node
-   i, node = parse_function(ps, i, "record")
-   if node then
-      node.leading_comments = comments
-   end
-   return i, node
-end
-
-local function parse_pragma(ps: ParseState, i: integer): integer, Node
-   i = i + 1
-   local pragma = new_node(ps, i, "pragma")
-
-   if ps.tokens[i].kind ~= "pragma_identifier" then
-      return fail(ps, i, "expected pragma name")
-   end
-   pragma.pkey = ps.tokens[i].tk
-   i = i + 1
-
-   if ps.tokens[i].kind ~= "pragma_identifier" then
-      return fail(ps, i, "expected pragma value")
-   end
-   pragma.pvalue = ps.tokens[i].tk
-   i = i + 1
-
-   return i, pragma
-end
-
-local parse_statement_fns: {string : function(ParseState, integer):(integer, Node)} = {
-   ["--#pragma"] = parse_pragma,
-   ["::"] = parse_label,
-   ["do"] = parse_do,
-   ["if"] = parse_if,
-   ["for"] = parse_for,
-   ["goto"] = parse_goto,
-   ["local"] = parse_local,
-   ["while"] = parse_while,
-   ["break"] = parse_break,
-   ["global"] = parse_global,
-   ["repeat"] = parse_repeat,
-   ["return"] = parse_return,
-   ["function"] = parse_record_function,
-}
-
-local function type_needs_local_or_global(ps: ParseState, i: integer): integer, Node
-   local tk = ps.tokens[i].tk
-   return failskip(
-       ps,
-       i,
-       ("%s needs to be declared with 'local %s' or 'global %s'"):format(tk, tk, tk),
-       skip_type_body as SkipFunction
-   )
-end
-
-local needs_local_or_global: {string : function(
-    ParseState,
-    integer
-):(integer, Node)} = {
-   ["type"] = function(ps: ParseState, i: integer): integer, Node
-      return failskip(
-          ps,
-          i,
-          "types need to be declared with 'local type' or 'global type'",
-          skip_type_declaration as SkipFunction
-      )
-   end,
-   ["record"] = type_needs_local_or_global,
-   ["enum"] = type_needs_local_or_global,
-}
-
-parse_statements = function(
-    ps: ParseState,
-    i: integer,
-    toplevel?: boolean
-): integer, Node
-   local node = new_node(ps, i, "statements")
-   local item: Node
-   local previous_end: integer | nil = nil
-   while true do
-      while ps.tokens[i].kind == ";" do
-         i = i + 1
-         if item then
-            item.semicolon = true
-         end
-      end
-
-      if ps.tokens[i].kind == "$EOF$" then
-         break
-      end
-      local token = ps.tokens[i]
-      local tk = token.tk
-      if (not toplevel) and stop_statement_list[tk] then
-         break
-      end
-
-      local fn = parse_statement_fns[tk]
-      if not fn then
-         local skip_fn = needs_local_or_global[tk]
-         if skip_fn and ps.tokens[i + 1].kind == "identifier" then
-            fn = skip_fn
-         else
-            fn = parse_call_or_assignment
-         end
-      end
-
-      i, item = fn(ps, i)
-
-      if item then
-         -- Set yend from last consumed token. For block stmts (function, if, etc.)
-         -- this matches what end_at already wrote; for simple stmts it was nil.
-         item.yend = token_yend(ps.tokens[i - 1])
-         -- Extract a same-line trailing comment (e.g. `local x = 1 -- note`).
-         -- get_same_line_comment removes it from ps.tokens[i].comments so it
-         -- won't be re-attached as a leading comment of the next statement.
-         item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
-
-         local leading = item.leading_comments or {}
-         if #leading > 0 then
-            previous_end = leading[#leading].yend
-         end
-         if previous_end then
-            item.blank_line_before = item.y > previous_end + 1
-            fmt_logger.debug(
-                "[block] stmt %s at line %s: blank_line_before=%s (previous_end=%s)",
-                item.kind,
-                item.y,
-                item.blank_line_before,
-                previous_end
-            )
-         end
-         previous_end = item.yend
-         table.insert(node, item)
-      elseif i > 1 then
-         local lasty = ps.tokens[i - 1].y
-         while ps.tokens[i].kind ~= "$EOF$" and ps.tokens[i].y == lasty do
+            return fail(ps, i, "syntax error; did you forget a '}'?")
+        elseif tk == "function" then
+            return parse_function_type(ps, i)
+        elseif tk == "nil" then
+            return i + 1, new_type(ps, i, "nil") as NilType
+        end
+        return fail(ps, i, "expected a type")
+    end
+
+    parse_type = function(ps: ParseState, i: integer): integer, FirstClassType, integer
+        if ps.tokens[i].tk == "(" then
             i = i + 1
-         end
-      end
-   end
+            local t: Type
+            i, t = parse_type(ps, i)
+            i = verify_tk(ps, i, ")")
+            if t then
+                t.paren = true
+            end
+            return i, t
+        end
 
-   node.dangling_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
-   end_at(node, ps.tokens[i])
-   return i, node
-end
+        local bt: FirstClassType
+        local istart = i
+        i, bt = parse_base_type(ps, i)
+        if not bt then
+            return i
+        end
+        if ps.tokens[i].tk == "|" then
+            local u = new_type(ps, istart, "union") as UnionType
+            u.types = {bt}
+            while ps.tokens[i].tk == "|" do
+                i = i + 1
+                i, bt = parse_base_type(ps, i)
+                if not bt then
+                    return i
+                end
+                table.insert(u.types, bt)
+            end
+            bt = u
+        end
+        return i, bt
+    end
 
-parser.parse_program = function(
-    tokens: {Token},
-    errs: {Error},
-    filename?: string,
-    source_lines?: {string}
-): Node, {string}
-   errs = errs or {}
-   local ps: ParseState = {
-      tokens = tokens,
-      errs = errs,
-      filename = filename or "",
-      source_lines = source_lines or {},
-      required_modules = {},
-   }
-   local i = 1
-   local hashbang: string
-   if ps.tokens[i].kind == "hashbang" then
-      hashbang = ps.tokens[i].tk
-      i = i + 1
-   end
-   local _, node = parse_statements(ps, i, true)
-   if hashbang then
-      node.hashbang = hashbang
-   end
+    parse_type_list = function(
+        ps: ParseState, i: integer, mode: ParseTypeListMode
+    ): integer, TupleType
+        local t, list = new_tuple(ps, i)
 
-   clear_redundant_errors(errs)
-   return node, ps.required_modules
-end
+        local first_token = ps.tokens[i].tk
+        if mode == "rets" or mode == "decltuple" then
+            if first_token == ":" then
+                i = i + 1
+            else
+                return i, t
+            end
+        end
 
-parser.parse = function(
-    input: string,
-    filename: string
-): Node, {Error}, {string}
-   local tokens, errs = tl.lex(input, filename)
-   local source_lines = split_source_lines(input)
-   local node, required_modules = parser.parse_program(
-       tokens,
-       errs,
-       filename,
-       source_lines
-   )
-   return node, errs, required_modules
-end
+        local optional_paren = false
+        if ps.tokens[i].tk == "(" then
+            optional_paren = true
+            i = i + 1
+        end
+
+        local prev_i = i
+        i = parse_trying_list(ps, i, list, parse_type, mode == "rets")
+        if i == prev_i and ps.tokens[i].tk ~= ")" then
+            fail(ps, i - 1, "expected a type list")
+        end
+
+        if mode == "rets" and ps.tokens[i].tk == "..." then
+            i = i + 1
+            local nrets = #list
+            if nrets > 0 then
+                t.is_va = true
+            else
+                fail(ps, i, "unexpected '...'")
+            end
+        end
+
+        if optional_paren then
+            i = verify_tk(ps, i, ")")
+            t.paren = true
+        end
+
+        return i, t
+    end
+
+    local function parse_function_args_rets_body(
+        ps: ParseState, i: integer, node: Node
+    ): integer, Node
+        local istart = i - 1
+        i, node.typeargs = parse_typeargs_if_any(ps, i)
+        i, node.args, node.min_arity = parse_argument_list(ps, i)
+        i, node.rets = parse_return_types(ps, i)
+        node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        i, node.body = parse_statements(ps, i)
+        end_at(node, ps.tokens[i])
+        i = verify_end(ps, i, istart, node)
+        return i, node
+    end
+
+    local function parse_function_value(ps: ParseState, i: integer): integer, Node
+        local node = new_node(ps, i, "function")
+        i = verify_tk(ps, i, "function")
+        return parse_function_args_rets_body(ps, i, node)
+    end
+
+    local function unquote(str: string): string, boolean
+        local f = str:sub(1, 1)
+        if f == '"' or f == "'" then
+            return str:sub(2, -2), false
+        end
+        f = str:match("^%[=*%[")
+        local l = #f + 1
+        return str:sub(l, -l), true
+    end
+
+    local function parse_literal(ps: ParseState, i: integer): integer, Node
+        local tk = ps.tokens[i].tk
+        local kind = ps.tokens[i].kind
+        if kind == "identifier" then
+            return verify_kind(ps, i, "identifier", "variable")
+        elseif kind == "string" then
+            local node = new_node(ps, i, "string")
+            node.conststr, node.is_longstring = unquote(tk)
+            node.yend = token_yend(ps.tokens[i])
+            return i + 1, node
+        elseif kind == "number" or kind == "integer" then
+            local n = tonumber(tk)
+            local node: Node
+            i, node = verify_kind(ps, i, kind)
+            node.constnum = n
+            return i, node
+        elseif tk == "true" then
+            return verify_kind(ps, i, "keyword", "boolean")
+        elseif tk == "false" then
+            return verify_kind(ps, i, "keyword", "boolean")
+        elseif tk == "nil" then
+            return verify_kind(ps, i, "keyword", "nil")
+        elseif tk == "function" then
+            return parse_function_value(ps, i)
+        elseif tk == "{" then
+            return parse_table_literal(ps, i)
+        elseif kind == "..." then
+            return verify_kind(ps, i, "...")
+        elseif kind == "$ERR$" then
+            return fail(ps, i, "invalid token")
+        end
+        return fail(ps, i, "syntax error")
+    end
+
+    local function node_is_require_call_or_pcall(n: Node): string
+        local r = node_is_require_call(n)
+        if r then
+            return r
+        end
+        if
+            node_is_funcall(n)
+            and n.e1
+            and n.e1.tk == "pcall"
+            and n.e2
+            and #n.e2 == 2
+            and n.e2[1].kind == "variable"
+            and n.e2[1].tk == "require"
+            and n.e2[2].kind == "string"
+            and n.e2[2].conststr
+        then
+            return n.e2[2].conststr
+        end
+        return nil
+    end
+
+    do
+        local precedences: {integer: {string: integer}} = {
+            [1] = {
+                ["not"] = 11,
+                ["#"] = 11,
+                ["-"] = 11,
+                ["~"] = 11,
+            },
+            [2] = {
+                ["or"] = 1,
+                ["and"] = 2,
+                ["is"] = 3,
+                ["<"] = 3,
+                [">"] = 3,
+                ["<="] = 3,
+                [">="] = 3,
+                ["~="] = 3,
+                ["=="] = 3,
+                ["|"] = 4,
+                ["~"] = 5,
+                ["&"] = 6,
+                ["<<"] = 7,
+                [">>"] = 7,
+                [".."] = 8,
+                ["+"] = 9,
+                ["-"] = 9,
+                ["*"] = 10,
+                ["/"] = 10,
+                ["//"] = 10,
+                ["%"] = 10,
+                ["^"] = 12,
+                ["as"] = 50,
+                ["@funcall"] = 100,
+                ["@index"] = 100,
+                ["."] = 100,
+                [":"] = 100,
+            },
+        }
+
+        local is_right_assoc: {string: boolean} = {
+            ["^"] = true,
+            [".."] = true,
+        }
+
+        local function new_operator(tk: Token, arity: integer, op: string): Operator
+            return {
+                y = tk.y,
+                x = tk.x,
+                arity = arity,
+                op = op,
+                prec = precedences[arity][op],
+            }
+        end
+
+        an_operator = function(node: Node, arity: integer, op: string): Operator
+            return {
+                y = node.y,
+                x = node.x,
+                arity = arity,
+                op = op,
+                prec = precedences[arity][op],
+            }
+        end
+
+        local args_starters: {TokenKind: boolean} = {
+            ["("] = true,
+            ["{"] = true,
+            ["string"] = true,
+        }
+
+        local E: function(ParseState, integer, Node, integer): integer, Node
+
+        local function after_valid_prefixexp(
+            ps: ParseState, prevnode: Node, i: integer
+        ): boolean
+            return ps.tokens[i - 1].kind == ")"
+                or (
+                    prevnode.kind == "op"
+                    and (
+                        prevnode.op.op == "@funcall"
+                        or prevnode.op.op == "@index"
+                        or prevnode.op.op == "."
+                        or prevnode.op.op == ":"
+                    )
+                ) or prevnode.kind == "identifier"
+                or prevnode.kind == "variable"
+        end
+
+        local function failstore(ps: ParseState, tkop: Token, e1: Node): Node
+            return {
+                f = ps.filename,
+                y = tkop.y,
+                x = tkop.x,
+                kind = "paren",
+                e1 = e1,
+                failstore = true,
+            }
+        end
+
+        local function P(ps: ParseState, i: integer): integer, Node
+            if ps.tokens[i].kind == "$EOF$" then
+                return i
+            end
+            local e1: Node
+            local t1 = ps.tokens[i]
+            if precedences[1][t1.tk] ~= nil then
+                local op: Operator = new_operator(t1, 1, t1.tk)
+                i = i + 1
+                local op_trailing_trivia = take_all_token_comments(ps.tokens[i])
+                local prev_i = i
+                i, e1 = P(ps, i)
+                if not e1 then
+                    fail(ps, prev_i, "expected an expression")
+                    return i
+                end
+                e1 = {
+                    f = ps.filename,
+                    y = t1.y,
+                    x = t1.x,
+                    kind = "op",
+                    op = op,
+                    e1 = e1,
+                    yend = e1.yend or e1.y,
+                }
+                e1.op_leading_trivia = {}
+                e1.op_trailing_trivia = op_trailing_trivia
+            elseif ps.tokens[i].tk == "(" then
+                i = i + 1
+                local prev_i = i
+                i, e1 = parse_expression_and_tk(ps, i, ")")
+                if not e1 then
+                    fail(ps, prev_i, "expected an expression")
+                    return i
+                end
+                e1 = {
+                    f = ps.filename,
+                    y = t1.y,
+                    x = t1.x,
+                    kind = "paren",
+                    e1 = e1,
+                    yend = ps.tokens[i - 1].y,
+                }
+            else
+                i, e1 = parse_literal(ps, i)
+            end
+
+            if not e1 then
+                return i
+            end
+
+            while true do
+                local tkop = ps.tokens[i]
+                if tkop.kind == "," or tkop.kind == ")" then
+                    break
+                end
+                if tkop.tk == "." or tkop.tk == ":" then
+                    local op: Operator = new_operator(tkop, 2, tkop.tk)
+
+                    local prev_i = i
+
+                    local key: Node
+                    i = i + 1
+                    if ps.tokens[i].kind ~= "identifier" then
+                        local skipped = skip(ps, i, parse_type as SkipFunction)
+                        if skipped > i + 1 then
+                            fail(
+                                ps,
+                                i,
+                                "syntax error, cannot declare a type here (missing 'local' or 'global'?)"
+                            )
+                            return skipped, failstore(ps, tkop, e1)
+                        end
+                    end
+                    i, key = verify_kind(ps, i, "identifier")
+                    if not key then
+                        return i, failstore(ps, tkop, e1)
+                    end
+
+                    if op.op == ":" then
+                        if not args_starters[ps.tokens[i].kind] then
+                            if ps.tokens[i].tk == "=" then
+                                fail(
+                                    ps,
+                                    i,
+                                    "syntax error, cannot perform an assignment here (missing 'local' or 'global'?)"
+                                )
+                            else
+                                fail(ps, i, "expected a function call for a method")
+                            end
+                            return i, failstore(ps, tkop, e1)
+                        end
+
+                        if not after_valid_prefixexp(ps, e1, prev_i) then
+                            fail(ps, prev_i, "cannot call a method on this expression")
+                            return i, failstore(ps, tkop, e1)
+                        end
+                    end
+
+                    e1 = {
+                        f = ps.filename,
+                        y = e1.y,
+                        x = e1.x,
+                        kind = "op",
+                        op = op,
+                        e1 = e1,
+                        e2 = key,
+                        yend = key.yend or key.y,
+                    }
+                    fmt_logger.debug(
+                        "[expr] %s op node: base y=%s op_tk=%s op_y=%s -> node y=%s",
+                        op.op,
+                        e1.e1.y,
+                        tkop.tk,
+                        tkop.y,
+                        e1.y
+                    )
+                elseif tkop.tk == "(" then
+                    local prev_tk = ps.tokens[i - 1]
+                    if tkop.y > prev_tk.y then
+                        table.insert(
+                            ps.tokens,
+                            i,
+                            {
+                                y = prev_tk.y,
+                                x = prev_tk.x + #prev_tk.tk,
+                                tk = ";",
+                                kind = ";",
+                            } as Token
+                        )
+                        break
+                    end
+
+                    local op: Operator = new_operator(tkop, 2, "@funcall")
+
+                    local prev_i = i
+
+                    local args = new_node(ps, i, "expression_list")
+                    local open_paren_leading_trivia = take_same_line_comments(
+                        ps.tokens[i + 1], ps.tokens[i].y
+                    )
+                    i, args = parse_bracket_list(
+                        ps, i, args, "(", ")", "sep", parse_expression
+                    )
+                    if #open_paren_leading_trivia > 0 then
+                        args.leading_inline_trivia = open_paren_leading_trivia
+                    end
+
+                    local function leftmost_y(node: Node): integer
+                        if node.kind == "op" and node.e1 then
+                            return leftmost_y(node.e1)
+                        end
+                        return node.y
+                    end
+
+                    local previous_end: integer | nil = nil
+                    for _, arg_node in ipairs(args) do
+                        local leading = arg_node.leading_comments or {}
+                        if #leading > 0 then
+                            previous_end = leading[#leading].yend
+                        end
+                        if previous_end ~= nil then
+                            local left_y = leftmost_y(arg_node)
+                            arg_node.blank_line_before = left_y > previous_end + 1
+                            fmt_logger.debug(
+                                "[call args] blank_line_before=%s kind=%s y=%s leftmost_y=%s previous_end=%s",
+                                arg_node.blank_line_before,
+                                arg_node.kind,
+                                arg_node.y,
+                                left_y,
+                                previous_end
+                            )
+                        end
+                        previous_end = arg_node.yend or arg_node.y
+                    end
+
+                    -- Capture a comment that immediately follows the closing ')' on the
+                    -- same line, but only for multi-line calls where ')' is on its own
+                    -- line. For single-line calls like `f() -- note` the comment belongs
+                    -- to the surrounding statement and is extracted there instead.
+                    local close_paren_line = ps.tokens[i - 1].y
+                    if close_paren_line > args.y then
+                        args.trailing_comment = get_same_line_comment(
+                            ps.tokens[i], close_paren_line
+                        )
+                    end
+
+                    if not after_valid_prefixexp(ps, e1, prev_i) then
+                        fail(ps, prev_i, "cannot call this expression")
+                        return i, failstore(ps, tkop, e1)
+                    end
+
+                    local funcall_yend = math.max(args.yend or args.y, args.y)
+                    e1 = {
+                        f = ps.filename,
+                        y = e1.y,
+                        x = e1.x,
+                        yend = funcall_yend,
+                        kind = "op",
+                        op = op,
+                        e1 = e1,
+                        e2 = args,
+                    }
+                    fmt_logger.debug(
+                        "[expr] @funcall op node: base y=%s args_y=%s -> node y=%s",
+                        e1.e1.y,
+                        args.y,
+                        e1.y
+                    )
+
+                    table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
+                elseif tkop.tk == "[" then
+                    local op: Operator = new_operator(tkop, 2, "@index")
+
+                    local prev_i = i
+
+                    local idx: Node
+                    i = i + 1
+                    i, idx = parse_expression_and_tk(ps, i, "]")
+
+                    if not after_valid_prefixexp(ps, e1, prev_i) then
+                        fail(ps, prev_i, "cannot index this expression")
+                        return i, failstore(ps, tkop, e1)
+                    end
+
+                    e1 = {
+                        f = ps.filename,
+                        y = e1.y,
+                        x = e1.x,
+                        kind = "op",
+                        op = op,
+                        e1 = e1,
+                        e2 = idx,
+                        yend = ps.tokens[i - 1].y,
+                    }
+                elseif tkop.kind == "string" or tkop.kind == "{" then
+                    local op: Operator = new_operator(tkop, 2, "@funcall")
+
+                    local prev_i = i
+
+                    local args = new_node(ps, i, "expression_list")
+                    local argument: Node
+                    if tkop.kind == "string" then
+                        argument = new_node(ps, i)
+                        argument.conststr, argument.is_longstring = unquote(tkop.tk)
+                        i = i + 1
+                    else
+                        i, argument = parse_table_literal(ps, i)
+                    end
+
+                    if not after_valid_prefixexp(ps, e1, prev_i) then
+                        if tkop.kind == "string" then
+                            fail(
+                                ps,
+                                prev_i,
+                                "cannot use a string here; if you're trying to call the previous expression, wrap it in parentheses"
+                            )
+                        else
+                            fail(
+                                ps,
+                                prev_i,
+                                "cannot use a table here; if you're trying to call the previous expression, wrap it in parentheses"
+                            )
+                        end
+                        return i, failstore(ps, tkop, e1)
+                    end
+
+                    table.insert(args, argument)
+                    e1 = {
+                        f = ps.filename,
+                        y = args.y,
+                        x = args.x,
+                        kind = "op",
+                        op = op,
+                        e1 = e1,
+                        e2 = args,
+                    }
+
+                    table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
+                elseif tkop.tk == "as" or tkop.tk == "is" then
+                    local op: Operator = new_operator(tkop, 2, tkop.tk)
+
+                    i = i + 1
+                    local cast = new_node(ps, i, "cast")
+                    if ps.tokens[i].tk == "(" then
+                        i, cast.casttype = parse_type_list(ps, i, "casttype")
+                    else
+                        i, cast.casttype = parse_type(ps, i)
+                    end
+                    if not cast.casttype then
+                        return i, failstore(ps, tkop, e1)
+                    end
+                    cast.yend = ps.tokens[i - 1].y
+                    e1 = {
+                        f = ps.filename,
+                        y = tkop.y,
+                        x = tkop.x,
+                        kind = "op",
+                        op = op,
+                        e1 = e1,
+                        e2 = cast,
+                        conststr = e1.conststr,
+                        yend = cast.yend,
+                    }
+                else
+                    break
+                end
+            end
+
+            return i, e1
+        end
+
+        E = function(
+            ps: ParseState, i: integer, lhs: Node, min_precedence: integer
+        ): integer, Node
+            local lookahead = ps.tokens[i].tk
+            while
+                precedences[2][lookahead]
+                and precedences[2][lookahead] >= min_precedence
+            do
+                local t1 = ps.tokens[i]
+                local op_leading_trivia = take_all_token_comments(ps.tokens[i])
+                local op: Operator = new_operator(t1, 2, t1.tk)
+                i = i + 1
+                local op_trailing_trivia = take_all_token_comments(ps.tokens[i])
+                local rhs: Node
+                i, rhs = P(ps, i)
+                if not rhs then
+                    fail(ps, i, "expected an expression")
+                    return i
+                end
+                lookahead = ps.tokens[i].tk
+                while
+                    precedences[2][lookahead]
+                    and (
+                        (precedences[2][lookahead] > (precedences[2][op.op]))
+                        or (
+                            is_right_assoc[lookahead]
+                            and (precedences[2][lookahead] == precedences[2][op.op])
+                        )
+                    )
+                do
+                    i, rhs = E(ps, i, rhs, precedences[2][lookahead])
+                    if not rhs then
+                        fail(ps, i, "expected an expression")
+                        return i
+                    end
+                    lookahead = ps.tokens[i].tk
+                end
+                lhs = {
+                    f = ps.filename,
+                    y = t1.y,
+                    x = t1.x,
+                    kind = "op",
+                    op = op,
+                    e1 = lhs,
+                    e2 = rhs,
+                    yend = rhs.yend or rhs.y,
+                }
+                lhs.op_leading_trivia = op_leading_trivia
+                lhs.op_trailing_trivia = op_trailing_trivia
+            end
+            return i, lhs
+        end
+
+        parse_expression = function(ps: ParseState, i: integer): integer, Node, integer
+            local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+            local lhs: Node
+            local istart = i
+            i, lhs = P(ps, i)
+            if lhs then
+                i, lhs = E(ps, i, lhs, 0)
+            end
+            if lhs then
+                if comments then
+                    lhs.leading_comments = comments
+                end
+                return i, lhs, 0
+            end
+            if i == istart then
+                i = fail(ps, i, "expected an expression")
+            end
+            return i
+        end
+    end
+
+    parse_expression_and_tk = function(
+        ps: ParseState, i: integer, tk: string
+    ): integer, Node
+        local e: Node
+        i, e = parse_expression(ps, i)
+        if not e then
+            e = new_node(ps, i - 1, "error_node")
+        end
+        if ps.tokens[i].tk == tk then
+            i = i + 1
+        else
+            local msg = "syntax error, expected '" .. tk .. "'"
+            if ps.tokens[i].tk == "=" then
+                msg = "syntax error, cannot perform an assignment here (did you mean '=='?)"
+            end
+
+            for n = 0, 19 do
+                local t = ps.tokens[i + n]
+                if t.kind == "$EOF$" then
+                    break
+                end
+                if t.tk == tk then
+                    fail(ps, i, msg)
+                    return i + n + 1, e
+                end
+            end
+            i = fail(ps, i, msg)
+        end
+        return i, e
+    end
+
+    local function parse_variable_name(
+        ps: ParseState, i: integer
+    ): integer, Node, integer
+        local node: Node
+        i, node = verify_kind(ps, i, "identifier")
+        if not node then
+            return i
+        end
+        if ps.tokens[i].tk == "<" then
+            i = i + 1
+            local annotation: Node
+            i, annotation = verify_kind(ps, i, "identifier")
+            if annotation then
+                if not is_attribute[annotation.tk] then
+                    fail(ps, i, "unknown variable annotation: " .. annotation.tk)
+                end
+                node.attribute = annotation.tk as Attribute
+            else
+                fail(ps, i, "expected a variable annotation")
+            end
+            i = verify_tk(ps, i, ">")
+        end
+        return i, node
+    end
+
+    local function parse_argument(ps: ParseState, i: integer): integer, Node, integer
+        local node: Node
+        if ps.tokens[i].tk == "..." then
+            i, node = verify_kind(ps, i, "...", "argument")
+            node.opt = true
+        else
+            i, node = verify_kind(ps, i, "identifier", "argument")
+        end
+        if ps.tokens[i].tk == "..." then
+            fail(ps, i, "'...' needs to be declared as a typed argument")
+        end
+        if ps.tokens[i].tk == "?" then
+            i = i + 1
+            if node then
+                node.opt = true
+            end
+        end
+        if ps.tokens[i].tk == ":" then
+            i = i + 1
+            local argtype: Type
+
+            i, argtype = parse_type(ps, i)
+
+            if node then
+                node.argtype = argtype
+            end
+        end
+        return i, node, 0
+    end
+
+    parse_argument_list = function(ps: ParseState, i: integer): integer, Node, integer
+        local node = new_node(ps, i, "argument_list")
+        i, node = parse_bracket_list(ps, i, node, "(", ")", "sep", parse_argument)
+        local opts = false
+        local min_arity = 0
+        for a, fnarg in ipairs(node) do
+            if fnarg.tk == "..." then
+                if a ~= #node then
+                    fail(ps, i, "'...' can only be last argument")
+                    break
+                end
+            elseif fnarg.opt then
+                opts = true
+            elseif opts then
+                return fail(
+                    ps, i, "non-optional arguments cannot follow optional arguments"
+                )
+            else
+                min_arity = min_arity + 1
+            end
+        end
+        return i, node, min_arity
+    end
+
+    local function parse_argument_type(
+        ps: ParseState, i: integer
+    ): integer, ArgumentInfo, integer
+        local opt = 0
+        local is_va = false
+        local is_self = false
+        local argument_name: string = nil
+
+        if ps.tokens[i].kind == "identifier" then
+            if ps.tokens[i + 1].tk == "?" then
+                opt = i + 1
+                if ps.tokens[i + 2].tk == ":" then
+                    argument_name = ps.tokens[i].tk
+                    i = i + 3
+                end
+            elseif ps.tokens[i + 1].tk == ":" then
+                argument_name = ps.tokens[i].tk
+                i = i + 2
+            end
+        elseif ps.tokens[i].kind == "?" then
+            opt = i
+            i = i + 1
+        elseif ps.tokens[i].tk == "..." then
+            if ps.tokens[i + 1].tk == "?" then
+                fail(
+                    ps,
+                    i + 1,
+                    "cannot mix '?' and '...' in a declaration; '...' already implies optional"
+                )
+                i = i + 1
+            end
+            if ps.tokens[i + 1].tk == ":" then
+                i = i + 2
+                is_va = true
+            else
+                return fail(
+                    ps,
+                    i,
+                    "cannot have untyped '...' when declaring the type of an argument"
+                )
+            end
+        end
+
+        local typ: Type
+        i, typ = parse_type(ps, i)
+        if typ then
+            if not is_va and ps.tokens[i].tk == "..." then
+                i = i + 1
+                is_va = true
+                if opt > 0 then
+                    fail(
+                        ps,
+                        opt,
+                        "cannot mix '?' and '...' in a declaration; '...' already implies optional"
+                    )
+                end
+            end
+
+            if argument_name == "self" then
+                is_self = true
+            end
+        end
+
+        return i, {
+            i = i,
+            type = typ,
+            name = argument_name,
+            is_va = is_va,
+            is_self = is_self,
+            opt = (opt > 0) or is_va,
+        }, 0
+    end
+
+    parse_argument_type_list = function(
+        ps: ParseState, i: integer
+    ): integer, TupleType, boolean, integer
+        local ars: {ArgumentInfo} = {}
+        i = parse_bracket_list(ps, i, ars, "(", ")", "sep", parse_argument_type)
+        local t, list = new_tuple(ps, i)
+        t.argnames = {}
+        t.is_optional = {}
+        local n = #ars
+        local min_arity = 0
+        for l, ar in ipairs(ars) do
+            list[l] = ar.type
+            t.argnames[l] = ar.name
+            t.is_optional[l] = ar.opt
+            if ar.is_va and l < n then
+                fail(ps, ar.i, "'...' can only be last argument")
+            end
+            if not ar.opt then
+                min_arity = min_arity + 1
+            end
+        end
+        if n > 0 and ars[n].is_va then
+            t.is_va = true
+        end
+        return i, t, (n > 0 and ars[1].is_self), min_arity
+    end
+
+    local function parse_identifier(ps: ParseState, i: integer): integer, Node, integer
+        if ps.tokens[i].kind == "identifier" then
+            return i + 1, new_node(ps, i, "identifier")
+        end
+        i = fail(ps, i, "syntax error, expected identifier")
+        return i, new_node(ps, i, "error_node")
+    end
+
+    local function parse_local_function(ps: ParseState, i: integer): integer, Node
+        i = verify_tk(ps, i, "local")
+        i = verify_tk(ps, i, "function")
+        local node = new_node(ps, i - 2, "local_function")
+        i, node.name = parse_identifier(ps, i)
+        return parse_function_args_rets_body(ps, i, node)
+    end
+
+    local function parse_function(
+        ps: ParseState, i: integer, fk: FunctionKind
+    ): integer, Node
+        local orig_i = i
+        i = verify_tk(ps, i, "function")
+        local fn = new_node(ps, i - 1, "global_function")
+        local names: {Node} = {}
+        i, names[1] = parse_identifier(ps, i)
+        while ps.tokens[i].tk == "." do
+            i = i + 1
+            i, names[#names + 1] = parse_identifier(ps, i)
+        end
+        if ps.tokens[i].tk == ":" then
+            i = i + 1
+            i, names[#names + 1] = parse_identifier(ps, i)
+            fn.is_method = true
+        end
+
+        if #names > 1 then
+            fn.kind = "record_function"
+            local owner = names[1]
+            owner.kind = "type_identifier"
+            for i2 = 2, #names - 1 do
+                local dot = an_operator(names[i2], 2, ".")
+                names[i2].kind = "identifier"
+                owner = {
+                    f = ps.filename,
+                    y = names[i2].y,
+                    x = names[i2].x,
+                    kind = "op",
+                    op = dot,
+                    e1 = owner,
+                    e2 = names[i2],
+                }
+            end
+            fn.fn_owner = owner
+        end
+        fn.name = names[#names]
+
+        local selfx, selfy = ps.tokens[i].x, ps.tokens[i].y
+        i = parse_function_args_rets_body(ps, i, fn)
+        if fn.is_method and fn.args then
+            table.insert(
+                fn.args,
+                1,
+                {
+                    f = ps.filename,
+                    x = selfx,
+                    y = selfy,
+                    tk = "self",
+                    kind = "identifier",
+                    is_self = true,
+                } as Node
+            )
+            fn.min_arity = fn.min_arity + 1
+        end
+
+        if not fn.name then
+            return orig_i + 1
+        end
+
+        if fn.kind == "record_function" and fk == "global" then
+            fail(ps, orig_i, "record functions cannot be annotated as 'global'")
+        elseif fn.kind == "global_function" and fk == "record" then
+            fn.implicit_global_function = true
+        end
+
+        return i, fn
+    end
+
+    local function parse_if_block(
+        ps: ParseState, i: integer, n: integer, node: Node, is_else?: boolean
+    ): integer, Node
+        local block = new_node(ps, i, "if_block")
+        i = i + 1
+        block.if_parent = node
+        block.if_block_n = n
+        if not is_else then
+            block.leading_inline_trivia = take_same_line_comments(
+                ps.tokens[i], ps.tokens[i - 1].y
+            )
+            i, block.exp = parse_expression_and_tk(ps, i, "then")
+            if not block.exp then
+                return i
+            end
+        end
+        block.trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+        i, block.body = parse_statements(ps, i)
+        if not block.body then
+            return i
+        end
+        block.yend, block.xend = block.body.yend, block.body.xend
+        table.insert(node.if_blocks, block)
+        return i, node
+    end
+
+    local function parse_if(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local istart = i
+        local node = new_node(ps, i, "if")
+        node.if_blocks = {}
+        i, node = parse_if_block(ps, i, 1, node)
+        if not node then
+            return i
+        end
+        local n = 2
+        while ps.tokens[i].tk == "elseif" do
+            i, node = parse_if_block(ps, i, n, node)
+            if not node then
+                return i
+            end
+            n = n + 1
+        end
+        if ps.tokens[i].tk == "else" then
+            i, node = parse_if_block(ps, i, n, node, true)
+            if not node then
+                return i
+            end
+        end
+        i = verify_end(ps, i, istart, node)
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function parse_while(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local istart = i
+        local node = new_node(ps, i, "while")
+        i = verify_tk(ps, i, "while")
+        node.leading_inline_trivia = take_same_line_comments(
+            ps.tokens[i], ps.tokens[i - 1].y
+        )
+        i, node.exp = parse_expression_and_tk(ps, i, "do")
+        node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        i, node.body = parse_statements(ps, i)
+        i = verify_end(ps, i, istart, node)
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function parse_fornum(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local istart = i
+        local node = new_node(ps, i, "fornum")
+        i = i + 1
+        i, node.var = parse_identifier(ps, i)
+        i = verify_tk(ps, i, "=")
+        node.leading_inline_trivia = take_same_line_comments(
+            ps.tokens[i], ps.tokens[i - 1].y
+        )
+        i, node.from = parse_expression_and_tk(ps, i, ",")
+        i, node.to = parse_expression(ps, i)
+        if ps.tokens[i].tk == "," then
+            i = i + 1
+            i, node.step = parse_expression_and_tk(ps, i, "do")
+        else
+            i = verify_tk(ps, i, "do")
+        end
+        node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        i, node.body = parse_statements(ps, i)
+        i = verify_end(ps, i, istart, node)
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function parse_forin(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local istart = i
+        local node = new_node(ps, i, "forin")
+        i = i + 1
+        node.vars = new_node(ps, i, "variable_list")
+        i, node.vars = parse_list(
+            ps, i, node.vars, {["in"] = true}, "sep", parse_identifier
+        )
+        i = verify_tk(ps, i, "in")
+        node.leading_inline_trivia = take_same_line_comments(
+            ps.tokens[i], ps.tokens[i - 1].y
+        )
+        node.exps = new_node(ps, i, "expression_list")
+        i = parse_list(ps, i, node.exps, {["do"] = true}, "sep", parse_expression)
+        if #node.exps < 1 then
+            return fail(ps, i, "missing iterator expression in generic for")
+        elseif #node.exps > 3 then
+            return fail(ps, i, "too many expressions in generic for")
+        end
+        i = verify_tk(ps, i, "do")
+        node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        i, node.body = parse_statements(ps, i)
+        i = verify_end(ps, i, istart, node)
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function parse_for(ps: ParseState, i: integer): integer, Node
+        if ps.tokens[i + 1].kind == "identifier" and ps.tokens[i + 2].tk == "=" then
+            return parse_fornum(ps, i)
+        else
+            return parse_forin(ps, i)
+        end
+    end
+
+    local function parse_repeat(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local node = new_node(ps, i, "repeat")
+        i = verify_tk(ps, i, "repeat")
+        node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        i, node.body = parse_statements(ps, i)
+        node.body.is_repeat = true
+        i = verify_tk(ps, i, "until")
+        node.leading_inline_trivia = take_same_line_comments(
+            ps.tokens[i], ps.tokens[i - 1].y
+        )
+        i, node.exp = parse_expression(ps, i)
+        end_at(node, ps.tokens[i - 1])
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function parse_do(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local istart = i
+        local node = new_node(ps, i, "do")
+        i = verify_tk(ps, i, "do")
+        i, node.body = parse_statements(ps, i)
+        i = verify_end(ps, i, istart, node)
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function parse_break(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local node = new_node(ps, i, "break")
+        i = verify_tk(ps, i, "break")
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function parse_goto(ps: ParseState, i: integer): integer, Node
+        local node = new_node(ps, i, "goto")
+        i = verify_tk(ps, i, "goto")
+        node.label = ps.tokens[i].tk
+        i = verify_kind(ps, i, "identifier")
+        return i, node
+    end
+
+    local function parse_label(ps: ParseState, i: integer): integer, Node
+        local node = new_node(ps, i, "label")
+        i = verify_tk(ps, i, "::")
+        node.label = ps.tokens[i].tk
+        i = verify_kind(ps, i, "identifier")
+        i = verify_tk(ps, i, "::")
+        return i, node
+    end
+
+    local stop_statement_list: {string: boolean} = {
+        ["end"] = true,
+        ["else"] = true,
+        ["elseif"] = true,
+        ["until"] = true,
+    }
+
+    local stop_return_list: {string: boolean} = {
+        [";"] = true,
+        ["$EOF$"] = true,
+    }
+
+    for k, v in pairs(stop_statement_list) do
+        stop_return_list[k] = v
+    end
+
+    local function parse_return(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local node = new_node(ps, i, "return")
+        i = verify_tk(ps, i, "return")
+        if not stop_return_list[ps.tokens[i].tk] then
+            node.leading_inline_trivia = take_same_line_comments(
+                ps.tokens[i], ps.tokens[i - 1].y
+            )
+        end
+        node.exps = new_node(ps, i, "expression_list")
+        i = parse_list(ps, i, node.exps, stop_return_list, "sep", parse_expression)
+        if ps.tokens[i].kind == ";" then
+            i = i + 1
+            if
+                ps.tokens[i].kind ~= "$EOF$"
+                and not stop_statement_list[ps.tokens[i].tk]
+            then
+                return fail(ps, i, "return must be the last statement of its block")
+            end
+        end
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function store_field_in_record(
+        ps: ParseState,
+        i: integer,
+        field_name: string,
+        newt: Type,
+        def: RecordLikeType,
+        node: parser.Node,
+        end_i: integer,
+        comments?: {Comment},
+        meta?: string
+    ): boolean
+        local field_order: {string}
+        local fields: {string: Type}
+        local nodes: {string: parser.Node}
+        local field_comments: {string: {{Comment}}}
+        if meta then
+            field_order, fields, nodes, field_comments = def.meta_field_order, def.meta_fields, def.nodes, def.meta_field_comments
+        else
+            field_order, fields, nodes, field_comments = def.field_order, def.fields, def.nodes, def.field_comments
+        end
+
+        if comments and not field_comments then
+            field_comments = {}
+            if meta then
+                def.meta_field_comments = field_comments
+            else
+                def.field_comments = field_comments
+            end
+        end
+
+        nodes[field_name] = node
+
+        local entry_line = node ~= nil and node.y or newt.y
+        local entry = parser.FieldEntry.new(
+            field_name, newt, node, comments or {}, meta ~= nil, entry_line
+        )
+        entry.yend = ps.tokens[end_i - 1].y
+        entry.trailing_comment = get_same_line_comment(ps.tokens[end_i], entry.yend)
+        table.insert(def.field_entries, entry)
+
+        if not fields[field_name] then
+            fields[field_name] = newt
+            if comments then
+                field_comments[field_name] = {comments}
+            end
+            table.insert(field_order, field_name)
+            return true
+        end
+
+        local oldt = fields[field_name]
+        local oldf: Type = oldt is GenericType and oldt.t or oldt
+        local newf: Type = newt is GenericType and newt.t or newt
+
+        local function store_comment_for_poly(poly: PolyType)
+            if comments then
+                if not field_comments[field_name] then
+                    field_comments[field_name] = {}
+                    for idx = 1, #poly.types - 1 do
+                        field_comments[field_name][idx] = {}
+                    end
+                end
+                table.insert(field_comments[field_name], comments)
+            elseif field_comments and field_comments[field_name] then
+                table.insert(field_comments[field_name], {})
+            end
+        end
+
+        if newf is FunctionType then
+            if oldf is FunctionType then
+                local p = new_type(ps, i, "poly") as PolyType
+                p.types = {oldt as FunctionType, newt as FunctionType}
+                fields[field_name] = p
+                store_comment_for_poly(p)
+                return true
+            elseif oldt is PolyType then
+                table.insert(oldt.types, newt as FunctionType)
+                store_comment_for_poly(oldt)
+                return true
+            end
+        end
+        fail(
+            ps,
+            i,
+            "attempt to redeclare field '"
+                .. field_name
+                .. "' (only functions can be overloaded)"
+        )
+        return false
+    end
+
+    local function set_declname(def: Type, declname: string)
+        if def is GenericType then
+            def = def.t
+        end
+
+        if
+            def is parser.RecordType or def is parser.InterfaceType or def is EnumType
+        then
+            if not (def as parser.HasDeclName).declname then
+                (def as parser.HasDeclName).declname = declname
+            end
+        end
+    end
+
+    local function comment_len(comment: tl.LexerComment): integer
+        local _, comment_line_breaks = comment.text:gsub("\n", "\n")
+        return comment_line_breaks + 1
+    end
+
+    local function make_comment(lc: tl.LexerComment): Comment
+        return {
+            x = lc.x,
+            y = lc.y,
+            text = lc.text,
+            blank_line_before = false,
+            yend = lc.y + comment_len(lc) - 1,
+        }
+    end
+
+    get_attached_comments = function(token: Token, previous_token?: Token): {Comment}
+        local token_comments = token.comments
+        if token_comments == nil or #token_comments == 0 then
+            return nil
+        end
+
+        local last_lc = token_comments[#token_comments]
+
+        local diff_y = token.y - last_lc.y
+        if diff_y < 0 then
+            return nil
+        end
+
+        local attached_comments: {Comment} = {}
+        for j = 1, #token_comments do
+            table.insert(attached_comments, make_comment(token_comments[j]))
+        end
+
+        for i = 2, #attached_comments do
+            if attached_comments[i].y - attached_comments[i - 1].yend > 1 then
+                attached_comments[i].blank_line_before = true
+            end
+        end
+
+        if
+            not (previous_token is nil)
+            and attached_comments[1].y > previous_token.y + 1
+        then
+            attached_comments[1].blank_line_before = true
+        end
+
+        return attached_comments
+    end
+
+    get_same_line_comment = function(token: Token, line: integer): Comment
+        local token_comments = token.comments
+        if token_comments == nil then
+            return nil
+        end
+        for i, lc in ipairs(token_comments) do
+            if lc.y == line then
+                table.remove(token_comments, i)
+                return make_comment(lc)
+            end
+        end
+        return nil
+    end
+
+    -- Drains every comment on the given line from token.comments. Use after
+    -- a block-opening keyword so trailing inline trivia does not leak into
+    -- the first body statement's leading comments.
+    take_same_line_comments = function(token: Token, line: integer): {Comment}
+        local lc_list = token.comments
+        if lc_list == nil or #lc_list == 0 then
+            return {}
+        end
+        local result: {Comment} = {}
+        local i = 1
+        while i <= #lc_list do
+            if lc_list[i].y == line then
+                table.insert(result, make_comment(lc_list[i]))
+                table.remove(lc_list, i)
+            else
+                i = i + 1
+            end
+        end
+        return result
+    end
+
+    -- Mutates token.comments so a downstream get_attached_comments call
+    -- cannot re-pick the same comment.
+    take_all_token_comments = function(token: Token): {Comment}
+        local lc_list = token.comments
+        if lc_list == nil or #lc_list == 0 then
+            return {}
+        end
+        local result: {Comment} = {}
+        for j = 1, #lc_list do
+            table.insert(result, make_comment(lc_list[j]))
+        end
+        for j = #lc_list, 1, -1 do
+            table.remove(lc_list, j)
+        end
+        return result
+    end
+
+    local function parse_nested_type(
+        ps: ParseState, i: integer, def: RecordLikeType, tn: BodyTypeName
+    ): integer, boolean
+        local istart = i
+        i = i + 1
+        local iv = i
+
+        local v: Node
+        i, v = verify_kind(ps, i, "identifier", "type_identifier")
+        if not v then
+            return fail(ps, i, "expected a variable name")
+        end
+
+        local nt: Node = new_node(ps, istart, "newtype")
+
+        local ndef: Type
+        i, ndef = parse_type_body(ps, i, istart, nt, tn)
+        if not ndef then
+            return i
+        end
+
+        set_declname(ndef, v.tk)
+
+        nt.newtype = new_typedecl(ps, istart, ndef)
+
+        store_field_in_record(
+            ps,
+            iv,
+            v.tk,
+            nt.newtype,
+            def,
+            nt,
+            i,
+            get_attached_comments(ps.tokens[istart], ps.tokens[istart - 1])
+        )
+        return i
+    end
+
+    parse_enum_body = function(
+        ps: ParseState, i: integer, def: EnumType
+    ): integer, boolean
+        def.enum_items = {}
+        while ps.tokens[i].tk ~= "$EOF$" and ps.tokens[i].tk ~= "end" do
+            local item: Node
+            i, item = verify_kind(ps, i, "string", "string")
+            if item then
+                item.leading_comments = get_attached_comments(
+                    ps.tokens[i - 1], ps.tokens[i - 2]
+                )
+                item.yend = token_yend(ps.tokens[i - 1])
+                item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
+                table.insert(def.enum_items, item)
+            end
+        end
+
+        local previous_end: integer | nil = nil
+        for _, item in ipairs(def.enum_items) do
+            local leading = item.leading_comments or {}
+            if #leading > 0 then
+                previous_end = leading[#leading].yend
+            end
+            if previous_end ~= nil then
+                item.blank_line_before = item.y > previous_end + 1
+            end
+            previous_end = item.yend
+        end
+
+        def.dangling_comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        return i, true
+    end
+
+    local metamethod_names: {string: boolean} = {
+        ["__add"] = true,
+        ["__sub"] = true,
+        ["__mul"] = true,
+        ["__div"] = true,
+        ["__mod"] = true,
+        ["__pow"] = true,
+        ["__unm"] = true,
+        ["__idiv"] = true,
+        ["__band"] = true,
+        ["__bor"] = true,
+        ["__bxor"] = true,
+        ["__bnot"] = true,
+        ["__shl"] = true,
+        ["__shr"] = true,
+        ["__concat"] = true,
+        ["__len"] = true,
+        ["__eq"] = true,
+        ["__lt"] = true,
+        ["__le"] = true,
+        ["__index"] = true,
+        ["__newindex"] = true,
+        ["__call"] = true,
+        ["__tostring"] = true,
+        ["__pairs"] = true,
+        ["__gc"] = true,
+        ["__close"] = true,
+        ["__is"] = true,
+    }
+
+    local function parse_macroexp(
+        ps: ParseState, istart: integer, iargs: integer
+    ): integer, Node
+        local node = new_node(ps, istart, "macroexp")
+
+        local i: integer
+        if ps.tokens[istart + 1].tk == "<" then
+            i, node.typeargs = parse_anglebracket_list(ps, istart + 1, parse_typearg)
+        else
+            i = iargs
+        end
+
+        i, node.args, node.min_arity = parse_argument_list(ps, i)
+        i, node.rets = parse_return_types(ps, i)
+        i = verify_tk(ps, i, "return")
+        i, node.exp = parse_expression(ps, i)
+        end_at(node, ps.tokens[i])
+        i = verify_end(ps, i, istart, node)
+        return i, node
+    end
+
+    local function parse_where_clause(
+        ps: ParseState, i: integer, def: RecordLikeType
+    ): integer, Node
+        local node = new_node(ps, i, "macroexp")
+
+        node.is_method = true
+        node.args = new_node(ps, i, "argument_list")
+        node.args[1] = new_node(ps, i, "argument")
+        node.args[1].tk = "self"
+        node.args[1].argtype = new_type(ps, i, "self")
+        (node.args[1].argtype as SelfType).display_type = def
+        node.min_arity = 1
+        node.rets = new_tuple(ps, i)
+        node.rets.tuple[1] = new_type(ps, i, "boolean")
+        i, node.exp = parse_expression(ps, i)
+        end_at(node, ps.tokens[i - 1])
+        return i, node
+    end
+
+    parse_interface_name = function(
+        ps: ParseState, i: integer
+    ): integer, FirstOrderType, integer
+        local istart = i
+        local typ: FirstOrderType
+        i, typ = parse_simple_type_or_nominal(ps, i)
+        if not typ then
+            return i
+        end
+        if not (typ is NominalType) then
+            return fail(ps, istart, "expected an interface")
+        end
+        return i, typ
+    end
+
+    local function parse_array_interface_type(
+        ps: ParseState, i: integer, def: RecordLikeType
+    ): integer, ArrayType
+        local first = def.interface_list[1]
+        if first and first is ArrayType then
+            return failskip(
+                ps,
+                i,
+                "duplicated declaration of array element type",
+                parse_type as SkipFunction
+            )
+        end
+        local t: Type
+        i, t = parse_base_type(ps, i)
+        if not t then
+            return i
+        end
+        if not (t is ArrayType) then
+            fail(ps, i, "expected an array declaration")
+            return i
+        end
+        def.elements = t.elements
+        return i, t
+    end
+
+    local function fail_if_duplicate_userdata(
+        ps: ParseState, i: integer, interface_list: {Type}
+    )
+        local userdata_count = 0
+        for _, iface in ipairs(interface_list) do
+            if
+                iface is NominalType
+                and #iface.names == 1
+                and iface.names[1] == "userdata"
+            then
+                userdata_count = userdata_count + 1
+            end
+        end
+        if userdata_count > 1 then
+            fail(ps, i, "duplicated 'userdata' declaration")
+        end
+    end
+
+    parse_record_body = function(
+        ps: ParseState, i: integer, def: RecordLikeType
+    ): integer, boolean
+        def.fields = {}
+        def.nodes = {}
+        def.field_order = {}
+        def.field_entries = {}
+        def.interface_list = {}
+
+        if ps.tokens[i].tk == "{" then
+            local atype: Type
+            i, atype = parse_array_interface_type(ps, i, def)
+            if atype then
+                def.interface_list = {atype}
+            end
+        end
+
+        if ps.tokens[i].tk == "is" then
+            i = i + 1
+
+            if ps.tokens[i].tk == "{" then
+                local atype: Type
+                i, atype = parse_array_interface_type(ps, i, def)
+                if ps.tokens[i].tk == "," then
+                    i = i + 1
+                    i, def.interface_list = parse_trying_list(
+                        ps, i, {}, parse_interface_name
+                    )
+                else
+                    def.interface_list = {}
+                end
+                if atype then
+                    table.insert(def.interface_list, 1, atype)
+                end
+            else
+                i, def.interface_list = parse_trying_list(
+                    ps, i, {}, parse_interface_name
+                )
+            end
+
+            fail_if_duplicate_userdata(ps, i, def.interface_list)
+        end
+
+        if ps.tokens[i].tk == "where" then
+            local wstart = i
+            i = i + 1
+            local where_macroexp: Node
+            i, where_macroexp = parse_where_clause(ps, i, def)
+
+            local typ = new_type(ps, wstart, "function") as FunctionType
+            typ.is_method = true
+            typ.min_arity = 1
+            typ.args = new_tuple(
+                ps,
+                wstart,
+                {
+                    a_type(
+                        where_macroexp as Where,
+                        "self",
+                        {display_type = def} as SelfType
+                    ),
+                }
+            )
+            typ.rets = new_tuple(ps, wstart, {new_type(ps, wstart, "boolean")})
+            typ.macroexp = where_macroexp as parser.Node
+
+            def.meta_fields = {}
+            def.meta_field_order = {}
+            def.meta_fields["__is"] = typ
+            table.insert(def.meta_field_order, "__is")
+        end
+
+        while not (ps.tokens[i].kind == "$EOF$" or ps.tokens[i].tk == "end") do
+            local tn = ps.tokens[i].tk as BodyTypeName
+            if ps.tokens[i].tk == "userdata" and ps.tokens[i + 1].tk ~= ":" then
+                table.insert(def.interface_list, new_nominal(ps, i, "userdata"))
+                fail_if_duplicate_userdata(ps, i, def.interface_list)
+                i = i + 1
+            elseif ps.tokens[i].tk == "{" then
+                return fail(
+                    ps,
+                    i,
+                    "syntax error: this syntax is no longer valid; declare array interface at the top with 'is {...}'"
+                )
+            elseif ps.tokens[i].tk == "type" and ps.tokens[i + 1].tk ~= ":" then
+                local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+                i = i + 1
+                local iv = i
+
+                local lt: Node
+                i, lt = parse_type_declaration(ps, i, "local_type")
+                if not lt then
+                    return fail(ps, i, "expected a type definition")
+                end
+
+                local v = lt.var
+                if not v then
+                    return fail(ps, i, "expected a variable name")
+                end
+
+                local nt = lt.value
+                nt.typeargs = lt.typeargs
+                nt.is_type_declaration = lt.is_type_declaration
+                if not nt or not nt.newtype then
+                    return fail(ps, i, "expected a type definition")
+                end
+
+                local ntt = nt.newtype
+                if ntt.is_alias then
+                    ntt.is_nested_alias = true
+                end
+
+                store_field_in_record(ps, iv, v.tk, nt.newtype, def, nt, i, comments)
+            elseif parse_type_body_fns[tn] and ps.tokens[i + 1].tk ~= ":" then
+                if def.typename == "interface" and tn == "record" then
+                    i = failskip(
+                        ps,
+                        i,
+                        "interfaces cannot contain record definitions",
+                        skip_type_body as SkipFunction
+                    )
+                else
+                    i = parse_nested_type(ps, i, def, tn)
+                end
+            else
+                local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+                local is_metamethod = false
+                if ps.tokens[i].tk == "metamethod" and ps.tokens[i + 1].tk ~= ":" then
+                    is_metamethod = true
+                    i = i + 1
+                end
+
+                local v: Node
+                local is_string_key = false
+                if ps.tokens[i].tk == "[" then
+                    is_string_key = true
+                    i, v = parse_literal(ps, i + 1)
+                    if v and not v.conststr then
+                        return fail(ps, i, "expected a string literal")
+                    end
+                    i = verify_tk(ps, i, "]")
+                else
+                    i, v = verify_kind(ps, i, "identifier", "variable")
+                end
+                local iv = i
+                if not v then
+                    return fail(ps, i, "expected a variable name")
+                end
+
+                if ps.tokens[i].tk == ":" then
+                    i = i + 1
+                    local t: Type
+                    i, t = parse_type(ps, i)
+                    if not t then
+                        return fail(ps, i, "expected a type")
+                    end
+                    if t is FunctionType and t.maybe_method then
+                        t.is_method = true
+                    end
+
+                    local field_name = v.conststr or v.tk
+                    if is_metamethod then
+                        if not def.meta_fields then
+                            def.meta_fields = {}
+                            def.meta_field_order = {}
+                        end
+                        if not metamethod_names[field_name] then
+                            fail(ps, i - 1, "not a valid metamethod: " .. field_name)
+                        end
+                    end
+
+                    if ps.tokens[i].tk == "=" and ps.tokens[i + 1].tk == "macroexp" then
+                        local tt: Type = t is GenericType and t.t or t
+
+                        if tt is FunctionType then
+                            local macroexp_node: Node
+                            i, macroexp_node = parse_macroexp(ps, i + 1, i + 2)
+                            tt.macroexp = macroexp_node as parser.Node
+                        else
+                            fail(ps, i + 1, "macroexp must have a function type")
+                        end
+                    end
+
+                    store_field_in_record(
+                        ps,
+                        iv,
+                        field_name,
+                        t,
+                        def,
+                        nil,
+                        i,
+                        comments,
+                        is_metamethod and "meta" or nil
+                    )
+                    if is_string_key then
+                        local last_entry = def.field_entries[#def.field_entries]
+                        last_entry.is_string_key = true
+                        last_entry.string_key_token = v.tk
+                        last_entry.is_longstring_key = v.is_longstring
+                        last_entry.line = v.y
+                    end
+                elseif ps.tokens[i].tk == "=" then
+                    local next_word = ps.tokens[i + 1].tk
+                    if next_word == "record" or next_word == "enum" then
+                        return fail(
+                            ps,
+                            i,
+                            "syntax error: this syntax is no longer valid; use '"
+                                .. next_word
+                                .. " "
+                                .. v.tk
+                                .. "'"
+                        )
+                    elseif next_word == "functiontype" then
+                        return fail(
+                            ps,
+                            i,
+                            "syntax error: this syntax is no longer valid; use 'type "
+                                .. v.tk
+                                .. " = function('..."
+                        )
+                    else
+                        return fail(
+                            ps,
+                            i,
+                            "syntax error: this syntax is no longer valid; use 'type "
+                                .. v.tk
+                                .. " = '..."
+                        )
+                    end
+                else
+                    fail(
+                        ps,
+                        i,
+                        "syntax error: expected ':' for an attribute or '=' for a nested type"
+                    )
+                end
+            end
+        end
+
+        local previous_end: integer | nil = nil
+        for _, entry in ipairs(def.field_entries) do
+            local leading = entry.leading_comments or {}
+            if #leading > 0 then
+                previous_end = leading[#leading].yend
+            end
+            if previous_end ~= nil then
+                entry.blank_line_before = entry.line > previous_end + 1
+            end
+            previous_end = entry.yend
+        end
+
+        return i, true
+    end
+
+    parse_type_body_fns = {
+        ["interface"] = parse_record_body as ParseBody,
+        ["record"] = parse_record_body as ParseBody,
+        ["enum"] = parse_enum_body as ParseBody,
+    }
+
+    local function parse_newtype(ps: ParseState, i: integer): integer, Node
+        local node: Node = new_node(ps, i, "newtype")
+        local def: FirstClassType
+        local tn = ps.tokens[i].tk as BodyTypeName
+        local istart = i
+
+        if parse_type_body_fns[tn] then
+            i, def = parse_type_body(ps, i + 1, istart, node, tn)
+        else
+            i, def = parse_type(ps, i)
+        end
+        if not def then
+            return fail(ps, i, "expected a type")
+        end
+
+        node.newtype = new_typedecl(ps, istart, def)
+
+        if def is NominalType then
+            node.newtype.is_alias = true
+        elseif def is GenericType then
+            local deft = def.t
+            if deft is NominalType then
+                node.newtype.is_alias = true
+            end
+        end
+
+        return i, node
+    end
+
+    local function parse_assignment_expression_list(
+        ps: ParseState, i: integer, asgn: Node
+    ): integer, Node
+        asgn.exps = new_node(ps, i, "expression_list")
+        local eq_line = ps.tokens[i].y
+        repeat
+            i = i + 1
+            if #asgn.exps == 0 then
+                asgn.leading_inline_trivia = take_same_line_comments(
+                    ps.tokens[i], eq_line
+                )
+            end
+            local val: Node
+            i, val = parse_expression(ps, i)
+            if not val then
+                if #asgn.exps == 0 then
+                    asgn.exps = nil
+                end
+                return i
+            end
+            if ps.tokens[i].tk == "," then
+                val.trailing_trivia = take_all_token_comments(ps.tokens[i])
+                val.trailing_comment = get_same_line_comment(
+                    ps.tokens[i + 1], val.yend or val.y
+                )
+            end
+            table.insert(asgn.exps, val)
+        until ps.tokens[i].tk ~= ","
+        return i, asgn
+    end
+
+    local parse_call_or_assignment: function(ps: ParseState, i: integer): integer, Node
+    do
+        local function is_lvalue(node: Node): boolean
+            node.is_lvalue = node.kind == "variable"
+                or (node.kind == "op" and (node.op.op == "@index" or node.op.op == "."))
+            return node.is_lvalue
+        end
+
+        local function parse_variable(
+            ps: ParseState, i: integer
+        ): integer, Node, integer
+            local node: Node
+            i, node = parse_expression(ps, i)
+            if not (node and is_lvalue(node)) then
+                return fail(ps, i, "expected a variable")
+            end
+            return i, node
+        end
+
+        parse_call_or_assignment = function(ps: ParseState, i: integer): integer, Node
+            local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+            local exp: Node
+            local istart = i
+            i, exp = parse_expression(ps, i)
+            if not exp then
+                return i
+            end
+
+            if node_is_funcall(exp) or exp.failstore then
+                if exp then
+                    exp.leading_comments = comments
+                end
+                return i, exp
+            end
+
+            if not is_lvalue(exp) then
+                return fail(ps, i, "syntax error")
+            end
+
+            local asgn: Node = new_node(ps, istart, "assignment")
+            asgn.vars = new_node(ps, istart, "variable_list")
+            asgn.vars[1] = exp
+            if ps.tokens[i].tk == "," then
+                asgn.vars[1].trailing_trivia = take_all_token_comments(ps.tokens[i])
+                i = i + 1
+                i = parse_trying_list(ps, i, asgn.vars, parse_variable)
+                if #asgn.vars < 2 then
+                    return fail(ps, i, "syntax error")
+                end
+            end
+
+            local last_var = asgn.vars[#asgn.vars]
+            last_var.trailing_trivia = take_all_token_comments(ps.tokens[i])
+            if ps.tokens[i].tk ~= "=" then
+                verify_tk(ps, i, "=")
+                return i
+            end
+
+            i, asgn = parse_assignment_expression_list(ps, i, asgn)
+            if asgn then
+                asgn.leading_comments = comments
+            end
+            return i, asgn
+        end
+    end
+
+    local function parse_variable_declarations(
+        ps: ParseState, i: integer, node_name: NodeKind
+    ): integer, Node
+        local asgn: Node = new_node(ps, i, node_name)
+
+        asgn.vars = new_node(ps, i, "variable_list")
+        i = parse_trying_list(ps, i, asgn.vars, parse_variable_name)
+        if #asgn.vars == 0 then
+            return fail(ps, i, "expected a local variable definition")
+        end
+
+        local last_var = asgn.vars[#asgn.vars]
+        last_var.trailing_trivia = take_all_token_comments(ps.tokens[i])
+
+        i, asgn.decltuple = parse_type_list(ps, i, "decltuple")
+
+        if ps.tokens[i].tk == "=" then
+            local next_word = ps.tokens[i + 1].tk
+            local tn = next_word as BodyTypeName
+            if parse_type_body_fns[tn] then
+                local scope = node_name == "local_declaration" and "local" or "global"
+                return failskip(
+                    ps,
+                    i + 1,
+                    "syntax error: this syntax is no longer valid; use '"
+                        .. scope
+                        .. " "
+                        .. next_word
+                        .. " "
+                        .. asgn.vars[1].tk
+                        .. "'",
+                    skip_type_body as SkipFunction
+                )
+            elseif next_word == "functiontype" then
+                local scope = node_name == "local_declaration" and "local" or "global"
+                return failskip(
+                    ps,
+                    i + 1,
+                    "syntax error: this syntax is no longer valid; use '"
+                        .. scope
+                        .. " type "
+                        .. asgn.vars[1].tk
+                        .. " = function('...",
+                    parse_function_type as SkipFunction
+                )
+            end
+
+            i, asgn = parse_assignment_expression_list(ps, i, asgn)
+        end
+        return i, asgn
+    end
+
+    local function parse_type_require(
+        ps: ParseState, i: integer, asgn: Node
+    ): integer, Node
+        local istart = i
+        i, asgn.value = parse_expression(ps, i)
+        if not asgn.value then
+            return i
+        end
+        if
+            asgn.value.op and asgn.value.op.op ~= "@funcall" and asgn.value.op.op ~= "."
+        then
+            fail(
+                ps,
+                istart,
+                "require() in type declarations cannot be part of larger expressions"
+            )
+            return i
+        end
+        if not node_is_require_call(asgn.value) then
+            fail(
+                ps,
+                istart,
+                "require() for type declarations must have a literal argument"
+            )
+            return i
+        end
+        return i, asgn
+    end
+
+    local function parse_special_type_declaration(
+        ps: ParseState, i: integer, asgn: Node
+    ): boolean, integer, Node
+        if ps.tokens[i].tk == "require" then
+            return true, parse_type_require(ps, i, asgn)
+        elseif ps.tokens[i].tk == "pcall" then
+            fail(ps, i, "pcall() cannot be used in type declarations")
+            return true, i
+        end
+        return false, i, asgn
+    end
+
+    parse_type_declaration = function(
+        ps: ParseState, i: integer, node_name: NodeKind
+    ): integer, Node
+        local asgn: Node = new_node(ps, i, node_name)
+        local var: Node
+
+        i, var = verify_kind(ps, i, "identifier")
+        if not var then
+            return fail(ps, i, "expected a type name")
+        end
+        local typeargs: {TypeArgType}
+        local itypeargs = i
+        i, typeargs = parse_typeargs_if_any(ps, i)
+
+        asgn.var = var
+        asgn.is_type_declaration = true
+
+        if node_name == "global_type" and ps.tokens[i].tk ~= "=" then
+            return i, asgn
+        end
+
+        i = verify_tk(ps, i, "=")
+        local istart = i
+
+        if ps.tokens[i].kind == "identifier" then
+            local is_done: boolean
+            is_done, i, asgn = parse_special_type_declaration(ps, i, asgn)
+            if is_done then
+                return i, asgn
+            end
+        end
+
+        i, asgn.value = parse_newtype(ps, i)
+        if not asgn.value then
+            return i
+        end
+
+        local nt = asgn.value.newtype
+        if nt is TypeDeclType then
+            if typeargs then
+                local def = nt.def
+                if def is GenericType then
+                    fail(
+                        ps,
+                        itypeargs,
+                        "cannot declare type arguments twice in type declaration"
+                    )
+                else
+                    nt.def = new_generic(ps, istart, typeargs, def)
+                    asgn.typeargs = typeargs
+                end
+            end
+
+            set_declname(nt.def, asgn.var.tk)
+        end
+
+        return i, asgn
+    end
+
+    local function parse_type_constructor(
+        ps: ParseState, i: integer, node_name: NodeKind, tn: BodyTypeName
+    ): integer, Node
+        local asgn: Node = new_node(ps, i, node_name)
+        local nt: Node = new_node(ps, i, "newtype")
+        asgn.value = nt
+        asgn.is_type_declaration = false
+        local istart = i
+        local def: Type
+
+        i = i + 2
+
+        i, asgn.var = verify_kind(ps, i, "identifier")
+        if not asgn.var then
+            return fail(ps, i, "expected a type name")
+        end
+
+        i, def = parse_type_body(ps, i, istart, nt, tn)
+        if not def then
+            return i
+        end
+
+        set_declname(def, asgn.var.tk)
+
+        nt.newtype = new_typedecl(ps, istart, def)
+
+        return i, asgn
+    end
+
+    local function skip_type_declaration(ps: ParseState, i: integer): integer, Node
+        return parse_type_declaration(ps, i + 1, "local_type")
+    end
+
+    local function parse_local_macroexp(ps: ParseState, i: integer): integer, Node
+        local istart = i
+        i = i + 2
+        local node = new_node(ps, i, "local_macroexp")
+        i, node.name = parse_identifier(ps, i)
+        i, node.macrodef = parse_macroexp(ps, istart, i)
+        end_at(node, ps.tokens[i - 1])
+        return i, node
+    end
+
+    local function parse_local(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local ntk = ps.tokens[i + 1].tk
+        local tn = ntk as TypeName
+
+        local node: Node
+        if ntk == "function" then
+            i, node = parse_local_function(ps, i)
+        elseif ntk == "type" and ps.tokens[i + 2].kind == "identifier" then
+            i, node = parse_type_declaration(ps, i + 2, "local_type")
+        elseif ntk == "macroexp" and ps.tokens[i + 2].kind == "identifier" then
+            i, node = parse_local_macroexp(ps, i)
+        elseif
+            parse_type_body_fns[tn as BodyTypeName]
+            and ps.tokens[i + 2].kind == "identifier"
+        then
+            i, node = parse_type_constructor(ps, i, "local_type", tn as BodyTypeName)
+            if node then
+                node.dangling_comments = get_attached_comments(
+                    ps.tokens[i - 1], ps.tokens[i - 2]
+                )
+            end
+        else
+            i, node = parse_variable_declarations(ps, i + 1, "local_declaration")
+        end
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function parse_global(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local ntk = ps.tokens[i + 1].tk
+        local tn = ntk as TypeName
+
+        local node: Node
+        if ntk == "function" then
+            i, node = parse_function(ps, i + 1, "global")
+        elseif ntk == "type" and ps.tokens[i + 2].kind == "identifier" then
+            i, node = parse_type_declaration(ps, i + 2, "global_type")
+        elseif
+            parse_type_body_fns[tn as BodyTypeName]
+            and ps.tokens[i + 2].kind == "identifier"
+        then
+            i, node = parse_type_constructor(ps, i, "global_type", tn as BodyTypeName)
+        elseif ps.tokens[i + 1].kind == "identifier" then
+            i, node = parse_variable_declarations(ps, i + 1, "global_declaration")
+        else
+            return parse_call_or_assignment(ps, i)
+        end
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function parse_record_function(ps: ParseState, i: integer): integer, Node
+        local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        local node: Node
+        i, node = parse_function(ps, i, "record")
+        if node then
+            node.leading_comments = comments
+        end
+        return i, node
+    end
+
+    local function parse_pragma(ps: ParseState, i: integer): integer, Node
+        i = i + 1
+        local pragma = new_node(ps, i, "pragma")
+
+        if ps.tokens[i].kind ~= "pragma_identifier" then
+            return fail(ps, i, "expected pragma name")
+        end
+        pragma.pkey = ps.tokens[i].tk
+        i = i + 1
+
+        if ps.tokens[i].kind ~= "pragma_identifier" then
+            return fail(ps, i, "expected pragma value")
+        end
+        pragma.pvalue = ps.tokens[i].tk
+        i = i + 1
+
+        return i, pragma
+    end
+
+    local parse_statement_fns: {string: function(
+        ParseState, integer
+    ): (integer, Node)} = {
+        ["--#pragma"] = parse_pragma,
+        ["::"] = parse_label,
+        ["do"] = parse_do,
+        ["if"] = parse_if,
+        ["for"] = parse_for,
+        ["goto"] = parse_goto,
+        ["local"] = parse_local,
+        ["while"] = parse_while,
+        ["break"] = parse_break,
+        ["global"] = parse_global,
+        ["repeat"] = parse_repeat,
+        ["return"] = parse_return,
+        ["function"] = parse_record_function,
+    }
+
+    local function type_needs_local_or_global(ps: ParseState, i: integer): integer, Node
+        local tk = ps.tokens[i].tk
+        return failskip(
+            ps,
+            i,
+            ("%s needs to be declared with 'local %s' or 'global %s'"):format(
+                tk, tk, tk
+            ),
+            skip_type_body as SkipFunction
+        )
+    end
+
+    local needs_local_or_global: {string: function(
+        ParseState, integer
+    ): (integer, Node)} = {
+        ["type"] = function(ps: ParseState, i: integer): integer, Node
+            return failskip(
+                ps,
+                i,
+                "types need to be declared with 'local type' or 'global type'",
+                skip_type_declaration as SkipFunction
+            )
+        end,
+        ["record"] = type_needs_local_or_global,
+        ["enum"] = type_needs_local_or_global,
+    }
+
+    parse_statements = function(
+        ps: ParseState, i: integer, toplevel?: boolean
+    ): integer, Node
+        local node = new_node(ps, i, "statements")
+        local item: Node
+        local previous_end: integer | nil = nil
+        while true do
+            while ps.tokens[i].kind == ";" do
+                i = i + 1
+                if item then
+                    item.semicolon = true
+                end
+            end
+
+            if ps.tokens[i].kind == "$EOF$" then
+                break
+            end
+            local token = ps.tokens[i]
+            local tk = token.tk
+            if (not toplevel) and stop_statement_list[tk] then
+                break
+            end
+
+            local fn = parse_statement_fns[tk]
+            if not fn then
+                local skip_fn = needs_local_or_global[tk]
+                if skip_fn and ps.tokens[i + 1].kind == "identifier" then
+                    fn = skip_fn
+                else
+                    fn = parse_call_or_assignment
+                end
+            end
+
+            i, item = fn(ps, i)
+
+            if item then
+                -- Set yend from last consumed token. For block stmts (function, if, etc.)
+                -- this matches what end_at already wrote; for simple stmts it was nil.
+                item.yend = token_yend(ps.tokens[i - 1])
+                -- Extract a same-line trailing comment (e.g. `local x = 1 -- note`).
+                -- get_same_line_comment removes it from ps.tokens[i].comments so it
+                -- won't be re-attached as a leading comment of the next statement.
+                item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
+
+                local leading = item.leading_comments or {}
+                if #leading > 0 then
+                    previous_end = leading[#leading].yend
+                end
+                if previous_end then
+                    item.blank_line_before = item.y > previous_end + 1
+                    fmt_logger.debug(
+                        "[block] stmt %s at line %s: blank_line_before=%s (previous_end=%s)",
+                        item.kind,
+                        item.y,
+                        item.blank_line_before,
+                        previous_end
+                    )
+                end
+                previous_end = item.yend
+                table.insert(node, item)
+            elseif i > 1 then
+                local lasty = ps.tokens[i - 1].y
+                while ps.tokens[i].kind ~= "$EOF$" and ps.tokens[i].y == lasty do
+                    i = i + 1
+                end
+            end
+        end
+
+        node.dangling_comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
+        end_at(node, ps.tokens[i])
+        return i, node
+    end
+
+    parser.parse_program = function(
+        tokens: {Token}, errs: {Error}, filename?: string, source_lines?: {string}
+    ): Node, {string}
+        errs = errs or {}
+        local ps: ParseState = {
+            tokens = tokens,
+            errs = errs,
+            filename = filename or "",
+            source_lines = source_lines or {},
+            required_modules = {},
+        }
+        local i = 1
+        local hashbang: string
+        if ps.tokens[i].kind == "hashbang" then
+            hashbang = ps.tokens[i].tk
+            i = i + 1
+        end
+        local _, node = parse_statements(ps, i, true)
+        if hashbang then
+            node.hashbang = hashbang
+        end
+
+        clear_redundant_errors(errs)
+        return node, ps.required_modules
+    end
+
+    parser.parse = function(input: string, filename: string): Node, {Error}, {string}
+        local tokens, errs = tl.lex(input, filename)
+        local source_lines = split_source_lines(input)
+        local node, required_modules = parser.parse_program(
+            tokens, errs, filename, source_lines
+        )
+        return node, errs, required_modules
+    end
 end
 
 parser.simple_types = simple_types
