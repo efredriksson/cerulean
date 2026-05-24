@@ -1241,7 +1241,8 @@ local function parse_table_literal(ps: ParseState, i: integer): integer, Node
    node.leading_comments = get_attached_comments(ps.tokens[i], ps.tokens[i-1])
    i, node = parse_bracket_list(ps, i, node, "{", "}", "term", parse_table_item)
    node.dangling_comments = get_attached_comments(ps.tokens[i - 1], ps.tokens[i-2])
-   node.trailing_comma = #node > 0 and ps.tokens[i - 2].tk == ","
+   node.trailing_comma = #node > 0
+            and (ps.tokens[i - 2].tk == "," or ps.tokens[i - 2].tk == ";")
    local items = node
    local previous_end: integer | nil = nil
    for _, item in ipairs(items) do
