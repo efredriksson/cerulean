@@ -1591,6 +1591,7 @@ local function parse_literal(ps: ParseState, i: integer): integer, Node
    elseif kind == "string" then
       local node = new_node(ps, i, "string")
       node.conststr, node.is_longstring = unquote(tk)
+      node.yend = token_yend(ps.tokens[i])
       return i + 1, node
    elseif kind == "number" or kind == "integer" then
       local n = tonumber(tk)
