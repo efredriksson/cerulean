@@ -10,12 +10,23 @@ local type RenderContext = render_context.RenderContext
 
 local table_doc = {}
 
--- `expr as function(): T, next` re-parses as `function(): (T, next)` — the `,`
--- is greedily consumed as a return-type separator. Use `;` instead. Walk the
--- rightmost operand to find any such cast: through binary `e2` (cast renderer
--- skips precedence parens so no wrapping protects it), and through unary ops
--- only when the inner op has high enough precedence that the renderer won't add
--- parens (`as` prec 50 > unary prec 11; `is` prec 3 gets parens → safe).
+local function binary_right_gets_parens(
+    child: parser.Node, parent_prec: integer
+): boolean
+    if child.kind ~= "op" then
+        return false
+    end
+    local op = child.op.op
+    if op == "as" or op == "is" then
+        return false
+    end
+    return child.op.prec < parent_prec
+end
+
+-- `x as function(): T, next` re-parses as `x as function(): (T, next)`: the table
+-- separator `,` is greedily consumed as a return-type component. Use `;` instead.
+-- Walks the rightmost operand chain to find such a cast, stopping when the
+-- renderer would already wrap the subtree in parens, making the `,` safe.
 local function item_value_needs_semicolon(value: parser.Node): boolean
     while value.kind == "op" do
         if value.op.arity == 2 then
@@ -26,7 +37,11 @@ local function item_value_needs_semicolon(value: parser.Node): boolean
             if op == "@funcall" or op == "@index" or op == "." or op == ":" then
                 return false
             end
+            local parent_prec = value.op.prec
             value = value.e2
+            if binary_right_gets_parens(value, parent_prec) then
+                return false
+            end
         else
             local inner = value.e1
             if inner.kind ~= "op" or inner.op.prec < value.op.prec then
