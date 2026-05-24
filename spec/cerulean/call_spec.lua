@@ -567,4 +567,16 @@ describe("formatter function call wrapping", function()
    ]==], [==[
       f([=[r\]=])
    ]==]))
+
+   it("does not add blank line before next arg after multiline ~() with parenthesized is-expression", helpers.format([[
+      f(a, ~(x is (boolean | string | number | nil | boolean | string | nil | number | boolean)), c)
+   ]], [[
+      f(
+          a,
+          ~(
+              x is (boolean | string | number | nil | boolean | string | nil | number | boolean)
+          ),
+          c
+      )
+   ]]))
 end)

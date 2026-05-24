@@ -1720,7 +1720,7 @@ do
             fail(ps, prev_i, "expected an expression")
             return i
          end
-         e1 = { f = ps.filename, y = t1.y, x = t1.x, kind = "op", op = op, e1 = e1 }
+         e1 = { f = ps.filename, y = t1.y, x = t1.x, kind = "op", op = op, e1 = e1, yend = e1.yend or e1.y }
          e1.op_leading_trivia = {}
          e1.op_trailing_trivia = op_trailing_trivia
       elseif ps.tokens[i].tk == "(" then
@@ -1731,7 +1731,7 @@ do
             fail(ps, prev_i, "expected an expression")
             return i
          end
-         e1 = { f = ps.filename, y = t1.y, x = t1.x, kind = "paren", e1 = e1 }
+         e1 = { f = ps.filename, y = t1.y, x = t1.x, kind = "paren", e1 = e1, yend = ps.tokens[i - 1].y }
       else
          i, e1 = parse_literal(ps, i)
       end
