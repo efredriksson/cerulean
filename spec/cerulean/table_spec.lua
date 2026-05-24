@@ -288,6 +288,16 @@ describe("formatter table constructor wrapping", function()
       return {a = not (n is function(): number), b = 1}
    ]], {skip_ast_equivalence = true}))
 
+   it("uses comma when binary op parenthesizes a unary as-cast right operand", helpers.format([[
+      for CM in {a_long_name_here_xxxx, b_some_long_name ^ ~c_long_expr_name as function(): string...} do end
+   ]], [[
+      for CM in {
+          a_long_name_here_xxxx,
+          b_some_long_name ^ (~c_long_expr_name as function(): string...),
+      } do
+      end
+   ]], {skip_ast_equivalence = true}))
+
    it("uses semicolon when as-cast under unary prefix is not parenthesized", helpers.format([[
       return { a = not x as function(): number; b = 1 }
    ]], [[
