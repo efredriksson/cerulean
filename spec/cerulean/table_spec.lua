@@ -322,4 +322,12 @@ describe("formatter table constructor wrapping", function()
       }
    ]]))
 
+
+   it("does not add blank line after multiline string entry followed by another entry", helpers.check([=[local x = {
+    "
+",
+    1,
+}
+]=]))
+
 end)
