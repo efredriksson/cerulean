@@ -1065,6 +1065,14 @@ local get_same_line_comment: function(token: Token, line: integer): Comment
 local take_same_line_comments: function(token: Token, line: integer): {Comment}
 local take_all_token_comments: function(token: Token): {Comment}
 
+local function token_yend(tk: Token): integer
+   if tk.kind == "string" then
+      local _, line_breaks = tk.tk:gsub("\n", "\n")
+      return tk.y + line_breaks
+   end
+   return tk.y
+end
+
 local function parse_table_item(
     ps: ParseState,
     i: integer,
@@ -1085,7 +1093,7 @@ local function parse_table_item(
       i, node.key = parse_expression_and_tk(ps, i, "]")
       i = verify_tk(ps, i, "=")
       i, node.value = parse_table_value(ps, i)
-      node.yend = ps.tokens[i - 1].y
+      node.yend = token_yend(ps.tokens[i - 1])
       return i, node, n
    elseif ps.tokens[i].kind == "identifier" then
       if ps.tokens[i + 1].tk == "=" then
@@ -1096,7 +1104,7 @@ local function parse_table_item(
          i = verify_tk(ps, i, "=")
          node.leading_inline_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
          i, node.value = parse_table_value(ps, i)
-         node.yend = ps.tokens[i - 1].y
+         node.yend = token_yend(ps.tokens[i - 1])
          return i, node, n
       elseif ps.tokens[i + 1].tk == ":" then
          node.key_parsed = "short"
@@ -1120,7 +1128,7 @@ local function parse_table_item(
                for _, e in ipairs(try_ps.errs) do
                   table.insert(ps.errs, e)
                end
-               node.yend = ps.tokens[i - 1].y
+               node.yend = token_yend(ps.tokens[i - 1])
                return i, node, n
             end
          end
@@ -1138,7 +1146,7 @@ local function parse_table_item(
    if not node.value then
       return fail(ps, i, "expected an expression")
    end
-   node.yend = ps.tokens[i - 1].y
+   node.yend = token_yend(ps.tokens[i - 1])
    return i, node, n + 1
 end
 
@@ -2732,14 +2740,6 @@ local function parse_nested_type(
        get_attached_comments(ps.tokens[istart], ps.tokens[istart-1])
    )
    return i
-end
-
-local function token_yend(tk: Token): integer
-   if tk.kind == "string" then
-      local _, line_breaks = tk.tk:gsub("\n", "\n")
-      return tk.y + line_breaks
-   end
-   return tk.y
 end
 
 parse_enum_body = function(ps: ParseState, i: integer, def: EnumType): integer, boolean
