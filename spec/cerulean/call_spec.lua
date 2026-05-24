@@ -579,4 +579,15 @@ describe("formatter function call wrapping", function()
           c
       )
    ]]))
+
+   it("does not add blank line after multiline as-function-type cast arg", helpers.format([[
+      f(x as function(C: (boolean | nil | string | number | boolean | nil | string | number)), false)
+   ]], [[
+      f(
+          x as function(
+              C: (boolean | nil | string | number | boolean | nil | string | number)
+          ),
+          false
+      )
+   ]]))
 end)
