@@ -368,7 +368,7 @@ render_expr = function(
     elseif node.kind == "string" then
         return render_string_literal(node)
     elseif node.kind == "paren" then
-        return render_paren_in_chain(ctx, node, true)
+        return render_paren_in_chain(ctx, node, same_indent_on_line ~= false)
     elseif node.kind == "literal_table" then
         return table_doc.build_table_doc(ctx, node)
     elseif node.kind == "function" then
