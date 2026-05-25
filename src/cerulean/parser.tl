@@ -174,7 +174,7 @@ local record parser
       line: integer
       yend: integer
       blank_line_before: boolean
-      trailing_comment: Comment
+      trailing_comments: {Comment}
       new: function(string, Type, Node, {Comment}, boolean, integer): FieldEntry
    end
 
@@ -522,7 +522,7 @@ local record parser
         opt:                            boolean
         trailing_comma:                 boolean
         dangling_comments:              {Comment}
-        trailing_comment:               Comment
+        trailing_comments:              {Comment}
         trailing_trivia:                {Comment}
         head_trivia:                    {Comment}
         leading_inline_trivia:          {Comment}
@@ -1072,7 +1072,6 @@ do
     local get_attached_comments: function(
         token: Token, previous_token?: Token
     ): {Comment}
-    local get_same_line_comment: function(token: Token, line: integer): Comment
     local take_same_line_comments: function(token: Token, line: integer): {Comment}
     local take_all_token_comments: function(token: Token): {Comment}
 
@@ -1195,7 +1194,7 @@ do
                 end
                 local comment_token = (is_separator and ps.tokens[i + 1])
                     or ps.tokens[i]
-                item.trailing_comment = get_same_line_comment(
+                item.trailing_comments = take_same_line_comments(
                     comment_token, item.yend or item.y
                 )
             end
@@ -1957,7 +1956,7 @@ do
                     -- to the surrounding statement and is extracted there instead.
                     local close_paren_line = ps.tokens[i - 1].y
                     if close_paren_line > args.y then
-                        args.trailing_comment = get_same_line_comment(
+                        args.trailing_comments = take_same_line_comments(
                             ps.tokens[i], close_paren_line
                         )
                     end
@@ -2473,7 +2472,9 @@ do
                 return i
             end
         end
-        block.trailing_comment = get_same_line_comment(ps.tokens[i], ps.tokens[i - 1].y)
+        block.trailing_comments = take_same_line_comments(
+            ps.tokens[i], ps.tokens[i - 1].y
+        )
         i, block.body = parse_statements(ps, i)
         if not block.body then
             return i
@@ -2734,7 +2735,7 @@ do
             field_name, newt, node, comments or {}, meta ~= nil, entry_line
         )
         entry.yend = ps.tokens[end_i - 1].y
-        entry.trailing_comment = get_same_line_comment(ps.tokens[end_i], entry.yend)
+        entry.trailing_comments = take_same_line_comments(ps.tokens[end_i], entry.yend)
         table.insert(def.field_entries, entry)
 
         if not fields[field_name] then
@@ -2850,20 +2851,6 @@ do
         return attached_comments
     end
 
-    get_same_line_comment = function(token: Token, line: integer): Comment
-        local token_comments = token.comments
-        if token_comments == nil then
-            return nil
-        end
-        for i, lc in ipairs(token_comments) do
-            if lc.y == line then
-                table.remove(token_comments, i)
-                return make_comment(lc)
-            end
-        end
-        return nil
-    end
-
     -- Drains every comment on the given line from token.comments. Use after
     -- a block-opening keyword so trailing inline trivia does not leak into
     -- the first body statement's leading comments.
@@ -2952,7 +2939,9 @@ do
                     ps.tokens[i - 1], ps.tokens[i - 2]
                 )
                 item.yend = token_yend(ps.tokens[i - 1])
-                item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
+                item.trailing_comments = take_same_line_comments(
+                    ps.tokens[i], item.yend
+                )
                 table.insert(def.enum_items, item)
             end
         end
@@ -3413,7 +3402,7 @@ do
             end
             if ps.tokens[i].tk == "," then
                 val.trailing_trivia = take_all_token_comments(ps.tokens[i])
-                val.trailing_comment = get_same_line_comment(
+                val.trailing_comments = take_same_line_comments(
                     ps.tokens[i + 1], val.yend or val.y
                 )
             end
@@ -3853,10 +3842,12 @@ do
                 -- Set yend from last consumed token. For block stmts (function, if, etc.)
                 -- this matches what end_at already wrote; for simple stmts it was nil.
                 item.yend = token_yend(ps.tokens[i - 1])
-                -- Extract a same-line trailing comment (e.g. `local x = 1 -- note`).
-                -- get_same_line_comment removes it from ps.tokens[i].comments so it
-                -- won't be re-attached as a leading comment of the next statement.
-                item.trailing_comment = get_same_line_comment(ps.tokens[i], item.yend)
+                -- Extract any same-line trailing comments (e.g. `local x = 1 -- note`).
+                -- take_same_line_comments drains them from ps.tokens[i].comments so they
+                -- won't be re-attached as leading comments of the next statement.
+                item.trailing_comments = take_same_line_comments(
+                    ps.tokens[i], item.yend
+                )
 
                 local leading = item.leading_comments or {}
                 if #leading > 0 then

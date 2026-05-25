@@ -103,7 +103,8 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
         trivia_doc.append_inline(parts, item.trailing_trivia)
 
         local effective_sep = (item_value_needs_semicolon(item.value) and ";") or ","
-        local sep = item.trailing_comment and effective_sep or effective_sep .. " "
+        local has_trailing = #(item.trailing_comments or {}) > 0
+        local sep = has_trailing and effective_sep or effective_sep .. " "
         if index < #items then
             table.insert(parts, doc.text(sep))
         else

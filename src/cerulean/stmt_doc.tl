@@ -201,8 +201,8 @@ local function render_record_like_body_doc(
         )
         table.insert(parts, render_field_entry(ctx, entry))
 
-        if entry.trailing_comment then
-            table.insert(parts, doc.text(" " .. entry.trailing_comment.text))
+        for _, comment in ipairs(entry.trailing_comments or {}) do
+            table.insert(parts, doc.text(" " .. comment.text))
         end
         line_before = true
     end
