@@ -35,10 +35,10 @@ Breaks `block_doc` ↔ `stmt_doc` ↔ `expr_doc` ↔ `table_doc` cycle via callb
 (Shared across `block_doc`/`stmt_doc`/`expr_doc`/`table_doc`.)
 
 - `trailing_comment_doc(node)` — joins `trailing_comments` as text (` <c1> <c2>…`), else empty.
-- `head_trivia_doc(node)` — emits `head_trivia` (after `do`/`then`/`function`).
-- `with_leading_inline_trivia(node, prefix, content)` — threads `leading_inline_trivia` (same-line after openers like `(`, `=`, `until`, `return`) on the prefix line, breaks before `content`.
+- `head_trivia_doc(node)` — emits the `"head"` inline-trivia slot (after `do`/`then`/`function`).
+- `with_leading_inline_trivia(node, prefix, content)` — threads the `"after_opener"` inline-trivia slot (same-line after openers like `(`, `=`, `until`, `return`) on the prefix line, breaks before `content`.
 - `append_comment_docs(parts, comments, line_before)` — own-line leading comments with `hardline` separators; returns updated `line_before`.
-- `any_items_have_comments(items)` — any `leading_comments` / `trailing_comments`. Drives force-wrap. Deliberately ignores `trailing_trivia` (inline block-trivia must not flip flat → wrapped).
+- `any_items_have_comments(items)` — any `leading_comments` / `trailing_comments`. Drives force-wrap. Deliberately ignores `"before_separator"` inline trivia (inline block-trivia must not flip flat → wrapped).
 - `item_line_doc(force_wrap)` — `hardline` if force-wrapping, else `softline`.
 - `append_lines_pre_node(node, line_before, line_from_before?)` — separator + extra `hardline` for `blank_line_before`. Accepts `parser.Node` or `parser.FieldEntry`.
 - Delimiter builders (`build_delimited_sequence_doc`, `build_comma_separated_docs`, …).
@@ -52,11 +52,13 @@ Hybrid: three node-level slots for structural cases + per-position `{Comment}` t
 - `trailing_comments` — same-line `--` / `--[[…]]` entries after last token; forces a break in surrounding layout.
 - `dangling_comments` — own-line inside a block before its closer (`end`, `}`, `until`).
 
-**Trivia lists** (on the spanning node, populated at parse time by draining `token.comments` via `take_all_token_comments` or `take_same_line_comments`):
-- `op_leading_trivia` / `op_trailing_trivia` (binary op) — around the operator. Same-line: inline. Own-line: force chain break.
-- `trailing_trivia` (call args, decl RHS) — same-line `--[[…]]` after value, before comma. Does *not* force-wrap.
-- `head_trivia` — same-line after block-opener (`do`/`then`/`function`/`repeat`). Holds the opener-line comment regardless of whether the body is empty; storage tracks source position, not body state. Empty-body + own-line comment inside the block is the orthogonal case and goes in `dangling_comments`.
-- `leading_inline_trivia` — same-line after value-introducing opener (`(`, `=`, `until`, `return`, `if`).
+**Inline trivia** — same-line, between-token comments live on the spanning node in one map: `inline_trivia: {InlineSlot: {Comment}}`. Populated at parse time via `take_all_token_comments` / `take_same_line_comments`. Slots (`InlineSlot` enum):
+- `"op_leading"` / `"op_trailing"` (binary op) — around the operator. Same-line: inline. Own-line: force chain break.
+- `"before_separator"` (call args, decl LHS/RHS) — same-line `--[[…]]` after value, before comma. Does *not* force-wrap.
+- `"head"` — same-line after block-opener (`do`/`then`/`function`/`repeat`/`until`). Holds the opener-line comment regardless of whether the body is empty; storage tracks source position, not body state. Empty-body + own-line comment inside the block is the orthogonal case and goes in `dangling_comments`.
+- `"after_opener"` — same-line after value-introducing opener (`(`, `=`, `until`, `return`, `if`).
+
+Access via `parser.inline_trivia(node, slot)` — returns the list, or an empty constant when absent (treat as read-only). Adding a new between-tokens case = adding an enum value, not a Node field.
 
 **`trivia_doc.tl` helpers:**
 - `partition(trivia, anchor_line)` → `(same_line_head, own_line_tail)`.
@@ -64,11 +66,9 @@ Hybrid: three node-level slots for structural cases + per-position `{Comment}` t
 - `append_inline_joined(parts, trivia)` — single-space separator, no leading space (use after openers).
 - `emit_transition(parts, trivia, anchor_line, next_doc, plain_separator)` — operator-position boundary; own-line trivia forces break before `next_doc`, else emits `plain_separator` + `next_doc` flat.
 
-### Migration status (in transition)
+### Design note
 
-Partial migration toward a canonical token-trivia / three-slot CST (StyLua / Prettier). Known gap:
-
-1. **Hybrid, not pure token-trivia.** Target was: trivia on every `Token`, AST holds token refs. Landed: per-position trivia *fields on Nodes*. Each new between-tokens case still tempts a new field. Pushing further (trivia on `Token`, `render_token` helper) would close it.
+The model is deliberately *not* a full token-trivia CST (StyLua / Prettier style). Comments are drained off tokens at parse time and stored on spanning nodes in three structural slots (`leading_comments` / `trailing_comments` / `dangling_comments`) plus one positional map (`inline_trivia`). Moving trivia onto `Token` refs would match the canonical CST conventions but wouldn't reduce renderer complexity (the three branches are real conceptual differences, not storage shape) — not planned without a concrete forcing function (e.g. sharing AST with an external tool).
 
 ## require_sort Comment Semantics
 

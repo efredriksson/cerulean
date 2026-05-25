@@ -30,7 +30,7 @@ function inline_stmt_doc.render_assignment_doc(
 ): doc.Doc
     local function build_var_doc(var: parser.Node): doc.Doc
         local parts: {doc.Doc} = {ctx.render_expr(var)}
-        trivia_doc.append_inline(parts, var.trailing_trivia)
+        trivia_doc.append_inline(parts, parser.inline_trivia(var, "before_separator"))
         return doc.concat(parts)
     end
     local var_docs: {doc.Doc} = {}
@@ -56,7 +56,9 @@ local function build_vars_doc(stmt: parser.Node, keyword: string): doc.Doc
     local parts: {doc.Doc} = {doc.text(keyword .. " ")}
     for index, var_node in ipairs(stmt.vars) do
         table.insert(parts, doc.text(build_var_text(var_node)))
-        trivia_doc.append_inline(parts, var_node.trailing_trivia)
+        trivia_doc.append_inline(
+            parts, parser.inline_trivia(var_node, "before_separator")
+        )
         if index < #stmt.vars then
             table.insert(parts, doc.text(", "))
         end

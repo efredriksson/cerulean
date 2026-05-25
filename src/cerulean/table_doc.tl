@@ -100,7 +100,7 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
 
         table.insert(parts, render_builders.append_lines_pre_node(item, line_before))
         table.insert(parts, build_table_item_text(ctx, item))
-        trivia_doc.append_inline(parts, item.trailing_trivia)
+        trivia_doc.append_inline(parts, parser.inline_trivia(item, "before_separator"))
 
         local effective_sep = (item_value_needs_semicolon(item.value) and ";") or ","
         local has_trailing = #(item.trailing_comments or {}) > 0
