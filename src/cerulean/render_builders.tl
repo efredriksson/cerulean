@@ -125,10 +125,11 @@ function render_builders.build_delimited_sequence_doc(
 end
 
 function render_builders.trailing_comment_doc(node: parser.Node): doc.Doc
-    if node.trailing_comment then
-        return doc.text(" " .. node.trailing_comment.text)
+    local parts: {doc.Doc} = {}
+    for _, comment in ipairs(node.trailing_comments or {}) do
+        table.insert(parts, doc.text(" " .. comment.text))
     end
-    return doc.text("")
+    return doc.concat(parts)
 end
 
 function render_builders.head_trivia_doc(node: parser.Node): doc.Doc
@@ -142,7 +143,9 @@ end
 
 function render_builders.any_items_have_comments(items: parser.Node): boolean
     for _, item in ipairs(items) do
-        if #(item.leading_comments or {}) > 0 or item.trailing_comment then
+        if
+            #(item.leading_comments or {}) > 0 or #(item.trailing_comments or {}) > 0
+        then
             return true
         end
     end
@@ -179,10 +182,12 @@ function render_builders.build_exp_list_doc(
             force_next_indent = false
         end
         if not is_last then
-            if exp.trailing_comment then
-                exp_doc = doc.concat(
-                    {exp_doc, doc.text(","), doc.text(" " .. exp.trailing_comment.text)}
-                )
+            if #(exp.trailing_comments or {}) > 0 then
+                local trailing_parts: {doc.Doc} = {exp_doc, doc.text(",")}
+                for _, comment in ipairs(exp.trailing_comments) do
+                    table.insert(trailing_parts, doc.text(" " .. comment.text))
+                end
+                exp_doc = doc.concat(trailing_parts)
                 force_next_indent = true
             else
                 exp_doc = doc.concat({exp_doc, doc.text(", ")})

@@ -224,7 +224,8 @@ local function call_doc_build_call_expr_doc(
         local arg_parts: {doc.Doc} = {ctx.render_expr(arg_node)}
         trivia_doc.append_inline(arg_parts, arg_node.trailing_trivia)
         if index < #args then
-            local sep = arg_node.trailing_comment and "," or ", "
+            local has_trailing = #(arg_node.trailing_comments or {}) > 0
+            local sep = has_trailing and "," or ", "
             table.insert(arg_parts, doc.text(sep))
         end
         table.insert(parts, doc.concat(arg_parts))

@@ -1449,4 +1449,22 @@ describe("formatter comment matrix (single-line)", function()
              or expression_3
       ]]))
    end)
+
+   describe("multiple same-line trailing block comments", function()
+      it("keeps two block comments after a local declaration with the statement", helpers.check([=[
+         local x = 1 --[[a]] --[[b]]
+         return x
+      ]=]))
+
+      it("keeps two block comments after an assignment value", helpers.check([=[
+         x = 1 --[[a]] --[[b]]
+         return x
+      ]=]))
+
+      it("keeps two block comments after a record field", helpers.check([=[
+         local record R
+             field: integer --[[a]] --[[b]]
+         end
+      ]=]))
+   end)
 end)
