@@ -55,7 +55,7 @@ Hybrid: three node-level slots for structural cases + per-position `{Comment}` t
 **Trivia lists** (on the spanning node, populated at parse time by draining `token.comments` via `take_all_token_comments` or `take_same_line_comments`):
 - `op_leading_trivia` / `op_trailing_trivia` (binary op) — around the operator. Same-line: inline. Own-line: force chain break.
 - `trailing_trivia` (call args, decl RHS) — same-line `--[[…]]` after value, before comma. Does *not* force-wrap.
-- `head_trivia` — same-line after block-opener (`do`/`then`/`function`).
+- `head_trivia` — same-line after block-opener (`do`/`then`/`function`/`repeat`). Holds the opener-line comment regardless of whether the body is empty; storage tracks source position, not body state. Empty-body + own-line comment inside the block is the orthogonal case and goes in `dangling_comments`.
 - `leading_inline_trivia` — same-line after value-introducing opener (`(`, `=`, `until`, `return`, `if`).
 
 **`trivia_doc.tl` helpers:**
@@ -66,10 +66,9 @@ Hybrid: three node-level slots for structural cases + per-position `{Comment}` t
 
 ### Migration status (in transition)
 
-Partial migration toward a canonical token-trivia / three-slot CST (StyLua / Prettier). Known gaps:
+Partial migration toward a canonical token-trivia / three-slot CST (StyLua / Prettier). Known gap:
 
 1. **Hybrid, not pure token-trivia.** Target was: trivia on every `Token`, AST holds token refs. Landed: per-position trivia *fields on Nodes*. Each new between-tokens case still tempts a new field. Pushing further (trivia on `Token`, `render_token` helper) would close it.
-2. **`dangling_comments` was a rename, not unification.** Prettier-style dangling covers empty `{}`, empty bodies, before-closer; we cover only before-closer. Empty-body / head-trailing live in `head_trivia` + pre-closing logic.
 
 ## require_sort Comment Semantics
 
