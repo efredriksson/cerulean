@@ -2472,9 +2472,7 @@ do
                 return i
             end
         end
-        block.trailing_comments = take_same_line_comments(
-            ps.tokens[i], ps.tokens[i - 1].y
-        )
+        block.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
         i, block.body = parse_statements(ps, i)
         if not block.body then
             return i

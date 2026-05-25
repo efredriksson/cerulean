@@ -459,7 +459,7 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
             table.insert(parts, doc.line())
         end
         table.insert(parts, get_head_text())
-        table.insert(parts, render_builders.trailing_comment_doc(if_block))
+        table.insert(parts, render_builders.head_trivia_doc(if_block))
         table.insert(parts, doc.indent_line(body_doc))
     end
 
