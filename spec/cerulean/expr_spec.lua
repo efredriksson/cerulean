@@ -239,4 +239,22 @@ describe("idempotency: ", function()
           c
       )
    ]=], { skip_ast_equivalence = true }))
+
+   it("no blank line before statement when string-call arg spans to a later line", helpers.format([==[
+      return function ( ) break f(
+              [[
+              String over 3 lines
+              ]]
+          ).k ""
+      end
+   ]==],[==[
+      return function()
+          break
+          f(
+              [[
+              String over 3 lines
+              ]]
+          ).k("")
+      end
+   ]==]))
 end)

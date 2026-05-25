@@ -216,7 +216,8 @@ function render_builders.append_lines_pre_node(
         table.insert(parts, line_from_before or doc.softline())
     end
     if node.blank_line_before then
-        table.insert(parts, doc.hardline())
+        -- enclosing group MUST break, for example anon function.
+        table.insert(parts, doc.concat({doc.hardline(), doc.break_parent()}))
     end
 
     return doc.concat(parts)

@@ -2045,8 +2045,8 @@ do
                     table.insert(args, argument)
                     e1 = {
                         f = ps.filename,
-                        y = args.y,
-                        x = args.x,
+                        y = e1.y,
+                        x = e1.x,
                         kind = "op",
                         op = op,
                         e1 = e1,
