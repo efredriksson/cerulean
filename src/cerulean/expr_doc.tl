@@ -104,7 +104,9 @@ local function collect_chain_terms(
     if node.kind == "op" and node.op.prec == operator.prec then
         collect_chain_terms(node.e1, operator, terms, gap_before_comments)
         local lhs_line = node.e1.yend or node.e1.y
-        local before_op = trivia_doc.partition(node.op_leading_trivia, lhs_line)
+        local before_op = trivia_doc.partition(
+            parser.inline_trivia(node, "op_leading"), lhs_line
+        )
         if before_op then
             gap_before_comments[#terms] = before_op
         end
@@ -209,8 +211,9 @@ local function call_doc_build_call_expr_doc(
     ctx: RenderContext, callee: parser.Node, args: parser.Node
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee, true)
+    local args_after_opener = parser.inline_trivia(args, "after_opener")
     local force_wrap = render_builders.any_items_have_comments(args)
-        or #(args.leading_inline_trivia or {}) > 0
+        or #args_after_opener > 0
     local parts: {doc.Doc} = {}
     local line_before = false
 
@@ -222,7 +225,9 @@ local function call_doc_build_call_expr_doc(
             parts, render_builders.append_lines_pre_node(arg_node, line_before)
         )
         local arg_parts: {doc.Doc} = {ctx.render_expr(arg_node)}
-        trivia_doc.append_inline(arg_parts, arg_node.trailing_trivia)
+        trivia_doc.append_inline(
+            arg_parts, parser.inline_trivia(arg_node, "before_separator")
+        )
         if index < #args then
             local has_trailing = #(arg_node.trailing_comments or {}) > 0
             local sep = has_trailing and "," or ", "
@@ -240,9 +245,9 @@ local function call_doc_build_call_expr_doc(
 
     local function build_args_doc(): doc.Doc
         local arg_items_trimed = doc.trim_lines(args_items_doc)
-        if #(args.leading_inline_trivia or {}) > 0 then
+        if #args_after_opener > 0 then
             local prefix_parts: {doc.Doc} = {}
-            trivia_doc.append_inline_joined(prefix_parts, args.leading_inline_trivia)
+            trivia_doc.append_inline_joined(prefix_parts, args_after_opener)
             table.insert(prefix_parts, doc.indent_hardline(arg_items_trimed))
             return doc.concat(prefix_parts)
         else
@@ -272,8 +277,8 @@ local function call_doc_build_call_expr_doc(
 end
 
 local function op_has_any_trivia(node: parser.Node): boolean
-    return (node.op_leading_trivia ~= nil and #node.op_leading_trivia > 0)
-        or (node.op_trailing_trivia ~= nil and #node.op_trailing_trivia > 0)
+    return #parser.inline_trivia(node, "op_leading") > 0
+        or #parser.inline_trivia(node, "op_trailing") > 0
 end
 
 local function render_op(
@@ -322,7 +327,11 @@ local function render_op(
         local plain_sep = unary_separator(op, left)
         local parts: {doc.Doc} = {doc.text(op)}
         trivia_doc.emit_transition(
-            parts, node.op_trailing_trivia, operator.y, child, plain_sep
+            parts,
+            parser.inline_trivia(node, "op_trailing"),
+            operator.y,
+            child,
+            plain_sep
         )
         return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
     else
@@ -339,10 +348,18 @@ local function render_op(
         local right_doc = render_expr(ctx, right, op_prec, same_indent_on_line)
         local parts: {doc.Doc} = {left_doc}
         trivia_doc.emit_transition(
-            parts, node.op_leading_trivia, lhs_line, doc.text(op), doc.text(" ")
+            parts,
+            parser.inline_trivia(node, "op_leading"),
+            lhs_line,
+            doc.text(op),
+            doc.text(" ")
         )
         trivia_doc.emit_transition(
-            parts, node.op_trailing_trivia, operator.y, right_doc, doc.text(" ")
+            parts,
+            parser.inline_trivia(node, "op_trailing"),
+            operator.y,
+            right_doc,
+            doc.text(" ")
         )
         return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
     end

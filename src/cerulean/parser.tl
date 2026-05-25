@@ -161,6 +161,14 @@ local record parser
         blank_line_before: boolean
    end
 
+   enum InlineSlot
+      "op_leading"
+      "op_trailing"
+      "before_separator"
+      "head"
+      "after_opener"
+   end
+
    record FieldEntry
       where self.the_type ~= nil
       name: string
@@ -498,8 +506,6 @@ local record parser
         op:                             Operator
         e1:                             Node
         e2:                             Node
-        op_leading_trivia:              {Comment}
-        op_trailing_trivia:             {Comment}
         constnum:                       number
         conststr:                       string
         failstore:                      boolean
@@ -523,9 +529,7 @@ local record parser
         trailing_comma:                 boolean
         dangling_comments:              {Comment}
         trailing_comments:              {Comment}
-        trailing_trivia:                {Comment}
-        head_trivia:                    {Comment}
-        leading_inline_trivia:          {Comment}
+        inline_trivia:                  {InlineSlot: {Comment}}
         blank_line_before:              boolean
         debug_type:                     Type
         is_self:                        boolean
@@ -544,6 +548,7 @@ local record parser
         input: string,
         filename: string
     ): Node, {Error}, {string}
+    inline_trivia: function(node: Node, slot: InlineSlot): {Comment}
 end
 
 -- ── Type aliases for parser_types public types ──────────────────────────────
@@ -579,7 +584,27 @@ local type EnumType = parser.EnumType
 local type SelfType = parser.SelfType
 local type TokenKind = tl.TokenKind
 local type Comment = parser.Comment
+local type InlineSlot = parser.InlineSlot
 local type Operator = parser.Operator
+
+local function set_inline_trivia(node: Node, slot: InlineSlot, trivia: {Comment})
+    if trivia == nil or #trivia == 0 then
+        return
+    end
+    node.inline_trivia = node.inline_trivia or {}
+    node.inline_trivia[slot] = trivia
+end
+
+local EMPTY_INLINE_TRIVIA: {Comment} = {}
+
+-- Returns the trivia list for `slot` on `node`, or an empty list when absent.
+-- Callers must treat the result as read-only — the empty case shares one constant.
+function parser.inline_trivia(node: Node, slot: InlineSlot): {Comment}
+    if node.inline_trivia == nil then
+        return EMPTY_INLINE_TRIVIA
+    end
+    return node.inline_trivia[slot] or EMPTY_INLINE_TRIVIA
+end
 
 function parser.FieldEntry.new(
     name: string,
@@ -1110,8 +1135,10 @@ do
                 node.key.conststr = node.key.tk
                 node.key.tk = '"' .. node.key.tk .. '"'
                 i = verify_tk(ps, i, "=")
-                node.leading_inline_trivia = take_same_line_comments(
-                    ps.tokens[i], ps.tokens[i - 1].y
+                set_inline_trivia(
+                    node,
+                    "after_opener",
+                    take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
                 )
                 i, node.value = parse_table_value(ps, i)
                 node.yend = token_yend(ps.tokens[i - 1])
@@ -1190,7 +1217,9 @@ do
                 -- to the bracket-list's end_comments, not to this item.
                 local is_separator = ps.tokens[i].tk == "," or ps.tokens[i].tk == ";"
                 if is_separator then
-                    item.trailing_trivia = take_all_token_comments(ps.tokens[i])
+                    set_inline_trivia(
+                        item, "before_separator", take_all_token_comments(ps.tokens[i])
+                    )
                 end
                 local comment_token = (is_separator and ps.tokens[i + 1])
                     or ps.tokens[i]
@@ -1318,7 +1347,9 @@ do
             )
         do
             if item is Node then
-                item.trailing_trivia = take_all_token_comments(ps.tokens[i])
+                set_inline_trivia(
+                    item, "before_separator", take_all_token_comments(ps.tokens[i])
+                )
             end
             i = i + 1
             i, item = parse_item(ps, i)
@@ -1597,7 +1628,9 @@ do
         i, node.typeargs = parse_typeargs_if_any(ps, i)
         i, node.args, node.min_arity = parse_argument_list(ps, i)
         i, node.rets = parse_return_types(ps, i)
-        node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        set_inline_trivia(
+            node, "head", take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        )
         i, node.body = parse_statements(ps, i)
         end_at(node, ps.tokens[i])
         i = verify_end(ps, i, istart, node)
@@ -1799,8 +1832,7 @@ do
                     e1 = e1,
                     yend = e1.yend or e1.y,
                 }
-                e1.op_leading_trivia = {}
-                e1.op_trailing_trivia = op_trailing_trivia
+                set_inline_trivia(e1, "op_trailing", op_trailing_trivia)
             elseif ps.tokens[i].tk == "(" then
                 i = i + 1
                 local prev_i = i
@@ -1918,9 +1950,7 @@ do
                     i, args = parse_bracket_list(
                         ps, i, args, "(", ")", "sep", parse_expression
                     )
-                    if #open_paren_leading_trivia > 0 then
-                        args.leading_inline_trivia = open_paren_leading_trivia
-                    end
+                    set_inline_trivia(args, "after_opener", open_paren_leading_trivia)
 
                     local function leftmost_y(node: Node): integer
                         if node.kind == "op" and node.e1 then
@@ -2133,8 +2163,8 @@ do
                     e2 = rhs,
                     yend = rhs.yend or rhs.y,
                 }
-                lhs.op_leading_trivia = op_leading_trivia
-                lhs.op_trailing_trivia = op_trailing_trivia
+                set_inline_trivia(lhs, "op_leading", op_leading_trivia)
+                set_inline_trivia(lhs, "op_trailing", op_trailing_trivia)
             end
             return i, lhs
         end
@@ -2464,15 +2494,19 @@ do
         block.if_parent = node
         block.if_block_n = n
         if not is_else then
-            block.leading_inline_trivia = take_same_line_comments(
-                ps.tokens[i], ps.tokens[i - 1].y
+            set_inline_trivia(
+                block,
+                "after_opener",
+                take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
             )
             i, block.exp = parse_expression_and_tk(ps, i, "then")
             if not block.exp then
                 return i
             end
         end
-        block.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        set_inline_trivia(
+            block, "head", take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        )
         i, block.body = parse_statements(ps, i)
         if not block.body then
             return i
@@ -2517,11 +2551,15 @@ do
         local istart = i
         local node = new_node(ps, i, "while")
         i = verify_tk(ps, i, "while")
-        node.leading_inline_trivia = take_same_line_comments(
-            ps.tokens[i], ps.tokens[i - 1].y
+        set_inline_trivia(
+            node,
+            "after_opener",
+            take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
         )
         i, node.exp = parse_expression_and_tk(ps, i, "do")
-        node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        set_inline_trivia(
+            node, "head", take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        )
         i, node.body = parse_statements(ps, i)
         i = verify_end(ps, i, istart, node)
         if node then
@@ -2537,8 +2575,10 @@ do
         i = i + 1
         i, node.var = parse_identifier(ps, i)
         i = verify_tk(ps, i, "=")
-        node.leading_inline_trivia = take_same_line_comments(
-            ps.tokens[i], ps.tokens[i - 1].y
+        set_inline_trivia(
+            node,
+            "after_opener",
+            take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
         )
         i, node.from = parse_expression_and_tk(ps, i, ",")
         i, node.to = parse_expression(ps, i)
@@ -2548,7 +2588,9 @@ do
         else
             i = verify_tk(ps, i, "do")
         end
-        node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        set_inline_trivia(
+            node, "head", take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        )
         i, node.body = parse_statements(ps, i)
         i = verify_end(ps, i, istart, node)
         if node then
@@ -2567,8 +2609,10 @@ do
             ps, i, node.vars, {["in"] = true}, "sep", parse_identifier
         )
         i = verify_tk(ps, i, "in")
-        node.leading_inline_trivia = take_same_line_comments(
-            ps.tokens[i], ps.tokens[i - 1].y
+        set_inline_trivia(
+            node,
+            "after_opener",
+            take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
         )
         node.exps = new_node(ps, i, "expression_list")
         i = parse_list(ps, i, node.exps, {["do"] = true}, "sep", parse_expression)
@@ -2578,7 +2622,9 @@ do
             return fail(ps, i, "too many expressions in generic for")
         end
         i = verify_tk(ps, i, "do")
-        node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        set_inline_trivia(
+            node, "head", take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        )
         i, node.body = parse_statements(ps, i)
         i = verify_end(ps, i, istart, node)
         if node then
@@ -2599,12 +2645,16 @@ do
         local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
         local node = new_node(ps, i, "repeat")
         i = verify_tk(ps, i, "repeat")
-        node.head_trivia = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        set_inline_trivia(
+            node, "head", take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        )
         i, node.body = parse_statements(ps, i)
         node.body.is_repeat = true
         i = verify_tk(ps, i, "until")
-        node.leading_inline_trivia = take_same_line_comments(
-            ps.tokens[i], ps.tokens[i - 1].y
+        set_inline_trivia(
+            node,
+            "after_opener",
+            take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
         )
         i, node.exp = parse_expression(ps, i)
         end_at(node, ps.tokens[i - 1])
@@ -2675,8 +2725,10 @@ do
         local node = new_node(ps, i, "return")
         i = verify_tk(ps, i, "return")
         if not stop_return_list[ps.tokens[i].tk] then
-            node.leading_inline_trivia = take_same_line_comments(
-                ps.tokens[i], ps.tokens[i - 1].y
+            set_inline_trivia(
+                node,
+                "after_opener",
+                take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
             )
         end
         node.exps = new_node(ps, i, "expression_list")
@@ -3386,8 +3438,8 @@ do
         repeat
             i = i + 1
             if #asgn.exps == 0 then
-                asgn.leading_inline_trivia = take_same_line_comments(
-                    ps.tokens[i], eq_line
+                set_inline_trivia(
+                    asgn, "after_opener", take_same_line_comments(ps.tokens[i], eq_line)
                 )
             end
             local val: Node
@@ -3399,7 +3451,9 @@ do
                 return i
             end
             if ps.tokens[i].tk == "," then
-                val.trailing_trivia = take_all_token_comments(ps.tokens[i])
+                set_inline_trivia(
+                    val, "before_separator", take_all_token_comments(ps.tokens[i])
+                )
                 val.trailing_comments = take_same_line_comments(
                     ps.tokens[i + 1], val.yend or val.y
                 )
@@ -3452,7 +3506,11 @@ do
             asgn.vars = new_node(ps, istart, "variable_list")
             asgn.vars[1] = exp
             if ps.tokens[i].tk == "," then
-                asgn.vars[1].trailing_trivia = take_all_token_comments(ps.tokens[i])
+                set_inline_trivia(
+                    asgn.vars[1],
+                    "before_separator",
+                    take_all_token_comments(ps.tokens[i])
+                )
                 i = i + 1
                 i = parse_trying_list(ps, i, asgn.vars, parse_variable)
                 if #asgn.vars < 2 then
@@ -3461,7 +3519,9 @@ do
             end
 
             local last_var = asgn.vars[#asgn.vars]
-            last_var.trailing_trivia = take_all_token_comments(ps.tokens[i])
+            set_inline_trivia(
+                last_var, "before_separator", take_all_token_comments(ps.tokens[i])
+            )
             if ps.tokens[i].tk ~= "=" then
                 verify_tk(ps, i, "=")
                 return i
@@ -3487,7 +3547,9 @@ do
         end
 
         local last_var = asgn.vars[#asgn.vars]
-        last_var.trailing_trivia = take_all_token_comments(ps.tokens[i])
+        set_inline_trivia(
+            last_var, "before_separator", take_all_token_comments(ps.tokens[i])
+        )
 
         i, asgn.decltuple = parse_type_list(ps, i, "decltuple")
 

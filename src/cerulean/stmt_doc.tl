@@ -436,8 +436,9 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
                 return doc.text("else")
             end
             local keyword = index == 1 and "if" or "elseif"
-            local has_inline_trivia = if_block.leading_inline_trivia ~= nil
-                and #if_block.leading_inline_trivia > 0
+            local has_inline_trivia = #parser.inline_trivia(
+                if_block, "after_opener"
+            ) > 0
             if
                 not has_inline_trivia
                 and render_builders.is_top_level_binary_op(if_block.exp)
@@ -477,8 +478,7 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
-    local has_inline_trivia = node.leading_inline_trivia ~= nil
-        and #node.leading_inline_trivia > 0
+    local has_inline_trivia = #parser.inline_trivia(node, "after_opener") > 0
     local should_wrap_around = not has_inline_trivia
         and render_builders.is_top_level_binary_op(node.exp)
         and not render_builders.has_chain_internal_trivia(node.exp)
@@ -555,8 +555,7 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
-    local has_inline_trivia = node.leading_inline_trivia ~= nil
-        and #node.leading_inline_trivia > 0
+    local has_inline_trivia = #parser.inline_trivia(node, "after_opener") > 0
     local single_exp_is_chainable = #node.exps == 1
         and render_builders.is_top_level_binary_op(node.exps[1])
         and not render_builders.has_chain_internal_trivia(node.exps[1])
@@ -623,8 +622,7 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
     -- block_with_indent always emits a newline into the body, which produces a
     -- spurious blank line when the body is empty. Skip it in that case.
     local is_empty_body = #node.body == 0 and #(node.body.dangling_comments or {}) == 0
-    local has_inline_trivia = node.leading_inline_trivia ~= nil
-        and #node.leading_inline_trivia > 0
+    local has_inline_trivia = #parser.inline_trivia(node, "after_opener") > 0
     local should_wrap_around = not has_inline_trivia
         and render_builders.is_top_level_binary_op(node.exp)
         and not render_builders.has_chain_internal_trivia(node.exp)

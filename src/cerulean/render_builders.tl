@@ -133,11 +133,12 @@ function render_builders.trailing_comment_doc(node: parser.Node): doc.Doc
 end
 
 function render_builders.head_trivia_doc(node: parser.Node): doc.Doc
-    if node.head_trivia == nil or #node.head_trivia == 0 then
+    local head = parser.inline_trivia(node, "head")
+    if #head == 0 then
         return doc.text("")
     end
     local parts: {doc.Doc} = {}
-    trivia_doc.append_inline(parts, node.head_trivia)
+    trivia_doc.append_inline(parts, head)
     return doc.concat(parts)
 end
 
@@ -154,7 +155,7 @@ end
 
 local function any_items_have_trailing_trivia(items: {parser.Node}): boolean
     for _, item in ipairs(items) do
-        if #(item.trailing_trivia or {}) > 0 then
+        if #parser.inline_trivia(item, "before_separator") > 0 then
             return true
         end
     end
@@ -175,7 +176,9 @@ function render_builders.build_exp_list_doc(
     for index, exp in ipairs(exps) do
         local is_last = index == #exps
         local item_parts: {doc.Doc} = {ctx.render_expr(exp)}
-        trivia_doc.append_inline(item_parts, exp.trailing_trivia)
+        trivia_doc.append_inline(
+            item_parts, parser.inline_trivia(exp, "before_separator")
+        )
         local exp_doc = doc.concat(item_parts)
         if force_next_indent then
             exp_doc = doc.indent_hardline(exp_doc)
@@ -247,10 +250,10 @@ function render_builders.has_chain_internal_trivia(node: parser.Node): boolean
     if node.kind ~= "op" or node.op == nil then
         return false
     end
-    if node.op_leading_trivia ~= nil and #node.op_leading_trivia > 0 then
+    if #parser.inline_trivia(node, "op_leading") > 0 then
         return true
     end
-    if node.op_trailing_trivia ~= nil and #node.op_trailing_trivia > 0 then
+    if #parser.inline_trivia(node, "op_trailing") > 0 then
         return true
     end
     if node.e1 ~= nil and render_builders.has_chain_internal_trivia(node.e1) then
@@ -279,11 +282,12 @@ end
 function render_builders.with_leading_inline_trivia(
     node: parser.Node, prefix: doc.Doc, content: doc.Doc
 ): doc.Doc
-    if node.leading_inline_trivia == nil or #node.leading_inline_trivia == 0 then
+    local after_opener = parser.inline_trivia(node, "after_opener")
+    if #after_opener == 0 then
         return doc.concat({prefix, content})
     end
     local parts: {doc.Doc} = {prefix}
-    trivia_doc.append_inline_joined(parts, node.leading_inline_trivia)
+    trivia_doc.append_inline_joined(parts, after_opener)
     table.insert(parts, doc.indent_hardline(content))
     return doc.concat(parts)
 end
