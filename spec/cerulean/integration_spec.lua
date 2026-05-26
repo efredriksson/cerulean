@@ -341,6 +341,12 @@ describe("formatter integration", function()
          local function f()
             local x = 1
       ]]))
+
+      it("does not duplicate fmt:off content when parse errors precede the block", helpers.check([[
+         local x:a<
+         -- fmt:off
+         b>return
+      ]]))
    end)
 
    describe("pragma", function()

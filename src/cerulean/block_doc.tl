@@ -89,7 +89,7 @@ local function collect_verbatim_lines(
         end
     end
     local result: {string} = {}
-    for line = first_line, stmt.yend do
+    for line = math.max(first_line, previous_end + 1), stmt.yend do
         table.insert(result, source_lines[line] or "")
     end
     return result
@@ -119,19 +119,23 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                     table.insert(pre_fmt_off, comment)
                 end
             end
-            line_before = render_builders.append_comment_docs(
-                parts, pre_fmt_off, line_before
-            )
-            if line_before then
-                table.insert(parts, doc.hardline())
-            end
-            if blank_before_fmt_off_start(stmt, ctx.fmt_off_regions) then
-                table.insert(parts, doc.hardline())
-            end
             local verbatim_lines = collect_verbatim_lines(
                 ctx.source_lines, stmt, previous_end, ctx.fmt_off_regions
             )
-            table.insert(parts, doc.raw(verbatim_lines))
+            if #pre_fmt_off > 0 or #verbatim_lines > 0 then
+                line_before = render_builders.append_comment_docs(
+                    parts, pre_fmt_off, line_before
+                )
+                if line_before then
+                    table.insert(parts, doc.hardline())
+                end
+                if blank_before_fmt_off_start(stmt, ctx.fmt_off_regions) then
+                    table.insert(parts, doc.hardline())
+                end
+                if #verbatim_lines > 0 then
+                    table.insert(parts, doc.raw(verbatim_lines))
+                end
+            end
         else
             line_before = render_builders.append_comment_docs(
                 parts, stmt.leading_comments or {}, line_before
