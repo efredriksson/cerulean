@@ -1,0 +1,142 @@
+"""Custom Grammarinator serializer that interleaves trivia between tokens.
+
+Replaces grammarinator.runtime.serializer.simple_space_serializer.
+
+The Teal grammar marks COMMENT/LINE_COMMENT as channel(HIDDEN) and WS as
+skip, so Grammarinator never emits them. This serializer compensates by
+picking a random separator (space, newline, comment, fmt:off region, ...)
+between each pair of generated tokens. With a high enough trivia rate,
+comments land at every grammar position by chance — including the
+op_leading/op_trailing/before_separator/head/after_opener slots from the
+formatter's comment model.
+
+Knobs (env vars, read once per call):
+
+    FUZZ_TRIVIA_RATE   float in [0,1]. Probability that a token gap is filled
+                       with something other than a single space. 0.0 = behaves
+                       exactly like simple_space_serializer. Default: 0.3.
+    FUZZ_TRIVIA_SEED   int. Optional RNG seed for reproducibility.
+"""
+
+import os
+import random
+
+from grammarinator.runtime import Rule
+
+
+_LINE_COMMENT_BODIES = [
+    "x",
+    "TODO",
+    "note: comment text",
+    "-- nested dashes",
+    "trailing ]]",
+    "with ]==] embedded",
+]
+
+_BLOCK_COMMENT_BODIES = [
+    "b",
+    "block comment",
+    "with ] inside",
+    "with ]] inside",
+    "multi\nline\nblock",
+]
+
+_LONG_BLOCK_BODIES = [
+    "long ] block",
+    "long ]= block",
+    "long ]== block",
+    "multi\nline\nlong\nblock",
+]
+
+
+def _line_comment(rng: random.Random) -> str:
+    return "-- " + rng.choice(_LINE_COMMENT_BODIES) + "\n"
+
+
+def _block_comment(rng: random.Random) -> str:
+    return "--[[" + rng.choice(_BLOCK_COMMENT_BODIES) + "]]"
+
+
+def _long_block_comment(rng: random.Random) -> str:
+    level = rng.randint(1, 3)
+    eq = "=" * level
+    return "--[" + eq + "[" + rng.choice(_LONG_BLOCK_BODIES) + "]" + eq + "]"
+
+
+def _fmt_off_region(rng: random.Random) -> str:
+    return "-- fmt:off\n"
+
+
+def _fmt_on_region(rng: random.Random) -> str:
+    return "-- fmt:on\n"
+
+
+def _pick_separator(rng: random.Random, rate: float, fmt_off_active: list) -> str:
+    if rng.random() >= rate:
+        return " "
+
+    choices = [
+        ("space", 4),
+        ("newline", 3),
+        ("blank_line", 2),
+        ("line_comment", 3),
+        ("block_comment", 3),
+        ("long_block", 1),
+        ("fmt_toggle", 1),
+    ]
+    total = sum(weight for _, weight in choices)
+    roll = rng.uniform(0, total)
+    acc = 0
+    pick = choices[-1][0]
+    for name, weight in choices:
+        acc += weight
+        if roll <= acc:
+            pick = name
+            break
+
+    if pick == "space":
+        return " "
+    if pick == "newline":
+        return "\n"
+    if pick == "blank_line":
+        return "\n\n"
+    if pick == "line_comment":
+        return " " + _line_comment(rng)
+    if pick == "block_comment":
+        return " " + _block_comment(rng) + " "
+    if pick == "long_block":
+        return " " + _long_block_comment(rng) + " "
+    if pick == "fmt_toggle":
+        if fmt_off_active[0]:
+            fmt_off_active[0] = False
+            return "\n" + _fmt_on_region(rng)
+        fmt_off_active[0] = True
+        return "\n" + _fmt_off_region(rng)
+    return " "
+
+
+def trivia_serializer(root: Rule) -> str:
+    rate_str = os.environ.get("FUZZ_TRIVIA_RATE", "0.3")
+    try:
+        rate = float(rate_str)
+    except ValueError:
+        rate = 0.3
+    rate = max(0.0, min(1.0, rate))
+
+    seed_str = os.environ.get("FUZZ_TRIVIA_SEED")
+    rng = random.Random(int(seed_str)) if seed_str else random.Random()
+
+    tokens = list(root.tokens())
+    if not tokens:
+        return ""
+
+    parts = [tokens[0]]
+    fmt_off_active = [False]
+    for tok in tokens[1:]:
+        parts.append(_pick_separator(rng, rate, fmt_off_active))
+        parts.append(tok)
+
+    if fmt_off_active[0]:
+        parts.append("\n" + _fmt_on_region(rng))
+
+    return "".join(parts)

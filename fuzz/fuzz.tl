@@ -4,12 +4,16 @@
 --   tl run fuzz/fuzz.tl -- --until-fail
 --   tl run fuzz/fuzz.tl -- --until-fail --count 5000
 --   tl run fuzz/fuzz.tl -- --kind crash,not_idempotent
+--   tl run fuzz/fuzz.tl -- --trivia-rate 0.3
+--   tl run fuzz/fuzz.tl -- --seed 42 --count 100
+--   tl run fuzz/fuzz.tl -- --depth 30
 -- Silent during the run; prints a summary at the end. Input parse errors are
 -- counted as informational (grammar drift) and do not fail the run. On real
 -- formatter findings, writes fuzz/regressions_spec.lua for debugging.
 local options_module = require("cerulean.options")
 local parser = require("cerulean.parser")
 local rewriter = require("cerulean.rewriter")
+local mutate = require("fuzz.mutate")
 
 local function read_file(path: string): string | nil
     local file = io.open(path, "r")
@@ -99,6 +103,11 @@ local record Config
     kinds: {FailureKind: boolean}
     count: integer
     until_fail: boolean
+    trivia_rate: string
+    seed: string
+    depth: integer
+    seed_corpus_dirs: {string}
+    mutations_per_file: integer
 end
 
 function Config.new(): Config
@@ -107,6 +116,11 @@ function Config.new(): Config
     self.kinds = {}
     self.count = 1000
     self.until_fail = false
+    self.trivia_rate = "0.3"
+    self.seed = ""
+    self.depth = 20
+    self.seed_corpus_dirs = {}
+    self.mutations_per_file = 5
     return self
 end
 
@@ -146,6 +160,62 @@ local function parse_args(): Config
             has_explicit_count = true
         elseif flag == "--until-fail" then
             config.until_fail = true
+        elseif flag == "--trivia-rate" then
+            i = i + 1
+            if i > #arg then
+                io.stderr:write("fuzz: --trivia-rate requires an argument\n")
+                os.exit(2)
+            end
+            local rate = tonumber(arg[i])
+            if not rate or rate < 0 or rate > 1 then
+                io.stderr:write("fuzz: --trivia-rate must be a number in [0,1]\n")
+                os.exit(2)
+            end
+            config.trivia_rate = arg[i]
+        elseif flag == "--seed" then
+            i = i + 1
+            if i > #arg then
+                io.stderr:write("fuzz: --seed requires an argument\n")
+                os.exit(2)
+            end
+            if not tonumber(arg[i]) then
+                io.stderr:write("fuzz: --seed requires a number\n")
+                os.exit(2)
+            end
+            config.seed = arg[i]
+        elseif flag == "--depth" then
+            i = i + 1
+            if i > #arg then
+                io.stderr:write("fuzz: --depth requires an argument\n")
+                os.exit(2)
+            end
+            local d = tonumber(arg[i])
+            if not d or d < 1 then
+                io.stderr:write("fuzz: --depth must be a positive number\n")
+                os.exit(2)
+            end
+            config.depth = math.floor(d)
+        elseif flag == "--seed-corpus" then
+            i = i + 1
+            if i > #arg then
+                io.stderr:write("fuzz: --seed-corpus requires a comma-separated dir list\n")
+                os.exit(2)
+            end
+            for dir in arg[i]:gmatch("[^,]+") do
+                table.insert(config.seed_corpus_dirs, dir)
+            end
+        elseif flag == "--mutations-per-file" then
+            i = i + 1
+            if i > #arg then
+                io.stderr:write("fuzz: --mutations-per-file requires an argument\n")
+                os.exit(2)
+            end
+            local n = tonumber(arg[i])
+            if not n or n < 0 then
+                io.stderr:write("fuzz: --mutations-per-file must be a non-negative number\n")
+                os.exit(2)
+            end
+            config.mutations_per_file = math.floor(n)
         else
             io.stderr:write("fuzz: unknown flag: " .. flag .. "\n")
             os.exit(2)
@@ -168,6 +238,7 @@ end
 local failures: {Failure} = {}
 local total = 0
 local parse_error_count = 0
+local empty_skipped = 0
 
 -- Returns a Failure (formatter-side issue) or nil. Input parse errors bump
 -- parse_error_count and return nil — they're grammar drift, not formatter bugs.
@@ -335,6 +406,7 @@ local function print_summary(config: Config)
 
     io.stdout:write("\n")
     io.stdout:write(string.format("Fuzzed %d inputs.\n", total))
+    io.stdout:write(string.format("Empty inputs (skipped): %d\n", empty_skipped))
     io.stdout:write(string.format("Parse errors (ignored): %d\n\n", parse_error_count))
 
     local counts = counts_by_kind()
@@ -389,13 +461,20 @@ local function setup_generator()
     end
 end
 
-local function generate_batch(batch_size: integer): {string}
-    local ok = os.execute(
-        string.format(
-            "grammarinator-generate TealGenerator.TealGenerator -r chunk -d 20 -n %d -o fuzz/corpus/test_%%d.tl --sys-path fuzz/gen/ -s grammarinator.runtime.serializer.simple_space_serializer 2>/dev/null",
-            batch_size
-        )
+local function generate_batch(config: Config, batch_size: integer): {string}
+    local seed_arg = ""
+    if config.seed ~= "" then
+        seed_arg = " --random-seed " .. config.seed
+    end
+    local env_prefix = "FUZZ_TRIVIA_RATE=" .. config.trivia_rate
+    if config.seed ~= "" then
+        env_prefix = env_prefix .. " FUZZ_TRIVIA_SEED=" .. config.seed
+    end
+    local cmd = string.format(
+        "%s grammarinator-generate TealGenerator.TealGenerator -r chunk -d %d -n %d -o fuzz/corpus/test_%%d.tl --sys-path fuzz/gen/ --sys-path fuzz/ -s serializer.trivia_serializer%s 2>/dev/null",
+        env_prefix, config.depth, batch_size, seed_arg
     )
+    local ok = os.execute(cmd)
     if not ok then
         io.stderr:write("fuzz: grammarinator-generate failed\n")
         os.exit(1)
@@ -418,6 +497,10 @@ local function process_path(config: Config, path: string): boolean
         end
         return false
     end
+    if #content == 0 then
+        empty_skipped = empty_skipped + 1
+        return false
+    end
     local failure = classify(path, content)
     if failure is nil then
         return false
@@ -429,43 +512,106 @@ local function process_path(config: Config, path: string): boolean
     return false
 end
 
-local config = parse_args()
-check_grammarinator_installed()
-setup_generator()
+local function list_tl_files(dirs: {string}): {string}
+    local paths: {string} = {}
+    for _, dir in ipairs(dirs) do
+        local handle = io.popen("find " .. dir .. " -name '*.tl' -type f 2>/dev/null")
+        if handle then
+            for line in handle:lines() do
+                table.insert(paths, line)
+            end
+            handle:close()
+        end
+    end
+    return paths
+end
 
-local generated_total = 0
-local done = false
-while not done do
-    local batch_size: integer
+local function run_seed_corpus_mode(config: Config)
+    local sources = list_tl_files(config.seed_corpus_dirs)
+    if #sources == 0 then
+        io.stderr:write("fuzz: --seed-corpus dirs contain no .tl files\n")
+        os.exit(2)
+    end
+    local seed_int: integer | nil = nil
+    if config.seed ~= "" then
+        seed_int = math.floor(tonumber(config.seed) or 0)
+    end
+    local rng = mutate.Rng.new(seed_int)
+    os.execute("mkdir -p fuzz/corpus")
+
+    local target: integer
     if config.count == 0 then
-        batch_size = MAX_BATCH
+        target = math.huge as integer
     else
-        batch_size = math.min(MAX_BATCH, config.count - generated_total)
-        if batch_size <= 0 then
-            break
-        end
+        target = config.count
     end
 
-    local paths = generate_batch(batch_size)
-    generated_total = generated_total + batch_size
-
-    for _, path in ipairs(paths) do
-        local should_stop = process_path(config, path)
-        if should_stop then
-            done = true
-            break
+    local i = 0
+    while i < target do
+        local source_path = sources[(i % #sources) + 1]
+        local content = read_file(source_path)
+        if content then
+            local mutated = mutate.mutated(
+                content, config.mutations_per_file, rng, source_path
+            )
+            local out_path = string.format("fuzz/corpus/mut_%d.tl", i % MAX_BATCH)
+            local out_file = io.open(out_path, "w")
+            if out_file then
+                out_file:write(mutated)
+                out_file:close()
+                local should_stop = process_path(config, out_path)
+                if should_stop then
+                    return
+                end
+            end
         end
+        i = i + 1
     end
+end
 
-    if not done then
-        if config.count > 0 and generated_total >= config.count then
-            done = true
+local config = parse_args()
+
+if #config.seed_corpus_dirs > 0 then
+    run_seed_corpus_mode(config)
+else
+    check_grammarinator_installed()
+    setup_generator()
+
+    local generated_total = 0
+    local done = false
+    while not done do
+        local batch_size: integer
+        if config.count == 0 then
+            batch_size = MAX_BATCH
+        else
+            batch_size = math.min(MAX_BATCH, config.count - generated_total)
+            if batch_size <= 0 then
+                break
+            end
+        end
+
+        local paths = generate_batch(config, batch_size)
+        generated_total = generated_total + batch_size
+
+        for _, path in ipairs(paths) do
+            local should_stop = process_path(config, path)
+            if should_stop then
+                done = true
+                break
+            end
+        end
+
+        if not done then
+            if config.count > 0 and generated_total >= config.count then
+                done = true
+            end
         end
     end
 end
 
 if config.until_fail and #failures == 0 then
     io.stdout:write(string.format("\nChecked %d samples, no issues found.\n", total))
+    io.stdout:write(string.format("Empty inputs (skipped): %d\n", empty_skipped))
     io.stdout:write(string.format("Parse errors (ignored): %d\n", parse_error_count))
     os.exit(0)
 end
