@@ -363,6 +363,14 @@ describe("formatter integration", function()
          local interface b where function(): b local enum b -- fmt:off
          end end end
       ]]))
+
+      it("does not inject a trailing return when fmt:off spans a for-loop range expression", helpers.check([[
+         for d = 1,
+         -- fmt:off
+         x
+         -- fmt:on
+         do end return
+      ]]))
    end)
 
    describe("pragma", function()
