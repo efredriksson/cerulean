@@ -342,6 +342,11 @@ describe("formatter integration", function()
             local x = 1
       ]]))
 
+      it("does not crash on bracket index followed by line comment at EOF", helpers.parse_error([[
+         a[
+         --
+      ]]))
+
       it("does not duplicate fmt:off content when parse errors precede the block", helpers.check([[
          local x:a<
          -- fmt:off

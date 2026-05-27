@@ -1099,6 +1099,9 @@ do
     ): {Comment}
     local take_same_line_comments: function(token: Token, line: integer): {Comment}
     local take_all_token_comments: function(token: Token): {Comment}
+    local partition_separator_trivia: function(
+        sep_token: Token, next_token?: Token, item_line: integer
+    ): {Comment}, {Comment}
 
     local function token_yend(tk: Token): integer
         if tk.kind == "string" then
@@ -1216,16 +1219,26 @@ do
                 -- Only drain on a separator; a closing bracket's comments belong
                 -- to the bracket-list's end_comments, not to this item.
                 local is_separator = ps.tokens[i].tk == "," or ps.tokens[i].tk == ";"
+                local item_line = item.yend or item.y
+                local sep_trailing: {Comment} = {}
                 if is_separator then
-                    set_inline_trivia(
-                        item, "before_separator", take_all_token_comments(ps.tokens[i])
+                    local before_sep: {Comment}
+                    sep_trailing, before_sep = partition_separator_trivia(
+                        ps.tokens[i], ps.tokens[i + 1], item_line
                     )
+                    set_inline_trivia(item, "before_separator", before_sep)
                 end
                 local comment_token = (is_separator and ps.tokens[i + 1])
                     or ps.tokens[i]
-                item.trailing_comments = take_same_line_comments(
-                    comment_token, item.yend or item.y
-                )
+                local next_same_line = take_same_line_comments(comment_token, item_line)
+                if #sep_trailing == 0 then
+                    item.trailing_comments = next_same_line
+                else
+                    item.trailing_comments = sep_trailing
+                    for _, c in ipairs(next_same_line) do
+                        table.insert(item.trailing_comments, c)
+                    end
+                end
             end
             table.insert(list, item)
             if ps.tokens[i].tk == "," then
@@ -1347,9 +1360,19 @@ do
             )
         do
             if item is Node then
-                set_inline_trivia(
-                    item, "before_separator", take_all_token_comments(ps.tokens[i])
+                local sep_trailing, before_sep = partition_separator_trivia(
+                    ps.tokens[i], ps.tokens[i + 1], item.yend or item.y
                 )
+                set_inline_trivia(item, "before_separator", before_sep)
+                if #sep_trailing > 0 then
+                    if item.trailing_comments == nil then
+                        item.trailing_comments = sep_trailing
+                    else
+                        for _, c in ipairs(sep_trailing) do
+                            table.insert(item.trailing_comments, c)
+                        end
+                    end
+                end
             end
             i = i + 1
             i, item = parse_item(ps, i)
@@ -2922,6 +2945,61 @@ do
         return result
     end
 
+    -- Drains the comments attached to a token that sits AFTER an item
+    -- (typically a separator like `,`, `;`, or `=`) and routes each one
+    -- to the trivia slot whose renderer can handle it:
+    --
+    --   * a line comment (`-- ...`) on the item's line goes into the
+    --     item's trailing_comments — the comment ends the source line,
+    --     so the separator must follow on the next line, which the
+    --     trailing_comments renderer already arranges;
+    --   * a line comment on a later line is relocated onto next_token's
+    --     comment list, where parse_item's get_attached_comments will
+    --     pick it up as a leading_comments entry for the following item
+    --     (or as dangling_comments of the enclosing closer if there is
+    --     no next item);
+    --   * a block comment (`--[[ ... ]]`) stays in before_separator
+    --     inline trivia — block comments do not terminate a source line
+    --     and can sit between the item and the separator.
+    --
+    -- Invariant maintained: before_separator inline trivia never
+    -- contains a line comment, so the renderer is free to emit the
+    -- separator immediately after it.
+    partition_separator_trivia = function(
+        sep_token: Token, next_token: Token, item_line: integer
+    ): {Comment}, {Comment}
+        local lc_list = sep_token.comments
+        if lc_list == nil or #lc_list == 0 then
+            return {}, {}
+        end
+        local trailing: {Comment} = {}
+        local before_sep: {Comment} = {}
+        local relocated: {tl.LexerComment} = {}
+        for _, lc in ipairs(lc_list) do
+            if lc.text:match("^%-%-%[=*%[") then
+                table.insert(before_sep, make_comment(lc))
+            elseif lc.y == item_line then
+                table.insert(trailing, make_comment(lc))
+            else
+                table.insert(relocated, lc)
+            end
+        end
+        for j = #lc_list, 1, -1 do
+            table.remove(lc_list, j)
+        end
+        if #relocated > 0 and next_token ~= nil then
+            local next_list = next_token.comments
+            if next_list == nil then
+                next_token.comments = relocated
+            else
+                for j = #relocated, 1, -1 do
+                    table.insert(next_list, 1, relocated[j])
+                end
+            end
+        end
+        return trailing, before_sep
+    end
+
     -- Mutates token.comments so a downstream get_attached_comments call
     -- cannot re-pick the same comment.
     take_all_token_comments = function(token: Token): {Comment}
@@ -3451,12 +3529,22 @@ do
                 return i
             end
             if ps.tokens[i].tk == "," then
-                set_inline_trivia(
-                    val, "before_separator", take_all_token_comments(ps.tokens[i])
+                local val_line = val.yend or val.y
+                local sep_trailing, before_sep = partition_separator_trivia(
+                    ps.tokens[i], ps.tokens[i + 1], val_line
                 )
-                val.trailing_comments = take_same_line_comments(
-                    ps.tokens[i + 1], val.yend or val.y
+                set_inline_trivia(val, "before_separator", before_sep)
+                local next_same_line = take_same_line_comments(
+                    ps.tokens[i + 1], val_line
                 )
+                if #sep_trailing == 0 then
+                    val.trailing_comments = next_same_line
+                else
+                    val.trailing_comments = sep_trailing
+                    for _, c in ipairs(next_same_line) do
+                        table.insert(val.trailing_comments, c)
+                    end
+                end
             end
             table.insert(asgn.exps, val)
         until ps.tokens[i].tk ~= ","
@@ -3506,11 +3594,14 @@ do
             asgn.vars = new_node(ps, istart, "variable_list")
             asgn.vars[1] = exp
             if ps.tokens[i].tk == "," then
-                set_inline_trivia(
-                    asgn.vars[1],
-                    "before_separator",
-                    take_all_token_comments(ps.tokens[i])
+                local first_var = asgn.vars[1]
+                local sep_trailing, before_sep = partition_separator_trivia(
+                    ps.tokens[i], ps.tokens[i + 1], first_var.yend or first_var.y
                 )
+                set_inline_trivia(first_var, "before_separator", before_sep)
+                if #sep_trailing > 0 then
+                    first_var.trailing_comments = sep_trailing
+                end
                 i = i + 1
                 i = parse_trying_list(ps, i, asgn.vars, parse_variable)
                 if #asgn.vars < 2 then
@@ -3519,9 +3610,19 @@ do
             end
 
             local last_var = asgn.vars[#asgn.vars]
-            set_inline_trivia(
-                last_var, "before_separator", take_all_token_comments(ps.tokens[i])
+            local last_var_trailing, last_var_before_sep = partition_separator_trivia(
+                ps.tokens[i], ps.tokens[i + 1], last_var.yend or last_var.y
             )
+            set_inline_trivia(last_var, "before_separator", last_var_before_sep)
+            if #last_var_trailing > 0 then
+                if last_var.trailing_comments == nil then
+                    last_var.trailing_comments = last_var_trailing
+                else
+                    for _, c in ipairs(last_var_trailing) do
+                        table.insert(last_var.trailing_comments, c)
+                    end
+                end
+            end
             if ps.tokens[i].tk ~= "=" then
                 verify_tk(ps, i, "=")
                 return i
@@ -3547,9 +3648,19 @@ do
         end
 
         local last_var = asgn.vars[#asgn.vars]
-        set_inline_trivia(
-            last_var, "before_separator", take_all_token_comments(ps.tokens[i])
+        local last_var_trailing, last_var_before_sep = partition_separator_trivia(
+            ps.tokens[i], ps.tokens[i + 1], last_var.yend or last_var.y
         )
+        set_inline_trivia(last_var, "before_separator", last_var_before_sep)
+        if #last_var_trailing > 0 then
+            if last_var.trailing_comments == nil then
+                last_var.trailing_comments = last_var_trailing
+            else
+                for _, c in ipairs(last_var_trailing) do
+                    table.insert(last_var.trailing_comments, c)
+                end
+            end
+        end
 
         i, asgn.decltuple = parse_type_list(ps, i, "decltuple")
 
