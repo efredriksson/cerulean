@@ -347,6 +347,17 @@ describe("formatter integration", function()
          -- fmt:off
          b>return
       ]]))
+
+      it("produces stable output when fmt:off appears as trailing comment after invalid syntax", helpers.format([[
+         do
+         end local interface b where function(): b local enum b -- fmt:off
+         end end end
+      ]], [[
+         do
+         end
+         local interface b where function(): b local enum b -- fmt:off
+         end end end
+      ]]))
    end)
 
    describe("pragma", function()

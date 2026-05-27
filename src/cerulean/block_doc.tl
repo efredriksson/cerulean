@@ -80,6 +80,7 @@ local function collect_verbatim_lines(
     source_lines: {string},
     stmt: parser.Node,
     previous_end: integer,
+    previous_was_verbatim: boolean,
     fmt_off_regions: source.Regions
 ): {string}
     local first_line = stmt.y
@@ -89,9 +90,23 @@ local function collect_verbatim_lines(
         end
     end
     local result: {string} = {}
-    for line = math.max(first_line, previous_end + 1), stmt.yend do
-        table.insert(result, source_lines[line] or "")
+    if first_line == previous_end then
+        -- fmt:off statement starts on previous statement's last line.
+        -- If previous was structural, the prefix has been rendered; emit only
+        -- the suffix from stmt.x. If previous was verbatim, the whole line
+        -- was already emitted; skip it.
+        if not previous_was_verbatim then
+            local suffix = source_lines[first_line]:sub(stmt.x)
+            table.insert(result, suffix)
+        end
+        first_line = first_line + 1
     end
+
+    first_line = math.max(first_line, previous_end + 1) -- clamp
+    for line = first_line, stmt.yend do
+        table.insert(result, source_lines[line])
+    end
+
     return result
 end
 
@@ -110,6 +125,7 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
     local parts: {doc.Doc} = {}
     local previous_end: integer = 0
     local line_before = false
+    local previous_was_verbatim = false
 
     for _, stmt in ipairs(block) do
         if stmt_overlaps_fmt_off(stmt, ctx.fmt_off_regions) then
@@ -120,7 +136,11 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                 end
             end
             local verbatim_lines = collect_verbatim_lines(
-                ctx.source_lines, stmt, previous_end, ctx.fmt_off_regions
+                ctx.source_lines,
+                stmt,
+                previous_end,
+                previous_was_verbatim,
+                ctx.fmt_off_regions
             )
             if #pre_fmt_off > 0 or #verbatim_lines > 0 then
                 line_before = render_builders.append_comment_docs(
@@ -136,6 +156,7 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                     table.insert(parts, doc.raw(verbatim_lines))
                 end
             end
+            previous_was_verbatim = true
         else
             line_before = render_builders.append_comment_docs(
                 parts, stmt.leading_comments or {}, line_before
@@ -158,6 +179,7 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
             end
             table.insert(parts, node_doc)
             table.insert(parts, render_builders.trailing_comment_doc(stmt))
+            previous_was_verbatim = false
         end
 
         previous_end = stmt.yend
