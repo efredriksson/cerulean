@@ -128,7 +128,8 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
     local previous_was_verbatim = false
 
     for _, stmt in ipairs(block) do
-        if stmt_overlaps_fmt_off(stmt, ctx.fmt_off_regions) then
+        local overlaps = stmt_overlaps_fmt_off(stmt, ctx.fmt_off_regions)
+        if overlaps then
             local pre_fmt_off: {parser.Comment} = {}
             for _, comment in ipairs(stmt.leading_comments or {}) do
                 if not ctx.fmt_off_regions:includes_line(comment.y) then
@@ -157,6 +158,10 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                 end
             end
             previous_was_verbatim = true
+        elseif previous_was_verbatim and stmt.y == previous_end then
+            -- The previous verbatim block's last line already contains this
+            -- statement's source text; skip to avoid emitting it twice.
+            previous_was_verbatim = false
         else
             line_before = render_builders.append_comment_docs(
                 parts, stmt.leading_comments or {}, line_before
