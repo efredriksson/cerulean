@@ -348,4 +348,30 @@ describe("formatter table constructor wrapping", function()
 }
 ]=]))
 
+   it("wraps a table when a line comment sits between a value and its separator", helpers.format([[
+      return {1 -- x
+      ;2}
+   ]], [[
+      return {
+          1, -- x
+          2,
+      }
+   ]]))
+
+   it("promotes own-line line comment before separator to leading on next item", helpers.format([[
+      return {1
+      -- x
+      ,2}
+   ]], [[
+      return {
+          1,
+          -- x
+          2,
+      }
+   ]]))
+
+   it("keeps a block comment between value and separator inline", helpers.check([=[
+      return {1 --[[b]], 2}
+   ]=]))
+
 end)
