@@ -198,7 +198,9 @@ local function parse_args(): Config
         elseif flag == "--seed-corpus" then
             i = i + 1
             if i > #arg then
-                io.stderr:write("fuzz: --seed-corpus requires a comma-separated dir list\n")
+                io.stderr:write(
+                    "fuzz: --seed-corpus requires a comma-separated dir list\n"
+                )
                 os.exit(2)
             end
             for dir in arg[i]:gmatch("[^,]+") do
@@ -212,7 +214,9 @@ local function parse_args(): Config
             end
             local n = tonumber(arg[i])
             if not n or n < 0 then
-                io.stderr:write("fuzz: --mutations-per-file must be a non-negative number\n")
+                io.stderr:write(
+                    "fuzz: --mutations-per-file must be a non-negative number\n"
+                )
                 os.exit(2)
             end
             config.mutations_per_file = math.floor(n)
@@ -472,7 +476,10 @@ local function generate_batch(config: Config, batch_size: integer): {string}
     end
     local cmd = string.format(
         "%s grammarinator-generate TealGenerator.TealGenerator -r chunk -d %d -n %d -o fuzz/corpus/test_%%d.tl --sys-path fuzz/gen/ --sys-path fuzz/ -s serializer.trivia_serializer%s 2>/dev/null",
-        env_prefix, config.depth, batch_size, seed_arg
+        env_prefix,
+        config.depth,
+        batch_size,
+        seed_arg
     )
     local ok = os.execute(cmd)
     if not ok then
