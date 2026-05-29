@@ -81,7 +81,8 @@ local function collect_verbatim_lines(
     stmt: parser.Node,
     previous_end: integer,
     previous_was_verbatim: boolean,
-    fmt_off_regions: source.Regions
+    fmt_off_regions: source.Regions,
+    next_structural?: parser.Node
 ): {string}
     local first_line = stmt.y
     for _, comment in ipairs(stmt.leading_comments or {}) do
@@ -113,6 +114,20 @@ local function collect_verbatim_lines(
         table.insert(result, source_lines[line])
     end
 
+    -- A following out-of-region statement may begin on this statement's last
+    -- line (e.g. `end --[[c]] local type`). Stop the verbatim text before its
+    -- first token so the structural pass can format it without duplication.
+    if next_structural ~= nil and #result > 0 and next_structural.y == last_line then
+        local truncated = (
+            source_lines[last_line]:sub(1, next_structural.x - 1):gsub("%s+$", "")
+        )
+        if truncated == "" then
+            table.remove(result)
+        else
+            result[#result] = truncated
+        end
+    end
+
     return result
 end
 
@@ -133,7 +148,7 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
     local line_before = false
     local previous_was_verbatim = false
 
-    for _, stmt in ipairs(block) do
+    for idx, stmt in ipairs(block) do
         local overlaps = stmt_overlaps_fmt_off(stmt, ctx.fmt_off_regions)
         if overlaps then
             local pre_fmt_off: {parser.Comment} = {}
@@ -142,12 +157,21 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                     table.insert(pre_fmt_off, comment)
                 end
             end
+            local next_stmt = block[idx + 1]
+            local next_structural: parser.Node
+            if
+                next_stmt ~= nil
+                and not stmt_overlaps_fmt_off(next_stmt, ctx.fmt_off_regions)
+            then
+                next_structural = next_stmt
+            end
             local verbatim_lines = collect_verbatim_lines(
                 ctx.source_lines,
                 stmt,
                 previous_end,
                 previous_was_verbatim,
-                ctx.fmt_off_regions
+                ctx.fmt_off_regions,
+                next_structural
             )
             if #pre_fmt_off > 0 or #verbatim_lines > 0 then
                 line_before = render_builders.append_comment_docs(
@@ -164,10 +188,6 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                 end
             end
             previous_was_verbatim = true
-        elseif previous_was_verbatim and stmt.y == previous_end then
-            -- The previous verbatim block's last line already contains this
-            -- statement's source text; skip to avoid emitting it twice.
-            previous_was_verbatim = false
         else
             line_before = render_builders.append_comment_docs(
                 parts, stmt.leading_comments or {}, line_before
