@@ -371,6 +371,13 @@ describe("formatter integration", function()
          -- fmt:on
          do end return
       ]]))
+
+      it("keeps a trailing multi-line comment closed when fmt:off splits a function header from its body", helpers.check([=[
+         function Y
+         -- fmt:off
+         ( ) end --[[
+         ]]
+      ]=]))
    end)
 
    describe("pragma", function()

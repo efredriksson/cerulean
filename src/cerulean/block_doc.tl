@@ -103,7 +103,13 @@ local function collect_verbatim_lines(
     end
 
     first_line = math.max(first_line, previous_end + 1) -- clamp
-    for line = first_line, stmt.yend do
+    -- A trailing multi-line comment can extend past stmt.yend; include its
+    -- closing lines so the verbatim text stays balanced.
+    local last_line = stmt.yend
+    for _, comment in ipairs(stmt.trailing_comments or {}) do
+        last_line = math.max(last_line, comment.yend)
+    end
+    for line = first_line, last_line do
         table.insert(result, source_lines[line])
     end
 
