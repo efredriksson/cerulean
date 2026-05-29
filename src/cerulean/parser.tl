@@ -3844,6 +3844,7 @@ do
     end
 
     local function parse_local(ps: ParseState, i: integer): integer, Node
+        local keyword = ps.tokens[i]
         local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
         local ntk = ps.tokens[i + 1].tk
         local tn = ntk as TypeName
@@ -3869,12 +3870,17 @@ do
             i, node = parse_variable_declarations(ps, i + 1, "local_declaration")
         end
         if node then
+            -- Anchor the statement at the `local` keyword, not the declared
+            -- name, so source positions are consistent across declaration
+            -- kinds. The name stays available on node.var / node.vars.
+            node.y, node.x = keyword.y, keyword.x
             node.leading_comments = comments
         end
         return i, node
     end
 
     local function parse_global(ps: ParseState, i: integer): integer, Node
+        local keyword = ps.tokens[i]
         local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
         local ntk = ps.tokens[i + 1].tk
         local tn = ntk as TypeName
@@ -3895,6 +3901,10 @@ do
             return parse_call_or_assignment(ps, i)
         end
         if node then
+            -- Anchor the statement at the `global` keyword, not the declared
+            -- name, so source positions are consistent across declaration
+            -- kinds. The name stays available on node.var / node.vars.
+            node.y, node.x = keyword.y, keyword.x
             node.leading_comments = comments
         end
         return i, node

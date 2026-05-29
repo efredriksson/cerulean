@@ -364,12 +364,19 @@ describe("formatter integration", function()
          end end end
       ]]))
 
-      it("does not inject a trailing return when fmt:off spans a for-loop range expression", helpers.check([[
+      it("formats a trailing return sharing the last line of a fmt:off for-loop", helpers.format([[
          for d = 1,
          -- fmt:off
          x
          -- fmt:on
          do end return
+      ]], [[
+         for d = 1,
+         -- fmt:off
+         x
+         -- fmt:on
+         do end
+         return
       ]]))
 
       it("keeps a trailing multi-line comment closed when fmt:off splits a function header from its body", helpers.check([=[
@@ -377,6 +384,16 @@ describe("formatter integration", function()
          -- fmt:off
          ( ) end --[[
          ]]
+      ]=]))
+
+      it("formats an out-of-region declaration sharing a frozen statement's last line", helpers.format([=[
+         local function f() -- fmt:off
+         end --[[block comment]] local type
+         A = B
+      ]=], [=[
+         local function f() -- fmt:off
+         end --[[block comment]]
+         local type A = B
       ]=]))
    end)
 
