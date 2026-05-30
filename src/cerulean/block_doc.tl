@@ -50,13 +50,21 @@ local function block_surface_range(block: parser.Node): source.Range
     return source.Range.new(block_min_source_line(block), max_source_line(block))
 end
 
-local function stmt_child_surface_ranges(stmt: parser.Node): {source.Range}
-    local result: {source.Range} = {}
+local function stmt_child_blocks(stmt: parser.Node): {parser.Node}
+    local result: {parser.Node} = {}
     if stmt.body ~= nil then
-        table.insert(result, block_surface_range(stmt.body))
+        table.insert(result, stmt.body)
     end
     for _, if_block in ipairs(stmt.if_blocks or {}) do
-        table.insert(result, block_surface_range(if_block))
+        table.insert(result, if_block)
+    end
+    return result
+end
+
+local function stmt_child_surface_ranges(stmt: parser.Node): {source.Range}
+    local result: {source.Range} = {}
+    for _, child_block in ipairs(stmt_child_blocks(stmt)) do
+        table.insert(result, block_surface_range(child_block))
     end
     return result
 end
@@ -71,6 +79,24 @@ local function stmt_overlaps_fmt_off(
     for _, range in ipairs(own_ranges) do
         if fmt_off_regions:includes_range(range.first_line, range.last_line) then
             return true
+        end
+    end
+
+    -- The own-range check above subtracts child blocks so an enclosing
+    -- statement can stay structural while only its body is frozen. Structural
+    -- rendering puts the enclosing `end` on the statement's closing line, which
+    -- collides when a frozen child's verbatim text reaches that same line: the
+    -- `end` would be emitted both verbatim and structurally. Freeze the whole
+    -- statement so its source is emitted once.
+    local last_line = max_source_line(stmt)
+    for _, child_block in ipairs(stmt_child_blocks(stmt)) do
+        for _, child in ipairs(child_block) do
+            if
+                max_source_line(child) == last_line
+                and stmt_overlaps_fmt_off(child, fmt_off_regions)
+            then
+                return true
+            end
         end
     end
     return false

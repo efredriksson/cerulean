@@ -3,6 +3,15 @@ local helpers = require("spec.cerulean.helpers")
 describe("formatter integration", function()
 
    describe("fmt: off / fmt: on", function()
+      it("does not duplicate a record declaration split by a fmt:off region", helpers.check([[
+         function M () return
+         -- fmt:off
+         true; end global record e where
+         true
+         -- fmt:on
+         end
+      ]]))
+
       it("skips formatting between directives and resumes after", helpers.format([[
          local function example()
             -- fmt: off

@@ -134,11 +134,27 @@ local function find_enclosing_region_end(
     return innermost_end
 end
 
+-- True when an `fmt:on` closes this `fmt:off` before any further `fmt:off`
+-- opens. An intervening `fmt:off` begins an unrelated region, so the current
+-- one falls back to block scoping rather than swallowing it.
+local function fmt_on_pairs_after(text: Text, after_line: integer): boolean
+    for i = after_line + 1, #text.lines do
+        if text.lines[i]:match("%-%-%s*fmt:%s*on") then
+            return true
+        end
+        if text.lines[i]:match("%-%-%s*fmt:%s*off") then
+            return false
+        end
+    end
+    return false
+end
+
 function source.collect_fmt_off_regions(text: Text, block_regions: {Range}): Regions
     local regions: {Region} = {}
     local formatting_off = false
     local off_start = 0
     local region_end = 0
+    local has_pairing_on = false
 
     for line_number, line_str in ipairs(text.lines) do
         if not formatting_off and line_str:match("%-%-%s*fmt:%s*off") then
@@ -147,19 +163,21 @@ function source.collect_fmt_off_regions(text: Text, block_regions: {Range}): Reg
             region_end = find_enclosing_region_end(
                 block_regions, line_number, #text.lines
             )
+            -- An explicit `fmt:on` overrides block scoping even when the
+            -- directives straddle a block boundary, matching what the author
+            -- wrote.
+            has_pairing_on = fmt_on_pairs_after(text, line_number)
         end
 
         if formatting_off then
-            if line_number >= region_end then
+            if line_number > off_start and line_str:match("%-%-%s*fmt:%s*on") then
+                table.insert(regions, Region.new(off_start, line_number))
+                formatting_off = false
+            elseif line_number >= region_end and not has_pairing_on then
                 if off_start <= region_end - 1 then
                     table.insert(regions, Region.new(off_start, region_end - 1))
                 end
                 formatting_off = false
-            else
-                if line_number > off_start and line_str:match("%-%-%s*fmt:%s*on") then
-                    table.insert(regions, Region.new(off_start, line_number))
-                    formatting_off = false
-                end
             end
         end
     end
