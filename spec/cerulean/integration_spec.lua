@@ -395,6 +395,19 @@ describe("formatter integration", function()
          end --[[block comment]]
          local type A = B
       ]=]))
+
+      it("does not duplicate a nested function declaration frozen by fmt:off", helpers.format([[
+         function f1 ( ) function f2 ( )
+         -- fmt:off
+         end
+         end
+      ]], [[
+         function f1()
+         function f2 ( )
+         -- fmt:off
+         end
+         end
+      ]]))
    end)
 
    describe("pragma", function()

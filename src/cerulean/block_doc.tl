@@ -91,15 +91,20 @@ local function collect_verbatim_lines(
         end
     end
     local result: {string} = {}
-    if first_line == previous_end then
-        -- fmt:off statement starts on previous statement's last line.
-        -- If previous was structural, the prefix has been rendered; emit only
-        -- the suffix from stmt.x. If previous was verbatim, the whole line
-        -- was already emitted; skip it.
-        if not previous_was_verbatim then
-            local suffix = source_lines[first_line]:sub(stmt.x)
-            table.insert(result, suffix)
-        end
+    local shares_previous_line = first_line == previous_end
+    local code_precedes_stmt = first_line == stmt.y
+        and source_lines[first_line]:sub(1, stmt.x - 1):match("%S") ~= nil
+    if shares_previous_line and previous_was_verbatim then
+        -- The previous verbatim statement already emitted this shared line in
+        -- full; skip it so it is not emitted twice.
+        first_line = first_line + 1
+    elseif shares_previous_line or code_precedes_stmt then
+        -- Code before stmt.x on this line belongs to an already-rendered
+        -- structural construct: either a previous sibling that ended here, or
+        -- the enclosing statement whose header shares this line (e.g. a nested
+        -- declaration). Emit only this statement's suffix so that prefix is not
+        -- duplicated.
+        table.insert(result, source_lines[first_line]:sub(stmt.x))
         first_line = first_line + 1
     end
 
