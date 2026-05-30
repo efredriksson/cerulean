@@ -248,9 +248,17 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
         line_before = true
     end
 
-    render_builders.append_comment_docs(
-        parts, block.dangling_comments or {}, line_before
-    )
+    -- A statement frozen by `fmt:off` emits its source range verbatim, which can
+    -- cover a line the parser also recorded as a block dangling comment (the
+    -- `fmt:off` directive sitting in the statement's trailing range). Skip those
+    -- already-emitted lines so the directive is not duplicated.
+    local dangling: {parser.Comment} = {}
+    for _, comment in ipairs(block.dangling_comments or {}) do
+        if comment.y > previous_end then
+            table.insert(dangling, comment)
+        end
+    end
+    render_builders.append_comment_docs(parts, dangling, line_before)
 
     return doc.concat(parts)
 end

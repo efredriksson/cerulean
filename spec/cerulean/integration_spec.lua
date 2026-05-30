@@ -433,6 +433,24 @@ describe("formatter integration", function()
              -- fmt:on
              .Y
       ]]))
+
+      it("does not duplicate the fmt:off directive after a declaration with a trailing return", helpers.check([[
+         local record K
+         end
+         return 0
+         -- fmt:off
+         ;
+      ]]))
+
+      it("does not duplicate the fmt:off directive when a trailing fmt:on closes the region", helpers.check([[
+         local record K
+         end
+         return 0
+         -- fmt:off
+         ;
+
+         -- fmt:on
+      ]]))
    end)
 
    describe("pragma", function()
