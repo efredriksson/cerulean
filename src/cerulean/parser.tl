@@ -1890,8 +1890,10 @@ do
 
                     local prev_i = i
 
+                    local op_leading_trivia = take_all_token_comments(tkop)
                     local key: Node
                     i = i + 1
+                    local op_trailing_trivia = take_all_token_comments(ps.tokens[i])
                     if ps.tokens[i].kind ~= "identifier" then
                         local skipped = skip(ps, i, parse_type as SkipFunction)
                         if skipped > i + 1 then
@@ -1938,6 +1940,8 @@ do
                         e2 = key,
                         yend = key.yend or key.y,
                     }
+                    set_inline_trivia(e1, "op_leading", op_leading_trivia)
+                    set_inline_trivia(e1, "op_trailing", op_trailing_trivia)
                     fmt_logger.debug(
                         "[expr] %s op node: base y=%s op_tk=%s op_y=%s -> node y=%s",
                         op.op,

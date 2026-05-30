@@ -423,6 +423,16 @@ describe("formatter integration", function()
          end
          end
       ]]))
+
+      it("does not duplicate a statement split across a fmt:on directive", helpers.format([[
+         x = a
+         -- fmt:on
+         . Y
+      ]], [[
+         x = a
+             -- fmt:on
+             .Y
+      ]]))
    end)
 
    describe("pragma", function()

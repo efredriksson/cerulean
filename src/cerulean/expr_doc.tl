@@ -281,6 +281,29 @@ local function op_has_any_trivia(node: parser.Node): boolean
         or #parser.inline_trivia(node, "op_trailing") > 0
 end
 
+-- Renders `left op right`, keeping any comment attached to the operator: a
+-- comment between the operands is pushed onto its own line instead of dropped.
+local function join_op_with_trivia(
+    node: parser.Node, left_doc: doc.Doc, right_doc: doc.Doc, plain_separator: doc.Doc
+): doc.Doc
+    local parts: {doc.Doc} = {left_doc}
+    trivia_doc.emit_transition(
+        parts,
+        parser.inline_trivia(node, "op_leading"),
+        node.e1.yend or node.e1.y,
+        doc.text(node.op.op),
+        plain_separator
+    )
+    trivia_doc.emit_transition(
+        parts,
+        parser.inline_trivia(node, "op_trailing"),
+        node.op.y,
+        right_doc,
+        plain_separator
+    )
+    return doc.concat(parts)
+end
+
 local function render_op(
     ctx: RenderContext,
     node: parser.Node,
@@ -292,12 +315,11 @@ local function render_op(
     local right = node.e2
     local op = operator.op
     if op == "." or op == ":" then
-        return doc.concat(
-            {
-                render_expr(ctx, left, operator.prec, same_indent_on_line),
-                doc.text(op),
-                doc.text(right.tk),
-            }
+        return join_op_with_trivia(
+            node,
+            render_expr(ctx, left, operator.prec, same_indent_on_line),
+            doc.text(right.tk),
+            doc.text("")
         )
     elseif op == "@index" then
         local spacing = render_builders.key_starts_with_long_string(right) and " " or ""
@@ -343,25 +365,13 @@ local function render_op(
                 parent_prec
             )
         end
-        local lhs_line = left.yend or left.y
-        local left_doc = render_expr(ctx, left, op_prec, same_indent_on_line)
-        local right_doc = render_expr(ctx, right, op_prec, same_indent_on_line)
-        local parts: {doc.Doc} = {left_doc}
-        trivia_doc.emit_transition(
-            parts,
-            parser.inline_trivia(node, "op_leading"),
-            lhs_line,
-            doc.text(op),
+        local joined = join_op_with_trivia(
+            node,
+            render_expr(ctx, left, op_prec, same_indent_on_line),
+            render_expr(ctx, right, op_prec, same_indent_on_line),
             doc.text(" ")
         )
-        trivia_doc.emit_transition(
-            parts,
-            parser.inline_trivia(node, "op_trailing"),
-            operator.y,
-            right_doc,
-            doc.text(" ")
-        )
-        return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
+        return parenthesize_if_lower_prec(joined, op_prec, parent_prec)
     end
 end
 
