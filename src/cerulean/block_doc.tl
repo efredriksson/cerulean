@@ -56,7 +56,7 @@ local function stmt_child_blocks(stmt: parser.Node): {parser.Node}
         table.insert(result, stmt.body)
     end
     for _, if_block in ipairs(stmt.if_blocks or {}) do
-        table.insert(result, if_block)
+        table.insert(result, if_block.body)
     end
     return result
 end
