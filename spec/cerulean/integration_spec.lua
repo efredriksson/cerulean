@@ -12,6 +12,12 @@ describe("formatter integration", function()
          end
       ]]))
 
+      it("freezes an if header whose fmt:off is a trailing comment", helpers.check([=[
+         if Cn -- fmt:off
+         then return end
+         -- fmt:on
+      ]=]))
+
       it("skips formatting between directives and resumes after", helpers.format([[
          local function example()
             -- fmt: off
