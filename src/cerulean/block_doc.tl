@@ -146,7 +146,25 @@ local function collect_verbatim_lines(
         -- the enclosing statement whose header shares this line (e.g. a nested
         -- declaration). Emit only this statement's suffix so that prefix is not
         -- duplicated.
-        table.insert(result, source_lines[first_line]:sub(stmt.x))
+        --
+        -- Exception: a multiline block comment whose opening is in the previous
+        -- verbatim region but whose closing falls on this line. In that case
+        -- the prefix is the closing delimiter (e.g. `]]`) which has not been
+        -- emitted yet, so the full line must be included.
+        local emit_full_line = false
+        if code_precedes_stmt and not shares_previous_line then
+            for _, comment in ipairs(stmt.leading_comments or {}) do
+                if comment.y < first_line and comment.yend >= first_line then
+                    emit_full_line = true
+                    break
+                end
+            end
+        end
+        if emit_full_line then
+            table.insert(result, source_lines[first_line])
+        else
+            table.insert(result, source_lines[first_line]:sub(stmt.x))
+        end
         first_line = first_line + 1
     end
 

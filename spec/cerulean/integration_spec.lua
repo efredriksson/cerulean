@@ -419,6 +419,14 @@ describe("formatter integration", function()
          ]]
       ]=]))
 
+      it("does not drop the closing ]] of a block comment spanning lines inside a fmt:off region", helpers.check([=[
+         function a
+         -- fmt:off
+         ()end;--[[
+         ]]return
+         -- fmt:on
+      ]=]))
+
       it("formats an out-of-region declaration sharing a frozen statement's last line", helpers.format([=[
          local function f() -- fmt:off
          end --[[block comment]] local type
