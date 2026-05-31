@@ -1615,4 +1615,17 @@ describe("formatter structural block rendering", function()
          local x = function() local a = 1; (b)() end
       ]]))
    end)
+
+   describe("function expression as an if condition with a comment after the parameter list", function()
+      it("does not join the closing end onto the comment line when the function body is empty", helpers.format([[
+         if function() --x
+         end then return b
+         end
+      ]], [[
+         if function() --x
+         end then
+             return b
+         end
+      ]]))
+   end)
 end)

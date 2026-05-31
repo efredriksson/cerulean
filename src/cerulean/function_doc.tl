@@ -32,13 +32,17 @@ function function_doc.render(
     )
     local body_doc = ctx.render_block(node.body)
     assert(body_doc ~= nil, "bad body not caught early")
-    return doc.concat(
+    local func_doc = doc.concat(
         {
             header,
             doc.indent_line(doc.trim_lines(body_doc)),
             doc.close("end"),
         }
     )
+    if #parser.inline_trivia(node, "head") > 0 then
+        func_doc = doc.concat({func_doc, doc.break_parent()})
+    end
+    return func_doc
 end
 
 function function_doc.render_anonymous(
