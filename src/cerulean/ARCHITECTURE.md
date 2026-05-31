@@ -21,7 +21,7 @@ If blocked or render fails: keep original source.
 - `doc.tl` — doc algebra + renderer.
 - `block_doc.tl` — block rendering, statement glue, `make_context()` factory.
 - `stmt_doc.tl` / `expr_doc.tl` / `table_doc.tl` / `signature_doc.tl` — per-kind rendering.
-- `paren_list_doc.tl` — parenthesized comma-separated list renderer (no trailing comma, full comment threading); shared by call argument lists (`expr_doc`) and parameter lists (`signature_doc`).
+- `delimited_list_doc.tl` — comma-separated, comment-threaded list rendering. `render_items` is the framing-agnostic item loop (driven by an `ItemRenderSpec`); `render_parens` frames it with `(…)`. Shared by call argument lists + parameter lists (`expr_doc`/`signature_doc` via `render_parens`) and table constructors (`table_doc` via `render_items`).
 - `render_builders.tl` — shared doc helpers.
 - `require_sort.tl` — top-level require reorder.
 
