@@ -1371,7 +1371,7 @@ describe("formatter comment matrix (single-line)", function()
       it("preserves multiple block comments after call open paren", helpers.format([=[
          f( --[[a]] --[[b]] x)
       ]=], [=[
-         f(--[[a]] --[[b]]
+         f( --[[a]] --[[b]]
              x
          )
       ]=]))

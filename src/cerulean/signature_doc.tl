@@ -1,7 +1,7 @@
 -- Function parameter list → doc.Doc.
 local doc = require("cerulean.doc")
+local paren_list_doc = require("cerulean.paren_list_doc")
 local parser = require("cerulean.parser")
-local render_builders = require("cerulean.render_builders")
 local type_doc = require("cerulean.type_doc")
 
 local signature_doc = {}
@@ -23,23 +23,20 @@ local function build_signature_item_doc(arg_node: parser.Node): doc.Doc
     return doc.concat(parts)
 end
 
-local function build_signature_item_docs(args: parser.Node): {doc.Doc}
-    local result: {doc.Doc} = {}
-
+local function argument_nodes(args: parser.Node): {parser.Node}
+    local result: {parser.Node} = {}
     for _, arg_node in ipairs(args) do
         if arg_node.kind == "argument" then
-            table.insert(result, build_signature_item_doc(arg_node))
+            table.insert(result, arg_node)
         end
     end
-
     return result
 end
 
+-- Parameter lists are paren-delimited with no trailing comma, exactly like
+-- function call argument lists, so both delegate to `paren_list_doc.render`.
 function signature_doc.render_signature_doc(args: parser.Node): doc.Doc
-    local opts = render_builders.DelimitedSequenceOptions.new("(", ")")
-    local item_docs = build_signature_item_docs(args)
-
-    return doc.group(render_builders.build_delimited_sequence_doc(item_docs, opts))
+    return paren_list_doc.render(args, argument_nodes(args), build_signature_item_doc)
 end
 
 return signature_doc

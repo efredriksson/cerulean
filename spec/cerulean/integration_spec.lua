@@ -244,6 +244,24 @@ describe("formatter integration", function()
          -- fmt: off
          local x = {1,  2,  3}
       ]]))
+
+      it("does not drop the closing of a multiline block comment trailing a statement in a fmt:off block", helpers.check([=[
+         function a( -- fmt:off
+         ) end ; --[[
+         ]]
+      ]=]))
+
+      it("does not drop the closing of a multiline block comment trailing a statement in a fmt:off block", helpers.format([=[
+         function a( -- keep me
+         ) end ; --[[ keep me
+         ]]
+      ]=], [=[
+         function a( -- keep me
+         )
+         end
+         --[[ keep me
+         ]]
+      ]=]))
    end)
 
    describe("multi-line expressions in local declarations", function()

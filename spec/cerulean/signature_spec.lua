@@ -257,4 +257,69 @@ describe("formatter signature wrapping", function()
       ]]))
 
    end)
+
+   describe("comments in parameter lists", function()
+
+      it("preserves a same-line trailing comment after the last parameter", helpers.format([[
+         function f(a -- note
+         ) end
+      ]], [[
+         function f(
+             a -- note
+         )
+         end
+      ]]))
+
+      it("preserves an own-line comment after a parameter", helpers.format([[
+         function f(a
+            -- note
+         ) end
+      ]], [[
+         function f(
+             a
+             -- note
+         )
+         end
+      ]]))
+
+      it("keeps a comment on the opener line when a parameter follows", helpers.format([[
+         function f( -- note
+            a
+         ) end
+      ]], [[
+         function f( -- note
+             a
+         )
+         end
+      ]]))
+
+      it("keeps a comment on the opener line of an empty parameter list", helpers.check([[
+         function f( -- note
+         )
+         end
+      ]]))
+
+      it("preserves a trailing comment after the last parameter of an anonymous function", helpers.format([[
+         local f = function(a, b -- note
+         ) end
+      ]], [[
+         local f = function(
+             a,
+             b -- note
+         )
+         end
+      ]]))
+
+      pending("preserves an own-line comment before ) in a call argument list", helpers.format([[
+         f(a
+            -- note
+         )
+      ]], [[
+         f(
+             a
+             -- note
+         )
+      ]]))
+
+   end)
 end)

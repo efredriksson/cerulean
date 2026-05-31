@@ -89,7 +89,7 @@ describe("formatter function expressions", function()
       f(--hmm
             5)
    ]], [[
-      f(--hmm
+      f( --hmm
           5
       )
    ]]))
