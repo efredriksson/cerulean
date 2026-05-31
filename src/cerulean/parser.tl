@@ -2306,7 +2306,14 @@ do
 
     parse_argument_list = function(ps: ParseState, i: integer): integer, Node, integer
         local node = new_node(ps, i, "argument_list")
+        local open_paren_leading_trivia = take_same_line_comments(
+            ps.tokens[i + 1], ps.tokens[i].y
+        )
         i, node = parse_bracket_list(ps, i, node, "(", ")", "sep", parse_argument)
+        set_inline_trivia(node, "after_opener", open_paren_leading_trivia)
+        node.dangling_comments = get_attached_comments(
+            ps.tokens[i - 1], ps.tokens[i - 2]
+        )
         local opts = false
         local min_arity = 0
         for a, fnarg in ipairs(node) do

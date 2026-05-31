@@ -2,6 +2,7 @@
 -- logical chains produce breakable groups at any nesting level; tables delegate to table_doc.
 local doc = require("cerulean.doc")
 local function_doc = require("cerulean.function_doc")
+local paren_list_doc = require("cerulean.paren_list_doc")
 local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
@@ -211,67 +212,7 @@ local function call_doc_build_call_expr_doc(
     ctx: RenderContext, callee: parser.Node, args: parser.Node
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee, true)
-    local args_after_opener = parser.inline_trivia(args, "after_opener")
-    local force_wrap = render_builders.any_items_have_comments(args)
-        or #args_after_opener > 0
-    local parts: {doc.Doc} = {}
-    local line_before = false
-
-    for index, arg_node in ipairs(args) do
-        line_before = render_builders.append_comment_docs(
-            parts, arg_node.leading_comments or {}, line_before
-        )
-        table.insert(
-            parts, render_builders.append_lines_pre_node(arg_node, line_before)
-        )
-        local arg_parts: {doc.Doc} = {ctx.render_expr(arg_node)}
-        trivia_doc.append_inline(
-            arg_parts, parser.inline_trivia(arg_node, "before_separator")
-        )
-        if index < #args then
-            local has_trailing = #(arg_node.trailing_comments or {}) > 0
-            local sep = has_trailing and "," or ", "
-            table.insert(arg_parts, doc.text(sep))
-        end
-        table.insert(parts, doc.concat(arg_parts))
-        table.insert(parts, render_builders.trailing_comment_doc(arg_node))
-        line_before = true
-    end
-
-    local args_items_doc = doc.concat(parts)
-    if not force_wrap then
-        args_items_doc = doc.group(args_items_doc)
-    end
-
-    local function build_args_doc(): doc.Doc
-        local arg_items_trimed = doc.trim_lines(args_items_doc)
-        if #args_after_opener > 0 then
-            local prefix_parts: {doc.Doc} = {}
-            trivia_doc.append_inline_joined(prefix_parts, args_after_opener)
-            table.insert(prefix_parts, doc.indent_hardline(arg_items_trimed))
-            return doc.concat(prefix_parts)
-        else
-            return doc.concat(
-                {
-                    doc.indent_softline(arg_items_trimed),
-                }
-            )
-        end
-    end
-
-    local call_args_doc = doc.concat(
-        {
-            doc.text("("),
-            build_args_doc(),
-            doc.softclose(")"),
-        }
-    )
-    if force_wrap then
-        call_args_doc = doc.concat({doc.break_parent(), call_args_doc})
-    else
-        call_args_doc = doc.group(call_args_doc)
-    end
-
+    local call_args_doc = paren_list_doc.render(args, args, ctx.render_expr)
     local args_tc = render_builders.trailing_comment_doc(args)
     return doc.concat({callee_doc, call_args_doc, args_tc})
 end

@@ -16,10 +16,17 @@ local function node_end_line(node: parser.Node): integer
     return node.yend or node.y
 end
 
-local function stmt_verbatim_last_line(stmt: parser.Node): integer
+local function verbatim_extent(
+    stmt: parser.Node, block_dangling: {parser.Comment}
+): integer
     local last = stmt.yend
     for _, comment in ipairs(stmt.trailing_comments or {}) do
         last = math.max(last, comment.yend)
+    end
+    for _, comment in ipairs(block_dangling) do
+        if comment.y <= last then
+            last = math.max(last, comment.yend)
+        end
     end
     return last
 end
@@ -113,6 +120,7 @@ end
 local function collect_verbatim_lines(
     source_lines: {string},
     stmt: parser.Node,
+    last_line: integer,
     previous_end: integer,
     previous_was_verbatim: boolean,
     fmt_off_regions: source.Regions,
@@ -143,7 +151,6 @@ local function collect_verbatim_lines(
     end
 
     first_line = math.max(first_line, previous_end + 1) -- clamp
-    local last_line = stmt_verbatim_last_line(stmt)
     for line = first_line, last_line do
         table.insert(result, source_lines[line])
     end
@@ -179,6 +186,7 @@ end
 local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc | nil
     local parts: {doc.Doc} = {}
     local previous_end: integer = 0
+    local verbatim_boundary: integer = 0
     local line_before = false
     local previous_was_verbatim = false
 
@@ -199,9 +207,11 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
             then
                 next_structural = next_stmt
             end
+            local last_line = verbatim_extent(stmt, block.dangling_comments or {})
             local verbatim_lines = collect_verbatim_lines(
                 ctx.source_lines,
                 stmt,
+                last_line,
                 previous_end,
                 previous_was_verbatim,
                 ctx.fmt_off_regions,
@@ -222,7 +232,8 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                 end
             end
             previous_was_verbatim = true
-            previous_end = stmt_verbatim_last_line(stmt)
+            previous_end = last_line
+            verbatim_boundary = last_line
         else
             line_before = render_builders.append_comment_docs(
                 parts, stmt.leading_comments or {}, line_before
@@ -252,13 +263,13 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
         line_before = true
     end
 
-    -- A statement frozen by `fmt:off` emits its source range verbatim, which can
-    -- cover a line the parser also recorded as a block dangling comment (the
-    -- `fmt:off` directive sitting in the statement's trailing range). Skip those
-    -- already-emitted lines so the directive is not duplicated.
+    -- Dangling comments that fall inside a verbatim region were already emitted
+    -- as raw source; skip them to avoid duplication. Comments that start after
+    -- the last verbatim boundary are always included, even if they share a line
+    -- with the last structural statement's yend.
     local dangling: {parser.Comment} = {}
     for _, comment in ipairs(block.dangling_comments or {}) do
-        if comment.y > previous_end then
+        if comment.y > verbatim_boundary then
             table.insert(dangling, comment)
         end
     end
