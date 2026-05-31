@@ -117,68 +117,147 @@ local function stmt_overlaps_fmt_off(
     return false
 end
 
-local function collect_verbatim_lines(
-    source_lines: {string},
-    stmt: parser.Node,
+-- A run is a maximal sequence of consecutive frozen statements whose source
+-- lines stay contiguous. Its lines are emitted verbatim as a single block, so
+-- the seams between statements never need stitching.
+local record Run
+    first_line: integer
+    last_line: integer
+    first_stmt: parser.Node
+    last_stmt: parser.Node
+end
+
+function Run.new(
+    first_line: integer,
     last_line: integer,
-    previous_end: integer,
-    previous_was_verbatim: boolean,
-    fmt_off_regions: source.Regions,
-    next_structural?: parser.Node
-): {string}
+    first_stmt: parser.Node,
+    last_stmt: parser.Node
+): Run
+    local self: Run = setmetatable({}, {__index = Run})
+    self.first_line = first_line
+    self.last_line = last_line
+    self.first_stmt = first_stmt
+    self.last_stmt = last_stmt
+    return self
+end
+
+-- A block partitions into segments: each is either a frozen Run or a single
+-- structural statement. Grouping resolves all run boundaries up front so that
+-- rendering is a flat walk with no index arithmetic.
+local record Segment
+    run: Run
+    stmt: parser.Node
+end
+
+function Segment.frozen(run: Run): Segment
+    local self: Segment = setmetatable({}, {__index = Segment})
+    self.run = run
+    return self
+end
+
+function Segment.structural(stmt: parser.Node): Segment
+    local self: Segment = setmetatable({}, {__index = Segment})
+    self.stmt = stmt
+    return self
+end
+
+-- The first source line a frozen statement contributes: its own line, extended
+-- back to cover any leading comment that falls inside a frozen region after the
+-- previous emission boundary.
+local function back_extended_first_line(
+    stmt: parser.Node, previous_boundary: integer, fmt_off_regions: source.Regions
+): integer
     local first_line = stmt.y
     for _, comment in ipairs(stmt.leading_comments or {}) do
-        if comment.y > previous_end and fmt_off_regions:includes_line(comment.y) then
+        if
+            comment.y > previous_boundary and fmt_off_regions:includes_line(comment.y)
+        then
             first_line = math.min(first_line, comment.y)
         end
     end
+    return first_line
+end
+
+-- Guards run continuation: an unfrozen line between two frozen statements
+-- (e.g. a `-- fmt:on` directive) must break the run so that gap renders
+-- structurally. Tests the open interval `(after, before)`.
+local function gap_fully_frozen(
+    fmt_off_regions: source.Regions, after: integer, before: integer
+): boolean
+    for line = after + 1, before - 1 do
+        if not fmt_off_regions:includes_line(line) then
+            return false
+        end
+    end
+    return true
+end
+
+-- Group the maximal contiguous run of frozen statements starting at `start_idx`
+-- and resolve its source line span. Returns the run and the index of its last
+-- statement so the caller can resume after it.
+local function build_run(
+    block: parser.Node,
+    start_idx: integer,
+    previous_boundary: integer,
+    fmt_off_regions: source.Regions,
+    block_dangling: {parser.Comment}
+): Run, integer
+    local first_stmt = block[start_idx]
+    local first_line = back_extended_first_line(
+        first_stmt, previous_boundary, fmt_off_regions
+    )
+    local end_idx = start_idx
+    local last_line = verbatim_extent(first_stmt, block_dangling)
+    for candidate_idx = start_idx + 1, #block do
+        local candidate = block[candidate_idx]
+        if not stmt_overlaps_fmt_off(candidate, fmt_off_regions) then
+            break
+        end
+        local next_first = back_extended_first_line(
+            candidate, last_line, fmt_off_regions
+        )
+        if not gap_fully_frozen(fmt_off_regions, last_line, next_first) then
+            break
+        end
+        end_idx = candidate_idx
+        last_line = verbatim_extent(candidate, block_dangling)
+    end
+    return Run.new(first_line, last_line, first_stmt, block[end_idx]), end_idx
+end
+
+local function code_precedes_on_line(
+    source_lines: {string}, line: integer, column: integer
+): boolean
+    return source_lines[line]:sub(1, column - 1):match("%S") ~= nil
+end
+
+local function collect_run_lines(
+    source_lines: {string},
+    run: Run,
+    code_precedes_run: boolean,
+    next_structural?: parser.Node
+): {string}
     local result: {string} = {}
-    local shares_previous_line = first_line == previous_end
-    local code_precedes_stmt = first_line == stmt.y
-        and source_lines[first_line]:sub(1, stmt.x - 1):match("%S") ~= nil
-    if shares_previous_line and previous_was_verbatim then
-        -- The previous verbatim statement already emitted this shared line in
-        -- full; skip it so it is not emitted twice.
-        first_line = first_line + 1
-    elseif shares_previous_line or code_precedes_stmt then
-        -- Code before stmt.x on this line belongs to an already-rendered
-        -- structural construct: either a previous sibling that ended here, or
-        -- the enclosing statement whose header shares this line (e.g. a nested
-        -- declaration). Emit only this statement's suffix so that prefix is not
-        -- duplicated.
-        --
-        -- Exception: a multiline block comment whose opening is in the previous
-        -- verbatim region but whose closing falls on this line. In that case
-        -- the prefix is the closing delimiter (e.g. `]]`) which has not been
-        -- emitted yet, so the full line must be included.
-        local emit_full_line = false
-        if code_precedes_stmt and not shares_previous_line then
-            for _, comment in ipairs(stmt.leading_comments or {}) do
-                if comment.y < first_line and comment.yend >= first_line then
-                    emit_full_line = true
-                    break
-                end
-            end
-        end
-        if emit_full_line then
-            table.insert(result, source_lines[first_line])
-        else
-            table.insert(result, source_lines[first_line]:sub(stmt.x))
-        end
+    local first_line = run.first_line
+    if code_precedes_run then
+        -- Structural code precedes the freeze column on the run's first line
+        -- (e.g. `local function f() -- fmt:off`); emit only the frozen suffix so
+        -- the already-rendered prefix is not duplicated.
+        table.insert(result, source_lines[first_line]:sub(run.first_stmt.x))
         first_line = first_line + 1
     end
-
-    first_line = math.max(first_line, previous_end + 1) -- clamp
-    for line = first_line, last_line do
+    for line = first_line, run.last_line do
         table.insert(result, source_lines[line])
     end
 
-    -- A following out-of-region statement may begin on this statement's last
-    -- line (e.g. `end --[[c]] local type`). Stop the verbatim text before its
-    -- first token so the structural pass can format it without duplication.
-    if next_structural ~= nil and #result > 0 and next_structural.y == last_line then
+    -- A following out-of-region statement may begin on the run's last line
+    -- (e.g. `end --[[c]] local type`). Stop the verbatim text before its first
+    -- token so the structural pass can format it without duplication.
+    if
+        next_structural ~= nil and #result > 0 and next_structural.y == run.last_line
+    then
         local truncated = (
-            source_lines[last_line]:sub(1, next_structural.x - 1):gsub("%s+$", "")
+            source_lines[run.last_line]:sub(1, next_structural.x - 1):gsub("%s+$", "")
         )
         if truncated == "" then
             table.remove(result)
@@ -201,39 +280,64 @@ local function blank_before_fmt_off_start(
     return stmt.blank_line_before
 end
 
+-- Partition a block into its frozen runs and structural statements. All
+-- run-boundary arithmetic lives here, so the renderer walks a flat list.
+local function group_segments(
+    block: parser.Node,
+    fmt_off_regions: source.Regions,
+    block_dangling: {parser.Comment}
+): {Segment}
+    local segments: {Segment} = {}
+    local previous_boundary = 0
+    local consumed = 0
+    for idx, stmt in ipairs(block) do
+        if idx > consumed then
+            if stmt_overlaps_fmt_off(stmt, fmt_off_regions) then
+                local run, run_end_idx = build_run(
+                    block, idx, previous_boundary, fmt_off_regions, block_dangling
+                )
+                consumed = run_end_idx
+                previous_boundary = run.last_line
+                table.insert(segments, Segment.frozen(run))
+            else
+                previous_boundary = stmt.yend
+                table.insert(segments, Segment.structural(stmt))
+            end
+        end
+    end
+    return segments
+end
+
 local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc | nil
     local parts: {doc.Doc} = {}
-    local previous_end: integer = 0
     local verbatim_boundary: integer = 0
     local line_before = false
-    local previous_was_verbatim = false
 
-    for idx, stmt in ipairs(block) do
-        local overlaps = stmt_overlaps_fmt_off(stmt, ctx.fmt_off_regions)
-        if overlaps then
+    local segments = group_segments(
+        block, ctx.fmt_off_regions, block.dangling_comments or {}
+    )
+    for idx, segment in ipairs(segments) do
+        if segment.run ~= nil then
+            local run = segment.run
             local pre_fmt_off: {parser.Comment} = {}
-            for _, comment in ipairs(stmt.leading_comments or {}) do
+            for _, comment in ipairs(run.first_stmt.leading_comments or {}) do
                 if not ctx.fmt_off_regions:includes_line(comment.y) then
                     table.insert(pre_fmt_off, comment)
                 end
             end
-            local next_stmt = block[idx + 1]
+            -- Truncate only against a following structural statement; the next
+            -- segment's stmt is nil when that segment is a run, disabling it.
+            local next_segment = segments[idx + 1]
             local next_structural: parser.Node
-            if
-                next_stmt ~= nil
-                and not stmt_overlaps_fmt_off(next_stmt, ctx.fmt_off_regions)
-            then
-                next_structural = next_stmt
+            if next_segment ~= nil then
+                next_structural = next_segment.stmt
             end
-            local last_line = verbatim_extent(stmt, block.dangling_comments or {})
-            local verbatim_lines = collect_verbatim_lines(
-                ctx.source_lines,
-                stmt,
-                last_line,
-                previous_end,
-                previous_was_verbatim,
-                ctx.fmt_off_regions,
-                next_structural
+            local code_precedes_run = run.first_line == run.first_stmt.y
+                and code_precedes_on_line(
+                    ctx.source_lines, run.first_line, run.first_stmt.x
+                )
+            local verbatim_lines = collect_run_lines(
+                ctx.source_lines, run, code_precedes_run, next_structural
             )
             if #pre_fmt_off > 0 or #verbatim_lines > 0 then
                 line_before = render_builders.append_comment_docs(
@@ -242,17 +346,16 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                 if line_before then
                     table.insert(parts, doc.hardline())
                 end
-                if blank_before_fmt_off_start(stmt, ctx.fmt_off_regions) then
+                if blank_before_fmt_off_start(run.first_stmt, ctx.fmt_off_regions) then
                     table.insert(parts, doc.hardline())
                 end
                 if #verbatim_lines > 0 then
                     table.insert(parts, doc.raw(verbatim_lines))
                 end
             end
-            previous_was_verbatim = true
-            previous_end = last_line
-            verbatim_boundary = last_line
+            verbatim_boundary = run.last_line
         else
+            local stmt = segment.stmt
             line_before = render_builders.append_comment_docs(
                 parts, stmt.leading_comments or {}, line_before
             )
@@ -274,8 +377,6 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
             end
             table.insert(parts, node_doc)
             table.insert(parts, render_builders.trailing_comment_doc(stmt))
-            previous_was_verbatim = false
-            previous_end = stmt.yend
         end
 
         line_before = true

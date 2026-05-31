@@ -262,6 +262,15 @@ describe("formatter integration", function()
          --[[ keep me
          ]]
       ]=]))
+
+      it("keeps two back-to-back fmt:off regions frozen with no structural statement between", helpers.check([[
+         -- fmt:off
+         local x  =  1
+         -- fmt:on
+         -- fmt:off
+         local y  =  2
+         -- fmt:on
+      ]]))
    end)
 
    describe("multi-line expressions in local declarations", function()
