@@ -451,6 +451,22 @@ describe("formatter integration", function()
 
          -- fmt:on
       ]]))
+
+      it("does not duplicate the trailing return of a fmt:off block whose last line ends a multiline comment", helpers.format([=[
+         a : --[==[a]==] a { [ a is nil ] = a } function a (
+         -- fmt:off
+         ) local enum a end do end end --[[a
+         a]] return a
+         -- fmt:on
+      ]=], [=[
+         a: --[==[a]==]
+             a({[a is nil] = a})
+         function a (
+         -- fmt:off
+         ) local enum a end do end end --[[a
+         a]] return a
+         -- fmt:on
+      ]=]))
    end)
 
    describe("pragma", function()

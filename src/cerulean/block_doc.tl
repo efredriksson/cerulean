@@ -16,6 +16,14 @@ local function node_end_line(node: parser.Node): integer
     return node.yend or node.y
 end
 
+local function stmt_verbatim_last_line(stmt: parser.Node): integer
+    local last = stmt.yend
+    for _, comment in ipairs(stmt.trailing_comments or {}) do
+        last = math.max(last, comment.yend)
+    end
+    return last
+end
+
 local function max_source_line(node: parser.Node): integer
     local max_line = node_end_line(node)
     ast_traversal.walk_descendants(
@@ -135,12 +143,7 @@ local function collect_verbatim_lines(
     end
 
     first_line = math.max(first_line, previous_end + 1) -- clamp
-    -- A trailing multi-line comment can extend past stmt.yend; include its
-    -- closing lines so the verbatim text stays balanced.
-    local last_line = stmt.yend
-    for _, comment in ipairs(stmt.trailing_comments or {}) do
-        last_line = math.max(last_line, comment.yend)
-    end
+    local last_line = stmt_verbatim_last_line(stmt)
     for line = first_line, last_line do
         table.insert(result, source_lines[line])
     end
@@ -219,6 +222,7 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                 end
             end
             previous_was_verbatim = true
+            previous_end = stmt_verbatim_last_line(stmt)
         else
             line_before = render_builders.append_comment_docs(
                 parts, stmt.leading_comments or {}, line_before
@@ -242,9 +246,9 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
             table.insert(parts, node_doc)
             table.insert(parts, render_builders.trailing_comment_doc(stmt))
             previous_was_verbatim = false
+            previous_end = stmt.yend
         end
 
-        previous_end = stmt.yend
         line_before = true
     end
 
