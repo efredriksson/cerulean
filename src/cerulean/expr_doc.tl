@@ -1,8 +1,8 @@
 -- AST expression node → doc.Doc. Leaf nodes and simple operators produce flat text;
 -- logical chains produce breakable groups at any nesting level; tables delegate to table_doc.
+local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
 local function_doc = require("cerulean.function_doc")
-local paren_list_doc = require("cerulean.paren_list_doc")
 local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
@@ -212,7 +212,7 @@ local function call_doc_build_call_expr_doc(
     ctx: RenderContext, callee: parser.Node, args: parser.Node
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee, true)
-    local call_args_doc = paren_list_doc.render(args, args, ctx.render_expr)
+    local call_args_doc = delimited_list_doc.render_parens(args, args, ctx.render_expr)
     local args_tc = render_builders.trailing_comment_doc(args)
     return doc.concat({callee_doc, call_args_doc, args_tc})
 end

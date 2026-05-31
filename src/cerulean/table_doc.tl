@@ -1,12 +1,13 @@
 -- Table constructor → doc.Doc (build_table_doc) or {string} (render_table).
+local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
 local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
-local trivia_doc = require("cerulean.trivia_doc")
 local type_doc = require("cerulean.type_doc")
 
 local type RenderContext = render_context.RenderContext
+local type ItemRenderSpec = delimited_list_doc.ItemRenderSpec
 
 local table_doc = {}
 
@@ -85,44 +86,40 @@ local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc
     )
 end
 
+-- A cast value needs `;`, or the trailing `,` gets read as a return-type separator.
+-- The last item's separator is `if_wrapped` so the trailing comma only shows once
+-- the list breaks across lines.
+local function table_separator(item: parser.Node, is_last: boolean): doc.Doc
+    local effective_sep = (item_value_needs_semicolon(item.value) and ";") or ","
+    local has_trailing = #(item.trailing_comments or {}) > 0
+    local sep = has_trailing and effective_sep or effective_sep .. " "
+    if is_last then
+        return doc.if_wrapped(sep)
+    end
+    return doc.text(sep)
+end
+
+local function table_item_render_spec(
+    ctx: RenderContext, force_wrap: boolean
+): ItemRenderSpec
+    local function render_item(item: parser.Node): doc.Doc
+        return build_table_item_text(ctx, item)
+    end
+    return delimited_list_doc.ItemRenderSpec.new(
+        force_wrap, render_item, table_separator
+    )
+end
+
 function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.Doc
     local force_wrap = render_builders.any_items_have_comments(items)
         or items.trailing_comma
         or #(items.dangling_comments or {}) > 0
     local line_doc = render_builders.item_line_doc(force_wrap)
-    local parts: {doc.Doc} = {}
 
-    local line_before = false
-    for index, item in ipairs(items) do
-        line_before = render_builders.append_comment_docs(
-            parts, item.leading_comments or {}, line_before
-        )
-
-        table.insert(parts, render_builders.append_lines_pre_node(item, line_before))
-        table.insert(parts, build_table_item_text(ctx, item))
-        trivia_doc.append_inline(parts, parser.inline_trivia(item, "before_separator"))
-
-        local effective_sep = (item_value_needs_semicolon(item.value) and ";") or ","
-        local has_trailing = #(item.trailing_comments or {}) > 0
-        local sep = has_trailing and effective_sep or effective_sep .. " "
-        if index < #items then
-            table.insert(parts, doc.text(sep))
-        else
-            table.insert(parts, doc.if_wrapped(sep))
-        end
-
-        table.insert(parts, render_builders.trailing_comment_doc(item))
-        line_before = true
-    end
-
-    render_builders.append_comment_docs(
-        parts, items.dangling_comments or {}, line_before
+    local items_doc = delimited_list_doc.render_items(
+        items, items.dangling_comments or {}, table_item_render_spec(ctx, force_wrap)
     )
 
-    local items_doc = doc.concat(parts)
-    if not force_wrap then
-        items_doc = doc.group(items_doc)
-    end
     local table_body_doc = doc.concat(
         {
             doc.text("{"),
