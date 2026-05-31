@@ -1484,6 +1484,27 @@ describe("formatter structural block rendering", function()
              end
          end
       ]]))
+
+      it("does not absorb where-clause closing tokens into a trailing comment when inlining", helpers.format([=[
+            global record A
+            interface B where (
+            function () global record C -- keep
+            end -- keep
+            end )
+            end
+            end
+         ]=], [=[
+            global record A
+                interface B where (
+                    function()
+                        global record C
+                            -- keep
+                        end -- keep
+                    end
+                )
+                end
+            end
+         ]=]))
    end)
 
    describe("goto and labels", function()

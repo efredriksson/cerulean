@@ -59,7 +59,7 @@ function function_doc.render_anonymous(
         render_builders.block_has_any_comments(node.body)
         or #parser.inline_trivia(node, "head") > 0
     then
-        return rendered
+        return doc.concat({rendered, doc.break_parent()})
     end
     return doc.group(rendered)
 end

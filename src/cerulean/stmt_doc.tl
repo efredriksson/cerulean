@@ -180,7 +180,7 @@ local function render_field_entry(
 end
 
 local function render_record_like_body_doc(
-    ctx: RenderContext, node: parser.Node, record_def: parser.RecordLikeType
+    ctx: RenderContext, stmt: parser.Node, record_def: parser.RecordLikeType
 ): doc.Doc | nil
     local parts: {doc.Doc} = {}
     local line_before = false
@@ -206,9 +206,8 @@ local function render_record_like_body_doc(
         end
         line_before = true
     end
-    render_builders.append_comment_docs(
-        parts, node.dangling_comments or {}, line_before
-    )
+    local end_comments = record_def.dangling_comments or stmt.dangling_comments or {}
+    render_builders.append_comment_docs(parts, end_comments, line_before)
 
     return doc.concat(
         {

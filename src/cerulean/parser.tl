@@ -200,6 +200,7 @@ local record parser
       meta_field_order: {string}
       meta_field_comments: {string: {{Comment}}}
       field_entries: {FieldEntry}
+      dangling_comments: {Comment}
    end
 
    record RecordType
@@ -3474,6 +3475,7 @@ do
             previous_end = entry.yend
         end
 
+        def.dangling_comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
         return i, true
     end
 
