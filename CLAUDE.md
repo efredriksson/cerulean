@@ -17,7 +17,7 @@ If a skill is not available, proceed and report it to the user at the end of the
 
 After making changes, run `busted spec/` to verify logic of the code is correct, then `make lint` to ensure the code conforms and that the formatter formatting itself looks reasonable. Running `make format` will format the code which might be neccessary for new code or when new formatting features/updates are added.
 
-To run the formatter on a file: `tl run src/cerulean/init.tl -- <file>`. For scripted investigations, write a `.tl` script and run it with `tl run` — always prefer Teal scripts over shell scripts or Lua scripts.
+To run the formatter on a file: `tl run src/cerulean/init.tl -- <file>`. For scripted investigations, write a `.tl` script and run it with `tl run`. **Never write `.lua` or shell scripts** — `tl run` uses the correct load path and Teal loader automatically, so it always tests the dev source. Plain `lua` scripts load the system-installed package instead and will silently test the wrong code.
 
 **Fuzz bugs.** `make fuzz` generates `fuzz/corpus/` and writes failures to `fuzz/regressions_spec.lua`. When the user reports fuzz failures, read `fuzz/regressions_spec.lua` directly — do not re-run discovery. To see test failures and their diffs, run `busted fuzz/regressions_spec.lua -o gtest`, the output have before/after for all failures. Do not write scripts to reproduce fuzz failures; `helpers.check()` already handles idempotency. Fix workflow: write a focused test in `spec/` → fix → `busted spec/` + `busted fuzz/regressions_spec.lua`. Corpus files are untracked.
 
