@@ -469,6 +469,12 @@ describe("formatter integration", function()
              .Y
       ]]))
 
+      it("produces parseable output after formatting a fmt:off region with nested long-string delimiters in comments", helpers.check([==[
+         do return function() -- fmt:off
+         end;--[[
+         ]]end
+      ]==]))
+
       it("does not duplicate the fmt:off directive after a declaration with a trailing return", helpers.check([[
          local record K
          end

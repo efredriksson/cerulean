@@ -13,19 +13,17 @@ local type RenderContext = render_context.RenderContext
 local block_doc = {}
 
 local function node_end_line(node: parser.Node): integer
-    return node.yend or node.y
-end
-
-local function verbatim_extent(
-    stmt: parser.Node, block_dangling: {parser.Comment}
-): integer
-    local last = stmt.yend
-    for _, comment in ipairs(stmt.trailing_comments or {}) do
-        last = math.max(last, comment.yend)
-    end
-    for _, comment in ipairs(block_dangling) do
-        if comment.y <= last then
-            last = math.max(last, comment.yend)
+    -- Last source line the node's own text reaches, or 0 if none.
+    -- The parser sets `yend` only when it closes a node on a real token. An unclosed
+    -- node has no `yend`, and its `y` is the next token's line, which can fall far
+    -- past the node, even to EOF after error recovery. A value-less `return` is one
+    -- case: its empty expression list is anchored on the token after `return`. So a
+    -- bare `y` is a start position, not an extent; only `yend` and trailing comments
+    -- count toward the reach.
+    local last = node.yend or 0
+    for _, c in ipairs(node.trailing_comments or {}) do
+        if c.yend > last then
+            last = c.yend
         end
     end
     return last
@@ -33,16 +31,30 @@ end
 
 local function max_source_line(node: parser.Node): integer
     local max_line = node_end_line(node)
-    ast_traversal.walk_descendants(
-        node,
-        function(child: parser.Node)
-            local child_end = node_end_line(child)
-            if child_end > max_line then
-                max_line = child_end
-            end
+
+    local function set_max_line(child: parser.Node)
+        local child_end = node_end_line(child)
+        if child_end > max_line then
+            max_line = child_end
         end
-    )
+    end
+
+    ast_traversal.walk_descendants(node, set_max_line)
     return max_line
+end
+
+local function verbatim_extent(
+    stmt: parser.Node, block_dangling: {parser.Comment}
+): integer
+    -- verbatime needs to include any dangling comments
+    -- for enclosing block that overlap with statement
+    local last = max_source_line(stmt)
+    for _, comment in ipairs(block_dangling) do
+        if comment.y <= last then
+            last = math.max(last, comment.yend)
+        end
+    end
+    return last
 end
 
 local function block_min_source_line(block: parser.Node): integer
