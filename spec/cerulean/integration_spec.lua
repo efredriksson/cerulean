@@ -508,6 +508,33 @@ describe("formatter integration", function()
          a]] return a
          -- fmt:on
       ]=]))
+
+      it("does not drop a leading fmt:off comment preceding a semicolon and nested record", helpers.check([[
+         -- fmt:off
+         ; local record r is end end
+      ]]))
+
+      it("keeps a leading comment when the semicolon it precedes is removed", helpers.format([[
+         -- keep
+         ; local x = 1
+      ]], [[
+         -- keep
+         local x = 1
+      ]]))
+
+      it("keeps source order of a semicolon's leading comment and the next statement's comment", helpers.format([[
+         local a = 1
+         -- before semi
+         ;
+         -- before next
+         local b = 2
+      ]], [[
+         local a = 1
+         -- before semi
+
+         -- before next
+         local b = 2
+      ]]))
    end)
 
    describe("pragma", function()
