@@ -2902,6 +2902,23 @@ do
         }
     end
 
+    -- Prepends `incoming` to the front of token.comments, preserving their
+    -- relative order. Used when a token is dropped (e.g. a skipped `;`) and its
+    -- leading comments must move onto the following token so they survive.
+    local function prepend_token_comments(token: Token, incoming: {tl.LexerComment})
+        if #incoming == 0 then
+            return
+        end
+        local existing = token.comments
+        if existing == nil or #existing == 0 then
+            token.comments = incoming
+        else
+            for j = #incoming, 1, -1 do
+                table.insert(existing, 1, incoming[j])
+            end
+        end
+    end
+
     get_attached_comments = function(token: Token, previous_token?: Token): {Comment}
         local token_comments = token.comments
         if token_comments == nil or #token_comments == 0 then
@@ -2999,15 +3016,8 @@ do
         for j = #lc_list, 1, -1 do
             table.remove(lc_list, j)
         end
-        if #relocated > 0 and next_token ~= nil then
-            local next_list = next_token.comments
-            if next_list == nil then
-                next_token.comments = relocated
-            else
-                for j = #relocated, 1, -1 do
-                    table.insert(next_list, 1, relocated[j])
-                end
-            end
+        if next_token ~= nil then
+            prepend_token_comments(next_token, relocated)
         end
         return trailing, before_sep
     end
@@ -4005,6 +4015,10 @@ do
         local previous_end: integer | nil = nil
         while true do
             while ps.tokens[i].kind == ";" do
+                -- Add `;` leading comments to next token also
+                -- as ';' is ignored when rendering.
+                local semi_comments = ps.tokens[i].comments or {}
+                prepend_token_comments(ps.tokens[i + 1], semi_comments)
                 i = i + 1
                 if item then
                     item.semicolon = true
