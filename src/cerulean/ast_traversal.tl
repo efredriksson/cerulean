@@ -35,66 +35,70 @@ function ast_traversal.is_function_def(node: parser.Node): boolean
     return FUNCTION_DEF_KINDS[node.kind] ~= nil
 end
 
-function ast_traversal.walk_children(node: parser.Node, visit: function(parser.Node))
+local function get_sub_nodes(node: parser.Node): {parser.Node}
+    local sub_nodes: {parser.Node} = {}
+
     for _, child in ipairs(node) do
-        visit(child)
+        table.insert(sub_nodes, child)
     end
+
     if node.body then
-        visit(node.body)
+        table.insert(sub_nodes, node.body)
     end
     if node.e1 then
-        visit(node.e1)
+        table.insert(sub_nodes, node.e1)
     end
     if node.e2 then
-        visit(node.e2)
+        table.insert(sub_nodes, node.e2)
     end
     if node.key then
-        visit(node.key)
+        table.insert(sub_nodes, node.key)
     end
     if node.value then
-        visit(node.value)
+        table.insert(sub_nodes, node.value)
     end
     if node.args then
-        visit(node.args)
+        table.insert(sub_nodes, node.args)
     end
     if node.name then
-        visit(node.name)
+        table.insert(sub_nodes, node.name)
     end
     if node.exp then
-        visit(node.exp)
+        table.insert(sub_nodes, node.exp)
     end
     if node.var then
-        visit(node.var)
+        table.insert(sub_nodes, node.var)
     end
     if node.from then
-        visit(node.from)
+        table.insert(sub_nodes, node.from)
     end
     if node.to then
-        visit(node.to)
+        table.insert(sub_nodes, node.to)
     end
     if node.step then
-        visit(node.step)
+        table.insert(sub_nodes, node.step)
     end
     if node.vars then
-        visit(node.vars)
+        table.insert(sub_nodes, node.vars)
     end
     if node.exps then
-        visit(node.exps)
+        table.insert(sub_nodes, node.exps)
     end
     if node.if_blocks then
         for _, block in ipairs(node.if_blocks) do
-            visit(block)
+            table.insert(sub_nodes, block)
         end
     end
+
+    return sub_nodes
 end
 
 function ast_traversal.walk_descendants(node: parser.Node, visit: function(parser.Node))
-    local function recurse(child: parser.Node)
-        visit(child)
-        ast_traversal.walk_descendants(child, visit)
-    end
+    visit(node)
 
-    ast_traversal.walk_children(node, recurse)
+    for _, sub_node in ipairs(get_sub_nodes(node)) do
+        ast_traversal.walk_descendants(sub_node, visit)
+    end
 end
 
 local function collect_block_ranges(nodes: {parser.Node}, result: {source.Range})
