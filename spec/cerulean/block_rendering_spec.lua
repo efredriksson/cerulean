@@ -1540,6 +1540,13 @@ describe("formatter structural block rendering", function()
          goto done
          ::done::
       ]]))
+
+      it("keeps a comment between goto and its label", helpers.format([[
+         goto -- jump
+         done
+      ]], [[
+         goto done -- jump
+      ]]))
    end)
 
    describe("empty loop bodies", function()
