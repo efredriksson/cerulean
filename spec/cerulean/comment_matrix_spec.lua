@@ -1132,6 +1132,21 @@ describe("formatter comment matrix (single-line)", function()
              )
          end
       ]]))
+
+      it("preserves a trailing line comment in a file with no trailing newline", helpers.format_raw(
+         "-- hello",
+         "-- hello\n"
+      ))
+
+      it("preserves an ambiguous trailing line comment in a file with no trailing newline", helpers.format_raw(
+         "--[",
+         "--[\n"
+      ))
+
+      it("preserves an empty trailing line comment in a file with no trailing newline", helpers.format_raw(
+         "--",
+         "--\n"
+      ))
    end)
 
    describe("empty function body with comments", function()

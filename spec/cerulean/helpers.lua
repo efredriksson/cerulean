@@ -176,6 +176,17 @@ local function assert_stable_rewrite(output, opts)
     end
 end
 
+-- Returns a test function that asserts the formatter rewrites exact input to exact expected.
+-- Use when the input must not go through dedent (e.g. testing files with no trailing newline).
+function helpers.format_raw(input, expected)
+    return function()
+        local result = rewriter.rewrite(input, "test.tl", default_opts())
+        assert.same({}, result.parse_errors)
+        assert.same(expected, result.output)
+        assert.same("reformatted", result.status)
+    end
+end
+
 -- Returns a test function that asserts the formatter rewrites input to expected.
 function helpers.format(input, expected, opts)
     opts = opts or {}
