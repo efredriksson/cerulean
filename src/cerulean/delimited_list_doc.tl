@@ -40,7 +40,11 @@ function delimited_list_doc.render_items(
         line_before = render_builders.append_comment_docs(
             parts, item.leading_comments or {}, line_before
         )
-        table.insert(parts, render_builders.append_lines_pre_node(item, line_before))
+        local suppress_blank = not spec.force_wrap
+        local pre_item_doc = render_builders.append_lines_pre_node(
+            item, line_before, nil, suppress_blank
+        )
+        table.insert(parts, pre_item_doc)
         local item_parts: {doc.Doc} = {spec.render_item(item)}
         trivia_doc.append_inline(
             item_parts, parser.inline_trivia(item, "before_separator")
