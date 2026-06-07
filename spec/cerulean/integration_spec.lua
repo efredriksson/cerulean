@@ -475,6 +475,17 @@ describe("formatter integration", function()
          ]]end
       ]==]))
 
+      it("does not duplicate the until clause when the condition is a multiline function expression in a fmt:off region", helpers.format([[
+         repeat a=0--fmt:off
+         ..0 until function()
+         end
+      ]], [[
+         repeat
+         a=0--fmt:off
+         ..0
+         until function() end
+      ]]))
+
       it("does not duplicate the fmt:off directive after a declaration with a trailing return", helpers.check([[
          local record K
          end
