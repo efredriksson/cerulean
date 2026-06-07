@@ -247,7 +247,8 @@ local function collect_run_lines(
     source_lines: {string},
     run: Run,
     code_precedes_run: boolean,
-    next_structural?: parser.Node
+    next_structural?: parser.Node,
+    block_closing_col?: integer
 ): {string}
     local result: {string} = {}
     local first_line = run.first_line
@@ -270,6 +271,20 @@ local function collect_run_lines(
     then
         local truncated = (
             source_lines[run.last_line]:sub(1, next_structural.x - 1):gsub("%s+$", "")
+        )
+        if truncated == "" then
+            table.remove(result)
+        else
+            result[#result] = truncated
+        end
+    end
+
+    -- The block's closing keyword (e.g. `until` in a repeat body) may share its
+    -- line with the run's last statement. Stop verbatim text before that keyword
+    -- so the structural pass can emit the closing clause without duplication.
+    if block_closing_col ~= nil and #result > 0 then
+        local truncated = (
+            source_lines[run.last_line]:sub(1, block_closing_col - 1):gsub("%s+$", "")
         )
         if truncated == "" then
             table.remove(result)
@@ -348,8 +363,21 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                 and code_precedes_on_line(
                     ctx.source_lines, run.first_line, run.first_stmt.x
                 )
+            -- For repeat bodies: the `until` keyword may share a line with the
+            -- run's last frozen statement. Pass its column so collect_run_lines
+            -- can stop the verbatim text before the structural closing clause.
+            local block_closing_col: integer
+            if
+                block.is_repeat and block.yend ~= nil and run.last_line == block.yend
+            then
+                block_closing_col = block.xend - (#"until" - 1)
+            end
             local verbatim_lines = collect_run_lines(
-                ctx.source_lines, run, code_precedes_run, next_structural
+                ctx.source_lines,
+                run,
+                code_precedes_run,
+                next_structural,
+                block_closing_col
             )
             if #pre_fmt_off > 0 or #verbatim_lines > 0 then
                 line_before = render_builders.append_comment_docs(
