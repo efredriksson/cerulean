@@ -271,6 +271,21 @@ describe("formatter integration", function()
          local y  =  2
          -- fmt:on
       ]]))
+
+      it("does not duplicate the else keyword sharing a frozen run's last line", helpers.format([[
+         if c then
+         a = 1 --fmt:off
+         b = 2 else
+         d = 3
+         end
+      ]], [[
+         if c then
+         a = 1 --fmt:off
+         b = 2
+         else
+         d = 3
+         end
+      ]]))
    end)
 
    describe("multi-line expressions in local declarations", function()

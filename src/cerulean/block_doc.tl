@@ -243,48 +243,72 @@ local function code_precedes_on_line(
     return source_lines[line]:sub(1, column - 1):match("%S") ~= nil
 end
 
+-- nil when the next segment is a frozen run (its `.stmt` is nil) or there is none.
+local function next_structural_stmt(segments: {Segment}, idx: integer): parser.Node
+    local next_segment = segments[idx + 1]
+    if next_segment == nil then
+        return nil
+    end
+    return next_segment.stmt
+end
+
+-- Column on the run's last line where structural code resumes, or nil when the run
+-- owns the rest of the line. A sibling statement always precedes the block's closer,
+-- so at most one of the two can apply.
+local function last_line_structural_col(
+    block: parser.Node, run: Run, next_structural: parser.Node
+): integer
+    if next_structural ~= nil and next_structural.y == run.last_line then
+        return next_structural.x
+    end
+    if block.yend == run.last_line then
+        return block.close_x
+    end
+    return nil
+end
+
 local function collect_run_lines(
     source_lines: {string},
     run: Run,
     code_precedes_run: boolean,
-    next_structural?: parser.Node,
-    block_closing_col?: integer
+    last_line_cut_col?: integer
 ): {string}
     local result: {string} = {}
-    local first_line = run.first_line
+    -- Structural code may precede the freeze column on the run's first line
+    -- (e.g. `local function f() -- fmt:off`); keep only the frozen suffix so the
+    -- already-rendered prefix is not duplicated.
+    local start_col = 1
     if code_precedes_run then
-        -- Structural code precedes the freeze column on the run's first line
-        -- (e.g. `local function f() -- fmt:off`); emit only the frozen suffix so
-        -- the already-rendered prefix is not duplicated.
-        table.insert(result, source_lines[first_line]:sub(run.first_stmt.x))
-        first_line = first_line + 1
+        start_col = run.first_stmt.x
     end
-    for line = first_line, run.last_line do
+
+    -- A single-line run can carry a structural prefix and/or a following
+    -- structural token on the same line; slice the frozen middle out of it.
+    if run.first_line == run.last_line then
+        local line_str = source_lines[run.last_line]
+        local stop = #line_str
+        if last_line_cut_col ~= nil then
+            stop = last_line_cut_col - 1
+        end
+        local frozen = line_str:sub(start_col, stop):gsub("%s+$", "")
+        if frozen ~= "" then
+            table.insert(result, frozen)
+        end
+        return result
+    end
+
+    table.insert(result, source_lines[run.first_line]:sub(start_col))
+    for line = run.first_line + 1, run.last_line do
         table.insert(result, source_lines[line])
     end
 
-    -- A following out-of-region statement may begin on the run's last line
-    -- (e.g. `end --[[c]] local type`). Stop the verbatim text before its first
-    -- token so the structural pass can format it without duplication.
-    if
-        next_structural ~= nil and #result > 0 and next_structural.y == run.last_line
-    then
+    -- The run's last line may continue with structurally-rendered code: a
+    -- following sibling statement or the block's closing keyword (e.g.
+    -- `end --[[c]] local type`, `..0 until ...`). Stop the verbatim text before it
+    -- so the structural pass emits it once, without duplication.
+    if last_line_cut_col ~= nil then
         local truncated = (
-            source_lines[run.last_line]:sub(1, next_structural.x - 1):gsub("%s+$", "")
-        )
-        if truncated == "" then
-            table.remove(result)
-        else
-            result[#result] = truncated
-        end
-    end
-
-    -- The block's closing keyword (e.g. `until` in a repeat body) may share its
-    -- line with the run's last statement. Stop verbatim text before that keyword
-    -- so the structural pass can emit the closing clause without duplication.
-    if block_closing_col ~= nil and #result > 0 then
-        local truncated = (
-            source_lines[run.last_line]:sub(1, block_closing_col - 1):gsub("%s+$", "")
+            source_lines[run.last_line]:sub(1, last_line_cut_col - 1):gsub("%s+$", "")
         )
         if truncated == "" then
             table.remove(result)
@@ -352,32 +376,17 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
                     table.insert(pre_fmt_off, comment)
                 end
             end
-            -- Truncate only against a following structural statement; the next
-            -- segment's stmt is nil when that segment is a run, disabling it.
-            local next_segment = segments[idx + 1]
-            local next_structural: parser.Node
-            if next_segment ~= nil then
-                next_structural = next_segment.stmt
-            end
             local code_precedes_run = run.first_line == run.first_stmt.y
                 and code_precedes_on_line(
                     ctx.source_lines, run.first_line, run.first_stmt.x
                 )
-            -- For repeat bodies: the `until` keyword may share a line with the
-            -- run's last frozen statement. Pass its column so collect_run_lines
-            -- can stop the verbatim text before the structural closing clause.
-            local block_closing_col: integer
-            if
-                block.is_repeat and block.yend ~= nil and run.last_line == block.yend
-            then
-                block_closing_col = block.xend - (#"until" - 1)
-            end
             local verbatim_lines = collect_run_lines(
                 ctx.source_lines,
                 run,
                 code_precedes_run,
-                next_structural,
-                block_closing_col
+                last_line_structural_col(
+                    block, run, next_structural_stmt(segments, idx)
+                )
             )
             if #pre_fmt_off > 0 or #verbatim_lines > 0 then
                 line_before = render_builders.append_comment_docs(
