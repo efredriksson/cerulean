@@ -100,6 +100,13 @@ describe("formatter function expressions", function()
       end
    ]]))
 
+   it("preserves comment between return keyword and semicolon", helpers.format([[
+      return --hmm
+      ;
+   ]], [[
+      return --hmm
+   ]]))
+
    it("do not add lines after multi-line string expressions", helpers.format([=[
       local s  =  [[
       multi-line-string]]

@@ -2763,13 +2763,11 @@ do
         local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
         local node = new_node(ps, i, "return")
         i = verify_tk(ps, i, "return")
-        if not stop_return_list[ps.tokens[i].tk] then
-            set_inline_trivia(
-                node,
-                "after_opener",
-                take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
-            )
-        end
+        set_inline_trivia(
+            node,
+            "after_opener",
+            take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+        )
         node.exps = new_node(ps, i, "expression_list")
         i = parse_list(ps, i, node.exps, stop_return_list, "sep", parse_expression)
         if ps.tokens[i].kind == ";" then

@@ -13,7 +13,9 @@ function inline_stmt_doc.render_return_doc(
     ctx: RenderContext, stmt: parser.Node
 ): doc.Doc
     if stmt.exps == nil or #stmt.exps == 0 then
-        return doc.text("return")
+        local parts: {doc.Doc} = {doc.text("return")}
+        trivia_doc.append_inline(parts, parser.inline_trivia(stmt, "after_opener"))
+        return doc.concat(parts)
     end
 
     local return_exp_doc = render_builders.build_exp_list_doc(ctx, stmt.exps)
