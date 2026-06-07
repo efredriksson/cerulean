@@ -493,6 +493,13 @@ describe("formatter integration", function()
          -- fmt:on
       ]]))
 
+      it("does not drop a trailing fmt:on when the fmt:off region ends with a block-end and same-line statement", helpers.check([[
+         do
+         -- fmt:off
+         end local a
+         -- fmt:on
+      ]]))
+
       it("does not duplicate the trailing return of a fmt:off block whose last line ends a multiline comment", helpers.format([=[
          a : --[==[a]==] a { [ a is nil ] = a } function a (
          -- fmt:off

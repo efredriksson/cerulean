@@ -3013,11 +3013,13 @@ do
                 table.insert(relocated, lc)
             end
         end
-        for j = #lc_list, 1, -1 do
-            table.remove(lc_list, j)
-        end
         if next_token ~= nil then
             prepend_token_comments(next_token, relocated)
+            sep_token.comments = {}
+        else
+            -- Leave relocated on sep_token so get_attached_comments collects
+            -- them as dangling comments of the enclosing block.
+            sep_token.comments = relocated
         end
         return trailing, before_sep
     end
