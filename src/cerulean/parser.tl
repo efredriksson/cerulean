@@ -471,7 +471,7 @@ local record parser
         hashbang:                       string
         is_longstring:                  boolean
         yend:                           integer
-        xend:                           integer
+        close_x:                        integer
         known:                          Fact
         expected:                       Type
         expected_context:               Node.ExpectedContext
@@ -854,7 +854,6 @@ do
 
     local function end_at(node: Node, tk: Token)
         node.yend = tk.y
-        node.xend = tk.x + #tk.tk - 1
     end
 
     local function verify_tk(ps: ParseState, i: integer, tk: string): integer
@@ -870,7 +869,6 @@ do
         if ps.tokens[i].tk == "end" then
             local endy, endx = ps.tokens[i].y, ps.tokens[i].x
             node.yend = endy
-            node.xend = endx + 2
             if node.kind ~= "function" and endy ~= node.y and endx ~= node.x then
                 if not ps.end_alignment_hint then
                     ps.end_alignment_hint = {
@@ -2546,7 +2544,7 @@ do
         if not block.body then
             return i
         end
-        block.yend, block.xend = block.body.yend, block.body.xend
+        block.yend = block.body.yend
         table.insert(node.if_blocks, block)
         return i, node
     end
@@ -4085,6 +4083,12 @@ do
 
         node.dangling_comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
         end_at(node, ps.tokens[i])
+        -- `end_at` set the closing keyword's line; record its start column too, so a
+        -- frozen run sharing that line can stop before the closer. EOF (the top-level
+        -- block) is not a closer, so close_x stays nil there.
+        if stop_statement_list[ps.tokens[i].tk] then
+            node.close_x = ps.tokens[i].x
+        end
         return i, node
     end
 
