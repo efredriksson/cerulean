@@ -86,6 +86,10 @@ local function handle_format_request(daemon_io: DaemonIO, source: string)
         send_frame(daemon_io, "ERR", error_msg)
         return
     end
+    if rewrite.status == "failed" then
+        send_frame(daemon_io, "ERR", rewrite.failure_reason)
+        return
+    end
     send_frame(daemon_io, "OK", rewrite.output)
 end
 

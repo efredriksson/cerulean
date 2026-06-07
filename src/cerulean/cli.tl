@@ -105,7 +105,11 @@ local function process_file(
 
     if rewrite.status == "failed" then
         printer.err(
-            string.format("warning: %s: formatter failed, file left unchanged", path)
+            string.format(
+                "%s: formatting skipped: %s; left unchanged",
+                path,
+                rewrite.failure_reason
+            )
         )
         return "failed"
     end
