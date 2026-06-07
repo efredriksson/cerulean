@@ -865,6 +865,19 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("preserves embedded block comment and trailing line comment when arg forces function literal to expand in where clause", helpers.format([=[
+         local record A where 0 ~ - --[[]] function ( x --
+         ) end end
+      ]=], [=[
+         local record A where 0
+             ~ - --[[]]
+                 function(
+                     x --
+                 )
+                 end
+         end
+      ]=]))
+
       it("format records that is userdata", helpers.format([[
          local record A
             is userdata
