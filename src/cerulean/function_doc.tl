@@ -58,6 +58,7 @@ function function_doc.render_anonymous(
     if
         render_builders.block_has_any_comments(node.body)
         or #parser.inline_trivia(node, "head") > 0
+        or render_builders.any_items_have_comments(node.args)
     then
         return doc.concat({rendered, doc.break_parent()})
     end
