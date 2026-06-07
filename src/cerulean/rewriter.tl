@@ -34,7 +34,7 @@ function Rewrite.new(
     self.output = output
     self.status = status
     self.parse_errors = parse_errors
-    self.failure_reason = failure_reason
+    self.failure_reason = failure_reason or ""
     return self
 end
 

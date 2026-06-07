@@ -310,7 +310,7 @@ describe("formatter signature wrapping", function()
          end
       ]]))
 
-      pending("preserves an own-line comment before ) in a call argument list", helpers.format([[
+      it("preserves an own-line comment before ) in a call argument list", helpers.format([[
          f(a
             -- note
          )

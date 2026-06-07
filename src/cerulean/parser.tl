@@ -1977,6 +1977,9 @@ do
                         ps, i, args, "(", ")", "sep", parse_expression
                     )
                     set_inline_trivia(args, "after_opener", open_paren_leading_trivia)
+                    args.dangling_comments = get_attached_comments(
+                        ps.tokens[i - 1], ps.tokens[i - 2]
+                    )
 
                     local function leftmost_y(node: Node): integer
                         if node.kind == "op" and node.e1 then

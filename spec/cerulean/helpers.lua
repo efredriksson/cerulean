@@ -196,6 +196,7 @@ function helpers.format(input, expected, opts)
         local result = rewriter.rewrite(source, "test.tl", default_opts())
 
         assert.same({}, result.parse_errors)
+        assert.same("reformatted", result.status, "Formatting failed: " .. result.failure_reason)
         assert.same(expected_output, result.output)
         assert.same("reformatted", result.status)
 
