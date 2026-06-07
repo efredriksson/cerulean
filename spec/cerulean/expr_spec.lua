@@ -257,4 +257,14 @@ describe("idempotency: ", function()
           ).k("")
       end
    ]==]))
+
+   it("blank-line between inner table entries does not prevent collapse when outer element has trailing line comment", helpers.format([=[
+      f{ 1 --
+      + { 1 ,
+
+      1 } }
+   ]=], [=[
+      f({1 --
+                  + {1, 1}})
+   ]=], { skip_ast_equivalence = true }))
 end)

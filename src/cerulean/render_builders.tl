@@ -217,13 +217,14 @@ end
 function render_builders.append_lines_pre_node(
     node: parser.Node | parser.FieldEntry,
     line_before: boolean,
-    line_from_before?: doc.Doc
+    line_from_before?: doc.Doc,
+    suppress_blank?: boolean
 ): doc.Doc
     local parts: {doc.Doc} = {}
     if line_before then
         table.insert(parts, line_from_before or doc.softline())
     end
-    if node.blank_line_before then
+    if node.blank_line_before and not suppress_blank then
         -- enclosing group MUST break, for example anon function.
         table.insert(parts, doc.concat({doc.hardline(), doc.break_parent()}))
     end
