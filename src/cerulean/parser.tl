@@ -548,7 +548,7 @@ local record parser
     parse: function(
         input: string,
         filename: string
-    ): Node, {Error}, {string}
+    ): Node, {Error}, {string}, integer
     inline_trivia: function(node: Node, slot: InlineSlot): {Comment}
 end
 
@@ -4118,15 +4118,21 @@ do
         return node, ps.required_modules
     end
 
-    parser.parse = function(input: string, filename: string): Node, {Error}, {string}
+    parser.parse = function(
+        input: string, filename: string
+    ): Node, {Error}, {string}, integer
         -- tl.lex loses a trailing comment when the file has no final newline
         local lex_input = input:sub(-1) == "\n" and input or input .. "\n"
         local tokens, errs = tl.lex(lex_input, filename)
+        local comment_count = 0
+        for _, token in ipairs(tokens) do
+            comment_count = comment_count + #(token.comments or {})
+        end
         local source_lines = split_source_lines(input)
         local node, required_modules = parser.parse_program(
             tokens, errs, filename, source_lines
         )
-        return node, errs, required_modules
+        return node, errs, required_modules, comment_count
     end
 end
 
