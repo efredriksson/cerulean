@@ -4115,7 +4115,9 @@ do
     end
 
     parser.parse = function(input: string, filename: string): Node, {Error}, {string}
-        local tokens, errs = tl.lex(input, filename)
+        -- tl.lex loses a trailing comment when the file has no final newline
+        local lex_input = input:sub(-1) == "\n" and input or input .. "\n"
+        local tokens, errs = tl.lex(lex_input, filename)
         local source_lines = split_source_lines(input)
         local node, required_modules = parser.parse_program(
             tokens, errs, filename, source_lines
