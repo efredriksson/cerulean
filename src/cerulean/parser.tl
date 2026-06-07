@@ -2726,6 +2726,9 @@ do
     local function parse_goto(ps: ParseState, i: integer): integer, Node
         local node = new_node(ps, i, "goto")
         i = verify_tk(ps, i, "goto")
+        node.trailing_comments = take_same_line_comments(
+            ps.tokens[i], ps.tokens[i - 1].y
+        )
         node.label = ps.tokens[i].tk
         i = verify_kind(ps, i, "identifier")
         return i, node
@@ -4056,9 +4059,16 @@ do
                 -- Extract any same-line trailing comments (e.g. `local x = 1 -- note`).
                 -- take_same_line_comments drains them from ps.tokens[i].comments so they
                 -- won't be re-attached as leading comments of the next statement.
-                item.trailing_comments = take_same_line_comments(
-                    ps.tokens[i], item.yend
-                )
+                -- If the statement parser (e.g. parse_goto) already captured inline
+                -- trivia, merge rather than overwrite so neither set is lost.
+                local stmt_trailing = take_same_line_comments(ps.tokens[i], item.yend)
+                if item.trailing_comments and #item.trailing_comments > 0 then
+                    for _, c in ipairs(stmt_trailing) do
+                        table.insert(item.trailing_comments, c)
+                    end
+                else
+                    item.trailing_comments = stmt_trailing
+                end
 
                 local leading = item.leading_comments or {}
                 if #leading > 0 then
