@@ -2114,6 +2114,7 @@ do
                     table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
                 elseif tkop.tk == "as" or tkop.tk == "is" then
                     local op: Operator = new_operator(tkop, 2, tkop.tk)
+                    local op_leading_trivia = take_all_token_comments(tkop)
 
                     i = i + 1
                     local cast = new_node(ps, i, "cast")
@@ -2137,6 +2138,7 @@ do
                         conststr = e1.conststr,
                         yend = cast.yend,
                     }
+                    set_inline_trivia(e1, "op_leading", op_leading_trivia)
                 else
                     break
                 end

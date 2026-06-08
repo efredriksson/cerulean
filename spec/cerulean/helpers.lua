@@ -228,7 +228,7 @@ function helpers.check(source, opts)
         local result = rewriter.rewrite(dedented, "test.tl", default_opts())
         assert.same({}, result.parse_errors)
         assert.same(dedented, result.output)
-        assert.same("unchanged", result.status)
+        assert.same("unchanged", result.status, "Formatting failed: " .. result.failure_reason)
 
         if not opts.skip_ast_equivalence then
             assert_equivalent_ast_shape(dedented, result.output)
