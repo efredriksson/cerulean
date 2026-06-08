@@ -1558,6 +1558,15 @@ describe("formatter structural block rendering", function()
       ]]))
    end)
 
+   describe("local declarations", function()
+      it("keeps a comment between local and the variable name", helpers.format([[
+         local --
+         Z
+      ]], [[
+         local Z --
+      ]]))
+   end)
+
    describe("empty loop bodies", function()
       it("formats an empty numeric for loop", helpers.format([[
          for i = 1,    10 do

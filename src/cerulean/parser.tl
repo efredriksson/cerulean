@@ -3896,7 +3896,11 @@ do
                 )
             end
         else
+            local between = take_same_line_comments(ps.tokens[i + 1], keyword.y)
             i, node = parse_variable_declarations(ps, i + 1, "local_declaration")
+            if node then
+                node.trailing_comments = between
+            end
         end
         if node then
             -- Anchor the statement at the `local` keyword, not the declared
@@ -3920,7 +3924,7 @@ do
         elseif ntk == "type" and ps.tokens[i + 2].kind == "identifier" then
             local between = take_same_line_comments(ps.tokens[i + 1], keyword.y)
             i, node = parse_type_declaration(ps, i + 2, "global_type")
-            if node and between and #between > 0 then
+            if node then
                 node.trailing_comments = between
             end
         elseif
