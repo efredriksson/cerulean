@@ -275,12 +275,11 @@ local function render_op(
     elseif op == "@funcall" then
         return call_doc_build_call_expr_doc(ctx, left, right)
     elseif op == "as" or op == "is" then
-        return doc.concat(
-            {
-                render_expr(ctx, left, operator.prec, same_indent_on_line),
-                doc.text(" " .. op .. " "),
-                type_doc.render(right.casttype),
-            }
+        return join_op_with_trivia(
+            node,
+            render_expr(ctx, left, operator.prec, same_indent_on_line),
+            type_doc.render(right.casttype),
+            doc.text(" ")
         )
     elseif operator.arity == 1 then
         local op_prec = operator.prec

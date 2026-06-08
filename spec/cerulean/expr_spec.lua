@@ -107,6 +107,11 @@ describe("formatter function expressions", function()
       return --hmm
    ]]))
 
+   it("preserves comment between return value and as type cast", helpers.check([[
+      return a --
+          as A
+   ]]))
+
    it("do not add lines after multi-line string expressions", helpers.format([=[
       local s  =  [[
       multi-line-string]]
