@@ -3918,7 +3918,11 @@ do
         if ntk == "function" then
             i, node = parse_function(ps, i + 1, "global")
         elseif ntk == "type" and ps.tokens[i + 2].kind == "identifier" then
+            local between = take_same_line_comments(ps.tokens[i + 1], keyword.y)
             i, node = parse_type_declaration(ps, i + 2, "global_type")
+            if node and between and #between > 0 then
+                node.trailing_comments = between
+            end
         elseif
             parse_type_body_fns[tn as BodyTypeName]
             and ps.tokens[i + 2].kind == "identifier"
