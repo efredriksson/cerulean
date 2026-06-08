@@ -1549,6 +1549,15 @@ describe("formatter structural block rendering", function()
       ]]))
    end)
 
+   describe("global declarations", function()
+      it("keeps a comment between global and its declaration keyword", helpers.format([[
+         global -- x
+         type A
+      ]], [[
+         global type A -- x
+      ]]))
+   end)
+
    describe("empty loop bodies", function()
       it("formats an empty numeric for loop", helpers.format([[
          for i = 1,    10 do
