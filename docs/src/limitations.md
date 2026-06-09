@@ -10,8 +10,12 @@ The author used agentic coding extensively throughout development as a deliberat
 
 ## Known issues
 
-The fuzzer (`make fuzz`) still finds idempotency failures: formatting the output of the formatter a second time sometimes produces a different result. On the other hand, the fuzzer rarely finds crashes, broken output, or cases where the formatter silently produces unparseable code. Those failure modes appear to now be uncommon.
+Cerulean never silently drops a comment or writes unparseable code. It re-parses its own output and counts the comments; if the result is invalid Teal or a comment went missing, it keeps the original file and reports a skip:
+
+    file.tl: formatting skipped: the formatter changed the number of comments (1 -> 0); left unchanged
+
+Most skips come from an inline comment wedged between the tokens of one construct, such as `local --[[c]] x = 1` or `x as --[[c]] integer`, which Cerulean cannot yet reattach. Moving the comment to its own line formats the file. The fuzzer (`make fuzz`) mostly finds these cases; crashes and broken output are rare.
 
 ## Test coverage
 
-Cerulean has been run against large, non-trivial Teal codebases without issues. The test suite has over 500 cases and covers a wide range of inputs.
+Cerulean has been run against large, non-trivial Teal codebases without issues. The test suite has over 700 cases and covers a wide range of inputs.
