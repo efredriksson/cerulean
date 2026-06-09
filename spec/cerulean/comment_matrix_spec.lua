@@ -1679,4 +1679,200 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]=]))
    end)
+
+   pending("inline comment after a declaration keyword", function()
+      it("relocates a comment between local and a variable name", helpers.format([=[
+         local --[[c]] x = 1
+      ]=], [=[
+         local x = 1 --[[c]]
+      ]=]))
+
+      it("relocates a comment between global and a variable name", helpers.format([=[
+         global --[[c]] x = 1
+      ]=], [=[
+         global x = 1 --[[c]]
+      ]=]))
+
+      it("relocates a comment between local and type", helpers.format([=[
+         local --[[c]] type T = integer
+      ]=], [=[
+         local type T = integer --[[c]]
+      ]=]))
+
+      it("relocates a comment between local type and the name", helpers.format([=[
+         local type --[[c]] T = integer
+      ]=], [=[
+         local type T = integer --[[c]]
+      ]=]))
+
+      it("relocates a comment between global and type", helpers.format([=[
+         global --[[c]] type T = integer
+      ]=], [=[
+         global type T = integer --[[c]]
+      ]=]))
+
+      it("relocates a comment between global type and the name", helpers.format([=[
+         global type --[[c]] T = integer
+      ]=], [=[
+         global type T = integer --[[c]]
+      ]=]))
+
+      it("relocates a comment between local and function", helpers.format([=[
+         local --[[c]] function f()
+         end
+      ]=], [=[
+         local function f() --[[c]]
+         end
+      ]=]))
+
+      it("relocates a comment between local function and the name", helpers.format([=[
+         local function --[[c]] f()
+         end
+      ]=], [=[
+         local function f() --[[c]]
+         end
+      ]=]))
+
+      it("relocates a comment between global and function", helpers.format([=[
+         global function --[[c]] f()
+         end
+      ]=], [=[
+         global function f() --[[c]]
+         end
+      ]=]))
+
+      it("relocates a comment between local and record", helpers.format([=[
+         local --[[c]] record R
+             x: integer
+         end
+      ]=], [=[
+         local record R
+             --[[c]]
+             x: integer
+         end
+      ]=]))
+
+      it("relocates a comment between local record and the name", helpers.format([=[
+         local record --[[c]] R
+             x: integer
+         end
+      ]=], [=[
+         local record R
+             --[[c]]
+             x: integer
+         end
+      ]=]))
+
+      it("relocates a comment between global and record", helpers.format([=[
+         global --[[c]] record R
+             x: integer
+         end
+      ]=], [=[
+         global record R
+             --[[c]]
+             x: integer
+         end
+      ]=]))
+
+      it("relocates a comment between local enum and the name", helpers.format([=[
+         local enum --[[c]] E
+             "a"
+         end
+      ]=], [=[
+         local enum E
+             --[[c]]
+             "a"
+         end
+      ]=]))
+
+      it("relocates a comment between local interface and the name", helpers.format([=[
+         local interface --[[c]] I
+             x: integer
+         end
+      ]=], [=[
+         local interface I
+             --[[c]]
+             x: integer
+         end
+      ]=]))
+
+      it("relocates a comment between a record name and where", helpers.format([=[
+         local record R --[[c]] where self.x
+             x: boolean
+         end
+      ]=], [=[
+         local record R where self.x
+             --[[c]]
+             x: boolean
+         end
+      ]=]))
+   end)
+
+   pending("inline comment between a type and its assignment", function()
+      it("keeps a comment between a generic type and the equals", helpers.check([=[
+         local x: Map<string, integer> --[[c]] = {}
+      ]=]))
+   end)
+
+   pending("inline comment after an as/is cast keyword", function()
+      it("keeps a comment between as and its type", helpers.check([=[
+         local x = y as --[[c]] integer
+      ]=]))
+
+      it("keeps a comment between as and a parenthesized type", helpers.check([=[
+         local x = y as --[[c]] (integer)
+      ]=]))
+
+      it("keeps a comment between is and its type", helpers.check([=[
+         local x = y is --[[c]] integer
+      ]=]))
+   end)
+
+   pending("inline comment inside a function header", function()
+      it("relocates a comment between a method receiver and its colon", helpers.format([=[
+         function a.b --[[c]] : c()
+         end
+      ]=], [=[
+         function a.b:c() --[[c]]
+         end
+      ]=]))
+
+      it("keeps a comment between a parameter name and its colon", helpers.check([=[
+         local function f(a --[[c]]: integer)
+         end
+      ]=]))
+   end)
+
+   pending("inline comment inside parentheses", function()
+      it("keeps a comment after an opening parenthesis", helpers.format([=[
+         local x = ( --[[c]] 1 )
+      ]=], [=[
+         local x = (--[[c]] 1)
+      ]=]))
+
+      it("keeps a comment before a closing parenthesis", helpers.format([=[
+         local x = ( 1 --[[c]] )
+      ]=], [=[
+         local x = (1 --[[c]])
+      ]=]))
+   end)
+
+   pending("inline comment around labels and for-in", function()
+      it("relocates a comment between :: and a label name", helpers.format([=[
+         :: --[[c]] L ::
+      ]=], [=[
+         ::L:: --[[c]]
+      ]=]))
+
+      it("relocates a comment between a label name and ::", helpers.format([=[
+         :: L --[[c]] ::
+      ]=], [=[
+         ::L:: --[[c]]
+      ]=]))
+
+      it("keeps a comment between a for-in variable and in", helpers.check([=[
+         for x --[[c]] in p() do
+         end
+      ]=]))
+   end)
 end)
