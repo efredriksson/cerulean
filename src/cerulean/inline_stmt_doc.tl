@@ -31,7 +31,9 @@ function inline_stmt_doc.render_assignment_doc(
     ctx: RenderContext, stmt: parser.Node
 ): doc.Doc
     local function build_var_doc(var: parser.Node): doc.Doc
-        local parts: {doc.Doc} = {ctx.render_expr(var)}
+        local parts: {doc.Doc} = {}
+        trivia_doc.append_leading(parts, parser.inline_trivia(var, "leading"))
+        table.insert(parts, ctx.render_expr(var))
         trivia_doc.append_inline(parts, parser.inline_trivia(var, "before_separator"))
         return doc.concat(parts)
     end
@@ -65,6 +67,7 @@ end
 local function build_vars_doc(stmt: parser.Node, keyword: string): doc.Doc
     local parts: {doc.Doc} = {doc.text(keyword .. " ")}
     for index, var_node in ipairs(stmt.vars) do
+        trivia_doc.append_leading(parts, parser.inline_trivia(var_node, "leading"))
         table.insert(parts, doc.text(build_var_text(var_node)))
         trivia_doc.append_inline(
             parts, parser.inline_trivia(var_node, "before_separator")

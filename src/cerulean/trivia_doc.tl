@@ -16,36 +16,66 @@ function trivia_doc.partition(
     if trivia == nil then
         return same_line, off_line
     end
-    for index, c in ipairs(trivia) do
-        if index == 1 and c.y == anchor_line then
-            same_line = c
+    for index, comment in ipairs(trivia) do
+        if index == 1 and comment.y == anchor_line then
+            same_line = comment
         else
-            table.insert(off_line, c)
+            table.insert(off_line, comment)
         end
     end
     return same_line, off_line
 end
 
--- Use when own-line entries can't occur (e.g. before a separator).
-function trivia_doc.append_inline(parts: {doc.Doc}, trivia: {parser.Comment})
-    if trivia == nil then
-        return
-    end
-    for _, c in ipairs(trivia) do
-        table.insert(parts, doc.text(" " .. c.text))
-    end
-end
-
--- Like append_inline but joins with single spaces and emits no leading
--- space — for callers whose prefix already ends with whitespace or
--- where the trivia must sit flush against an opener like `(`.
-function trivia_doc.append_inline_joined(parts: {doc.Doc}, trivia: {parser.Comment})
-    for index, c in ipairs(trivia) do
+-- The shared core of the inline emitters: the comment texts joined by a single
+-- space, with no surrounding space. The three emitters below differ only in
+-- which side gets a pad space facing the adjacent content.
+local function joined(comments: {parser.Comment}): doc.Doc
+    local parts: {doc.Doc} = {}
+    for index, comment in ipairs(comments) do
         if index > 1 then
             table.insert(parts, doc.text(" "))
         end
-        table.insert(parts, doc.text(c.text))
+        table.insert(parts, doc.text(comment.text))
     end
+    return doc.concat(parts)
+end
+
+-- Trailing inline trivia: a pad space then the run, for comments that sit after
+-- a value (e.g. before a separator). No-op when empty.
+function trivia_doc.append_inline(parts: {doc.Doc}, trivia: {parser.Comment})
+    if #trivia > 0 then
+        table.insert(parts, doc.text(" "))
+        table.insert(parts, joined(trivia))
+    end
+end
+
+-- Leading inline trivia: the run then a pad space, so the element that follows
+-- renders flush after the comments. No-op when empty.
+function trivia_doc.append_leading(parts: {doc.Doc}, leading: {parser.Comment})
+    if #leading > 0 then
+        table.insert(parts, joined(leading))
+        table.insert(parts, doc.text(" "))
+    end
+end
+
+-- Inline trivia with no pad — for callers whose prefix already ends in
+-- whitespace or where the trivia must sit flush against an opener like `(`.
+function trivia_doc.append_inline_joined(parts: {doc.Doc}, trivia: {parser.Comment})
+    if #trivia > 0 then
+        table.insert(parts, joined(trivia))
+    end
+end
+
+-- Wraps an element with its inline block comments, space-separated: `leading`
+-- before it, `trailing` after it.
+function trivia_doc.wrap_element(
+    element: doc.Doc, leading: {parser.Comment}, trailing: {parser.Comment}
+): doc.Doc
+    local parts: {doc.Doc} = {}
+    trivia_doc.append_leading(parts, leading)
+    table.insert(parts, element)
+    trivia_doc.append_inline(parts, trailing)
+    return doc.concat(parts)
 end
 
 -- Use at boundaries (e.g. operator) where any own-line entry must force

@@ -1282,6 +1282,73 @@ describe("formatter comment matrix (single-line)", function()
              and 1 or 0
       ]]))
 
+      -- Empty inner type: old design emitted a trailing space `(--[[]] )`.
+      it("preserves block comment inside empty parenthesized is-cast", helpers.format([=[
+         x = b is(--[[]])
+      ]=], [=[
+         x = b is (--[[]])
+      ]=]))
+
+      it("preserves block comment inside empty parenthesized as-cast", helpers.format([=[
+         x = b as(--[[]])
+      ]=], [=[
+         x = b as (--[[]])
+      ]=]))
+
+      it("preserves block comment before nominal type in parenthesized is-cast", helpers.format([=[
+         x = b is(--[[note]] integer)
+      ]=], [=[
+         x = b is (--[[note]] integer)
+      ]=]))
+
+      it("preserves block comment before array type in parenthesized is-cast", helpers.format([=[
+         x = b is(--[[note]] {integer})
+      ]=], [=[
+         x = b is (--[[note]] {integer})
+      ]=]))
+
+      it("preserves block comment before map type in parenthesized as-cast", helpers.format([=[
+         x = b as(--[[note]] {string: integer})
+      ]=], [=[
+         x = b as (--[[note]] {string: integer})
+      ]=]))
+
+      it("preserves block comment before union type in parenthesized is-cast", helpers.format([=[
+         x = b is(--[[note]] integer | string)
+      ]=], [=[
+         x = b is (--[[note]] integer | string)
+      ]=]))
+
+      it("preserves block comment before multi-type tuple in parenthesized as-cast", helpers.format([=[
+         x = b as(--[[note]] integer, string)
+      ]=], [=[
+         x = b as (--[[note]] integer, string)
+      ]=]))
+
+      it("preserves multiple block comments before type in parenthesized is-cast", helpers.format([=[
+         x = b is(--[[a]] --[[b]] integer)
+      ]=], [=[
+         x = b is (--[[a]] --[[b]] integer)
+      ]=]))
+
+      it("preserves block comment before second type in parenthesized as-cast", helpers.format([=[
+         x = b as(integer, --[[note]] string)
+      ]=], [=[
+         x = b as (integer, --[[note]] string)
+      ]=]))
+
+      it("preserves block comment between type and comma in parenthesized as-cast", helpers.format([=[
+         x = b as(integer --[[between]], string)
+      ]=], [=[
+         x = b as (integer --[[between]], string)
+      ]=]))
+
+      it("preserves trailing block comment before close-paren in parenthesized as-cast", helpers.format([=[
+         x = b as(integer, string --[[trailing]])
+      ]=], [=[
+         x = b as (integer, string --[[trailing]])
+      ]=]))
+
       it("preserves comments interleaved between and/or parts in if condition", helpers.format([[
          if (not a) and
             -- try first
@@ -1335,6 +1402,30 @@ describe("formatter comment matrix (single-line)", function()
 
       it("preserves multiple block comments after first rhs exp before comma", helpers.check([=[
          local x, y = 1 --[[c1]] --[[c2]], 2
+      ]=]))
+
+      it("keeps a block comment after a call-arg comma flat on the next arg", helpers.check([=[
+         f(x, --[[why y?]] y)
+      ]=]))
+
+      it("keeps a block comment after a table-field comma flat on the next field", helpers.check([=[
+         local t = {1, --[[second]] 2}
+      ]=]))
+
+      it("keeps a block comment after a declaration-rhs comma flat", helpers.check([=[
+         local x, y = 1, --[[second]] 2
+      ]=]))
+
+      it("keeps a block comment after an assignment-rhs comma flat", helpers.check([=[
+         x, y = 1, --[[second]] 2
+      ]=]))
+
+      it("keeps a block comment after an assignment-lhs comma flat", helpers.check([=[
+         x, --[[why y?]] y = f()
+      ]=]))
+
+      it("keeps a block comment after a declaration-name comma flat", helpers.check([=[
+         local x, --[[why y?]] y = 1, 2
       ]=]))
 
       it("preserves multiple block comments after while do keyword", helpers.check([=[
@@ -1463,6 +1554,112 @@ describe("formatter comment matrix (single-line)", function()
              or expression_2
              or expression_3
       ]]))
+   end)
+
+   describe("block comments inside type syntax", function()
+      it("preserves block comment before first type argument", helpers.format([=[
+         local x: Map<--[[k]]string, integer>
+      ]=], [=[
+         local x: Map<--[[k]] string, integer>
+      ]=]))
+
+      it("preserves block comment before later type argument", helpers.format([=[
+         local x: Map<string, --[[v]]integer>
+      ]=], [=[
+         local x: Map<string, --[[v]] integer>
+      ]=]))
+
+      it("preserves block comment after last type argument", helpers.format([=[
+         local x: Foo<integer--[[t]]>
+      ]=], [=[
+         local x: Foo<integer --[[t]]>
+      ]=]))
+
+      it("preserves block comment before a declared type parameter", helpers.format([=[
+         local type F = function<T, --[[c]]U>(T): U
+      ]=], [=[
+         local type F = function<T, --[[c]] U>(T): U
+      ]=]))
+
+      it("preserves block comments throughout a tuple table type", helpers.format([=[
+         local x: {--[[a]]integer, string--[[b]], boolean}
+      ]=], [=[
+         local x: {--[[a]] integer, string --[[b]], boolean}
+      ]=]))
+
+      it("preserves block comment before an array element type", helpers.format([=[
+         local x: {--[[c]]integer}
+      ]=], [=[
+         local x: {--[[c]] integer}
+      ]=]))
+
+      it("preserves block comment after an array element type", helpers.format([=[
+         local x: {integer--[[c]]}
+      ]=], [=[
+         local x: {integer --[[c]]}
+      ]=]))
+
+      it("preserves block comment before a map key type", helpers.format([=[
+         local x: {--[[k]]string: integer}
+      ]=], [=[
+         local x: {--[[k]] string: integer}
+      ]=]))
+
+      it("preserves block comment before a map value type", helpers.format([=[
+         local x: {string: --[[v]]integer}
+      ]=], [=[
+         local x: {string: --[[v]] integer}
+      ]=]))
+
+      it("preserves block comment after a map key type", helpers.format([=[
+         local x: {string--[[bk]]: integer}
+      ]=], [=[
+         local x: {string --[[bk]]: integer}
+      ]=]))
+
+      it("preserves block comments around a union separator", helpers.format([=[
+         local x: integer--[[a]] | --[[b]]string
+      ]=], [=[
+         local x: integer --[[a]] | --[[b]] string
+      ]=]))
+
+      it("preserves block comment before a function-type argument", helpers.format([=[
+         local x: function(--[[a]]p: integer)
+      ]=], [=[
+         local x: function(--[[a]] p: integer)
+      ]=]))
+
+      it("preserves block comment between a function argument's colon and type", helpers.format([=[
+         local x: function(p: --[[c]]integer)
+      ]=], [=[
+         local x: function(p: --[[c]] integer)
+      ]=]))
+
+      it("preserves block comment after a function argument's type", helpers.format([=[
+         local x: function(p: integer--[[t]], q: string)
+      ]=], [=[
+         local x: function(p: integer --[[t]], q: string)
+      ]=]))
+
+      it("preserves block comment before a function return type", helpers.format([=[
+         local x: function(): --[[r]]string
+      ]=], [=[
+         local x: function(): --[[r]] string
+      ]=]))
+
+      it("preserves block comment after an interface-list comma", helpers.format([=[
+         local record R is A, --[[note]] B end
+      ]=], [=[
+         local record R is A, --[[note]] B
+         end
+      ]=]))
+
+      it("preserves block comment before an interface-list comma", helpers.format([=[
+         local record R is A --[[note]], B end
+      ]=], [=[
+         local record R is A --[[note]], B
+         end
+      ]=]))
    end)
 
    describe("multiple same-line trailing block comments", function()

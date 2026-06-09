@@ -45,7 +45,9 @@ function delimited_list_doc.render_items(
             item, line_before, nil, suppress_blank
         )
         table.insert(parts, pre_item_doc)
-        local item_parts: {doc.Doc} = {spec.render_item(item)}
+        local item_parts: {doc.Doc} = {}
+        trivia_doc.append_leading(item_parts, parser.inline_trivia(item, "leading"))
+        table.insert(item_parts, spec.render_item(item))
         trivia_doc.append_inline(
             item_parts, parser.inline_trivia(item, "before_separator")
         )

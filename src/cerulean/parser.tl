@@ -60,7 +60,11 @@ local record parser
       x: integer
    end
 
-   interface Type is Where where self.typename
+   interface HasInlineTrivia
+      inline_trivia: {InlineSlot: {Comment}}
+   end
+
+   interface Type is Where, HasInlineTrivia where self.typename
       typename: TypeName    -- discriminator
       typeid: integer       -- unique identifier
       inferred_at: Where    -- for error messages
@@ -167,6 +171,7 @@ local record parser
       "before_separator"
       "head"
       "after_opener"
+      "leading"
    end
 
    record FieldEntry
@@ -454,7 +459,7 @@ local record parser
     type Token = tl.Token
 
     record Node
-        is {Node}, Where
+        is {Node}, Where, HasInlineTrivia
         where self.kind ~= nil
 
         record ExpectedContext
@@ -530,7 +535,6 @@ local record parser
         trailing_comma:                 boolean
         dangling_comments:              {Comment}
         trailing_comments:              {Comment}
-        inline_trivia:                  {InlineSlot: {Comment}}
         blank_line_before:              boolean
         debug_type:                     Type
         is_self:                        boolean
@@ -549,7 +553,7 @@ local record parser
         input: string,
         filename: string
     ): Node, {Error}, {string}, integer
-    inline_trivia: function(node: Node, slot: InlineSlot): {Comment}
+    inline_trivia: function(node: HasInlineTrivia, slot: InlineSlot): {Comment}
 end
 
 -- ── Type aliases for parser_types public types ──────────────────────────────
@@ -587,8 +591,11 @@ local type TokenKind = tl.TokenKind
 local type Comment = parser.Comment
 local type InlineSlot = parser.InlineSlot
 local type Operator = parser.Operator
+local type HasInlineTrivia = parser.HasInlineTrivia
 
-local function set_inline_trivia(node: Node, slot: InlineSlot, trivia: {Comment})
+local function set_inline_trivia(
+    node: HasInlineTrivia, slot: InlineSlot, trivia: {Comment}
+)
     if trivia == nil or #trivia == 0 then
         return
     end
@@ -600,7 +607,7 @@ local EMPTY_INLINE_TRIVIA: {Comment} = {}
 
 -- Returns the trivia list for `slot` on `node`, or an empty list when absent.
 -- Callers must treat the result as read-only — the empty case shares one constant.
-function parser.inline_trivia(node: Node, slot: InlineSlot): {Comment}
+function parser.inline_trivia(node: HasInlineTrivia, slot: InlineSlot): {Comment}
     if node.inline_trivia == nil then
         return EMPTY_INLINE_TRIVIA
     end
@@ -1193,7 +1200,53 @@ do
         ParseState, integer, ?integer
     ): integer, T, integer
 
-    local function parse_list<T>(
+    local function is_block_comment(comment: Comment): boolean
+        return comment.text:match("^%-%-%[=*%[") ~= nil
+    end
+
+    local function all_block_comments(comments: {Comment}): boolean
+        for _, comment in ipairs(comments) do
+            if not is_block_comment(comment) then
+                return false
+            end
+        end
+        return true
+    end
+
+    -- True when `token` carries at least one comment on `line` and every such
+    -- comment is a block comment — i.e. the run can render flush as an element's
+    -- `leading` without a line comment forcing a break. Does not drain.
+    local function same_line_comments_all_block(token: Token, line: integer): boolean
+        local lc_list = token.comments
+        if lc_list == nil then
+            return false
+        end
+        local found = false
+        for _, lc in ipairs(lc_list) do
+            if lc.y == line then
+                if not (lc.text:match("^%-%-%[=*%[")) then
+                    return false
+                end
+                found = true
+            end
+        end
+        return found
+    end
+
+    local function append_trailing_comments(node: Node, comments: {Comment})
+        if #comments == 0 then
+            return
+        end
+        if node.trailing_comments == nil then
+            node.trailing_comments = comments
+        else
+            for _, comment in ipairs(comments) do
+                table.insert(node.trailing_comments, comment)
+            end
+        end
+    end
+
+    local function parse_list<T is Node>(
         ps: ParseState,
         i: integer,
         list: {T},
@@ -1202,6 +1255,7 @@ do
         parse_item: ParseItem<T>
     ): integer, {T}
         local n = 1
+        local pending_leading: {Comment} = {}
         while ps.tokens[i].kind ~= "$EOF$" do
             if close[ps.tokens[i].tk] then
                 end_at(list as Node, ps.tokens[i])
@@ -1211,12 +1265,19 @@ do
             local oldn = n
             i, item, n = parse_item(ps, i, n)
             n = n or oldn
-            if item and item is Node then
-                -- Two trailing positions render as "after this item":
-                --   `x --[[c]],`  → drained from separator token
-                --   `x, --[[c]] y` → looked up on the next item's token
-                -- Only drain on a separator; a closing bracket's comments belong
-                -- to the bracket-list's end_comments, not to this item.
+            if item then
+                if #pending_leading > 0 then
+                    set_inline_trivia(item, "leading", pending_leading)
+                    pending_leading = {}
+                end
+                -- Comments rendered "after this item":
+                --   `x --[[c]],`  → drained from the separator token
+                --   `x, -- c`     → line comment / no next item: trailing here
+                -- A same-line block-comment run after the separator that has a
+                -- real next item to receive it instead becomes that item's
+                -- `leading` (renders flush, never forces a wrap). Only drain on a
+                -- separator; a closing bracket's comments belong to the
+                -- bracket-list's end_comments, not to this item.
                 local is_separator = ps.tokens[i].tk == "," or ps.tokens[i].tk == ";"
                 local item_line = item.yend or item.y
                 local sep_trailing: {Comment} = {}
@@ -1230,7 +1291,18 @@ do
                 local comment_token = (is_separator and ps.tokens[i + 1])
                     or ps.tokens[i]
                 local next_same_line = take_same_line_comments(comment_token, item_line)
-                if #sep_trailing == 0 then
+                local next_token = ps.tokens[i + 1]
+                local has_next_item = is_separator
+                    and next_token.kind ~= "$EOF$"
+                    and not close[next_token.tk]
+                if
+                    has_next_item
+                    and #sep_trailing == 0
+                    and #next_same_line > 0
+                    and all_block_comments(next_same_line)
+                then
+                    pending_leading = next_same_line
+                elseif #sep_trailing == 0 then
                     item.trailing_comments = next_same_line
                 else
                     item.trailing_comments = sep_trailing
@@ -1283,7 +1355,7 @@ do
         return i, list
     end
 
-    local function parse_bracket_list<T>(
+    local function parse_bracket_list<T is Node>(
         ps: ParseState,
         i: integer,
         list: {T},
@@ -1322,13 +1394,13 @@ do
         return i, node
     end
 
-    local function parse_trying_list<T>(
-        ps: ParseState,
-        i: integer,
-        list: {T},
-        parse_item: ParseItem<T>,
-        ret_lookahead?: boolean
-    ): integer, {T}
+    -- Trial-parses one item on a throwaway state so a "is there even an item
+    -- here?" probe never leaks errors. On success, replays the trial's errors
+    -- onto `ps` and returns the advanced index + item; on failure returns the
+    -- original index and nil.
+    local function attempt<T>(
+        ps: ParseState, i: integer, parse_item: ParseItem<T>
+    ): integer, T
         local try_ps: ParseState = {
             filename = ps.filename,
             tokens = ps.tokens,
@@ -1336,51 +1408,126 @@ do
             source_lines = ps.source_lines,
             required_modules = ps.required_modules,
         }
-        local tryi, item: integer, T = parse_item(try_ps, i)
+        local tryi, item = parse_item(try_ps, i)
         if not item then
-            return i, list
+            return i
         end
         for _, e in ipairs(try_ps.errs) do
             table.insert(ps.errs, e)
         end
-        i = tryi
-        table.insert(list, item)
+        return tryi, item
+    end
+
+    -- Captures the inline comments around the separator at `i` for `current` (the
+    -- element just parsed) and returns the same-line block run that should become
+    -- the *next* element's `leading`. The one place Node and Type lists diverge:
+    -- a Node can render own-line / line comments, so it routes them to
+    -- `trailing_comments` (which force a wrap) via partition; a Type only ever
+    -- carries same-line block comments, so it takes them verbatim.
+    local function thread_separator<T is HasInlineTrivia>(
+        ps: ParseState, i: integer, current: T
+    ): {Comment}
+        local item_line = ps.tokens[i - 1].y
+        if current is Node then
+            local sep_trailing, before_sep = partition_separator_trivia(
+                ps.tokens[i], ps.tokens[i + 1], item_line
+            )
+            set_inline_trivia(current, "before_separator", before_sep)
+            -- A same-line block-comment run after the separator (with a real next
+            -- element to receive it) becomes that element's `leading`; a line
+            -- comment stays trailing here and forces the wrap it requires.
+            if
+                #sep_trailing == 0
+                and ps.tokens[i + 1].kind ~= "$EOF$"
+                and same_line_comments_all_block(ps.tokens[i + 1], item_line)
+            then
+                return take_same_line_comments(ps.tokens[i + 1], item_line)
+            end
+            append_trailing_comments(current, sep_trailing)
+            return {}
+        end
+        set_inline_trivia(
+            current,
+            "before_separator",
+            take_same_line_comments(ps.tokens[i], item_line)
+        )
+        return take_same_line_comments(ps.tokens[i + 1], ps.tokens[i].y)
+    end
+
+    -- Threads inline comments through the `sep`-separated tail of a list whose
+    -- first element is already in `list`. Each element gets `before_separator`
+    -- (before the upcoming `sep`) and the next gets `leading` (after it), routed
+    -- per element kind by thread_separator. `i` points at the first separator or
+    -- the closer. `ret_lookahead` stops at a `,` that opens a named return tuple
+    -- (`function(): (a, b: T)`). One walker for both node and type lists.
+    local function thread_list<T is HasInlineTrivia>(
+        ps: ParseState,
+        i: integer,
+        list: {T},
+        parse_item: ParseItem<T>,
+        sep: string,
+        ret_lookahead?: boolean
+    ): integer
+        local pending_leading: {Comment} = {}
         while
-            ps.tokens[i].tk == ","
+            ps.tokens[i].tk == sep
             and (
                 not ret_lookahead
-                or (
-                    not (
-                        ps.tokens[i + 1].kind == "identifier"
+                or not (
+                    ps.tokens[i + 1].kind == "identifier"
                         and ps.tokens[i + 2]
                         and ps.tokens[i + 2].tk == ":"
-                    )
                 )
             )
         do
-            if item is Node then
-                local sep_trailing, before_sep = partition_separator_trivia(
-                    ps.tokens[i], ps.tokens[i + 1], item.yend or item.y
-                )
-                set_inline_trivia(item, "before_separator", before_sep)
-                if #sep_trailing > 0 then
-                    if item.trailing_comments == nil then
-                        item.trailing_comments = sep_trailing
-                    else
-                        for _, c in ipairs(sep_trailing) do
-                            table.insert(item.trailing_comments, c)
-                        end
-                    end
-                end
-            end
+            pending_leading = thread_separator(ps, i, list[#list])
             i = i + 1
+            local item: T
             i, item = parse_item(ps, i)
             if not item then
+                local last = list[#list]
+                if #pending_leading > 0 and last is Node then
+                    append_trailing_comments(last, pending_leading)
+                end
                 break
             end
+            if #pending_leading > 0 then
+                set_inline_trivia(item, "leading", pending_leading)
+            end
+            pending_leading = {}
             table.insert(list, item)
         end
+        return i
+    end
+
+    -- Optional list: trial-parses the first element (so an absent list is not a
+    -- hard error), then threads the comma tail. Serves both node lists
+    -- (assignment / declaration variables) and type lists (interface lists).
+    local function parse_trying_list<T is HasInlineTrivia>(
+        ps: ParseState, i: integer, list: {T}, parse_item: ParseItem<T>
+    ): integer, {T}
+        local item: T
+        i, item = attempt(ps, i, parse_item)
+        if not item then
+            return i, list
+        end
+        table.insert(list, item)
+        i = thread_list(ps, i, list, parse_item, ",")
         return i, list
+    end
+
+    -- Sets `before_separator` on the last element of a list from the same-line
+    -- comments sitting before the closer at `i`.
+    local function set_last_before_separator<T is HasInlineTrivia>(
+        ps: ParseState, i: integer, list: {T}
+    )
+        if #list > 0 then
+            set_inline_trivia(
+                list[#list],
+                "before_separator",
+                take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+            )
+        end
     end
 
     local function parse_anglebracket_list<T is Type>(
@@ -1395,19 +1542,18 @@ do
             return i + 1
         end
 
-        local types: {T} = {}
+        local angle_line = ps.tokens[i].y
         i = verify_tk(ps, i, "<")
-        i = parse_list(
-            ps,
-            i,
-            types,
-            {
-                [">"] = true,
-                [">>"] = true,
-            },
-            "sep",
-            parse_item
-        )
+        local types: {T} = {}
+        local leading = take_same_line_comments(ps.tokens[i], angle_line)
+        local first: T
+        i, first = parse_item(ps, i)
+        if first then
+            set_inline_trivia(first, "leading", leading)
+            table.insert(types, first)
+            i = thread_list(ps, i, types, parse_item, ",")
+        end
+        set_last_before_separator(ps, i, types)
         if ps.tokens[i].tk == ">" then
             i = i + 1
         elseif ps.tokens[i].tk == ">>" then
@@ -1517,14 +1663,22 @@ do
             return parse_simple_type_or_nominal(ps, i)
         elseif tk == "{" then
             local istart = i
+            local brace_line = ps.tokens[i].y
             i = i + 1
+            local leading = take_same_line_comments(ps.tokens[i], brace_line)
             local t: Type
             i, t = parse_type(ps, i)
             if not t then
                 return i
             end
+            set_inline_trivia(t, "leading", leading)
             if ps.tokens[i].tk == "}" then
                 local decl = new_type(ps, istart, "array") as ArrayType
+                set_inline_trivia(
+                    t,
+                    "before_separator",
+                    take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+                )
                 decl.elements = t
                 end_at(decl as Node, ps.tokens[i])
                 i = verify_tk(ps, i, "}")
@@ -1532,26 +1686,33 @@ do
             elseif ps.tokens[i].tk == "," then
                 local decl = new_type(ps, istart, "tupletable") as TupleTableType
                 decl.types = {t}
-                local n = 2
-                repeat
-                    i = i + 1
-                    i, decl.types[n] = parse_type(ps, i)
-                    if not decl.types[n] then
-                        break
-                    end
-                    n = n + 1
-                until ps.tokens[i].tk ~= ","
+                i = thread_list(ps, i, decl.types, parse_type, ",")
+                set_last_before_separator(ps, i, decl.types)
                 end_at(decl as Node, ps.tokens[i])
                 i = verify_tk(ps, i, "}")
                 return i, decl
             elseif ps.tokens[i].tk == ":" then
                 local decl = new_type(ps, istart, "map") as MapType
-                i = i + 1
                 decl.keys = t
+                set_inline_trivia(
+                    t,
+                    "before_separator",
+                    take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+                )
+                i = i + 1
+                local value_leading = take_same_line_comments(
+                    ps.tokens[i], ps.tokens[i - 1].y
+                )
                 i, decl.values = parse_type(ps, i)
                 if not decl.values then
                     return i
                 end
+                set_inline_trivia(decl.values, "leading", value_leading)
+                set_inline_trivia(
+                    decl.values,
+                    "before_separator",
+                    take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+                )
                 end_at(decl as Node, ps.tokens[i])
                 i = verify_tk(ps, i, "}")
                 return i, decl
@@ -1586,14 +1747,7 @@ do
         if ps.tokens[i].tk == "|" then
             local u = new_type(ps, istart, "union") as UnionType
             u.types = {bt}
-            while ps.tokens[i].tk == "|" do
-                i = i + 1
-                i, bt = parse_base_type(ps, i)
-                if not bt then
-                    return i
-                end
-                table.insert(u.types, bt)
-            end
+            i = thread_list(ps, i, u.types, parse_base_type, "|")
             bt = u
         end
         return i, bt
@@ -1605,9 +1759,14 @@ do
         local t, list = new_tuple(ps, i)
 
         local first_token = ps.tokens[i].tk
+        -- Comments after the leading ':' and/or an optional '(' become the
+        -- first element's `leading`, or the container's `after_opener` if empty.
+        local first_leading: {Comment} = {}
         if mode == "rets" or mode == "decltuple" then
             if first_token == ":" then
+                local colon_line = ps.tokens[i].y
                 i = i + 1
+                first_leading = take_same_line_comments(ps.tokens[i], colon_line)
             else
                 return i, t
             end
@@ -1616,13 +1775,29 @@ do
         local optional_paren = false
         if ps.tokens[i].tk == "(" then
             optional_paren = true
+            local paren_line = ps.tokens[i].y
             i = i + 1
+            for _, comment in ipairs(
+                take_same_line_comments(ps.tokens[i], paren_line)
+            ) do
+                table.insert(first_leading, comment)
+            end
         end
 
-        local prev_i = i
-        i = parse_trying_list(ps, i, list, parse_type, mode == "rets")
-        if i == prev_i and ps.tokens[i].tk ~= ")" then
-            fail(ps, i - 1, "expected a type list")
+        -- Trial-parse the first type so an empty list (legal after ':' or '(')
+        -- is not reported as a hard error.
+        local first_type: Type
+        i, first_type = attempt(ps, i, parse_type)
+        if not first_type then
+            if ps.tokens[i].tk ~= ")" then
+                fail(ps, i - 1, "expected a type list")
+            end
+            -- No element to carry the post-'(' comments (e.g. `as(--[[c]])`).
+            set_inline_trivia(t, "after_opener", first_leading)
+        else
+            set_inline_trivia(first_type, "leading", first_leading)
+            table.insert(list, first_type)
+            i = thread_list(ps, i, list, parse_type, ",", mode == "rets")
         end
 
         if mode == "rets" and ps.tokens[i].tk == "..." then
@@ -1636,6 +1811,7 @@ do
         end
 
         if optional_paren then
+            set_last_before_separator(ps, i, list)
             i = verify_tk(ps, i, ")")
             t.paren = true
         end
@@ -2381,9 +2557,13 @@ do
             end
         end
 
+        -- A comment between the binding ':' and the type (`a: --[[c]] int`); the
+        -- list walker captures the comments around the whole argument.
+        local after_colon = take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
         local typ: Type
         i, typ = parse_type(ps, i)
         if typ then
+            set_inline_trivia(typ, "head", after_colon)
             if not is_va and ps.tokens[i].tk == "..." then
                 i = i + 1
                 is_va = true
@@ -2414,8 +2594,57 @@ do
     parse_argument_type_list = function(
         ps: ParseState, i: integer
     ): integer, TupleType, boolean, integer
+        -- Walk arguments by hand (not parse_bracket_list) so inline comments
+        -- around each survive, stored on the argument's type as `leading` and
+        -- `before_separator`.
         local ars: {ArgumentInfo} = {}
-        i = parse_bracket_list(ps, i, ars, "(", ")", "sep", parse_argument_type)
+        local paren_line = ps.tokens[i].y
+        i = verify_tk(ps, i, "(")
+        local leading = take_same_line_comments(ps.tokens[i], paren_line)
+        if ps.tokens[i].tk ~= ")" then
+            local first: ArgumentInfo
+            i, first = parse_argument_type(ps, i)
+            if first then
+                if first.type then
+                    set_inline_trivia(first.type, "leading", leading)
+                end
+                table.insert(ars, first)
+                while ps.tokens[i].tk == "," do
+                    if ars[#ars].type then
+                        set_inline_trivia(
+                            ars[#ars].type,
+                            "before_separator",
+                            take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+                        )
+                    end
+                    i = i + 1
+                    if ps.tokens[i].tk == ")" then
+                        fail(ps, i, "unexpected ','")
+                        break
+                    end
+                    local arg_leading = take_same_line_comments(
+                        ps.tokens[i], ps.tokens[i - 1].y
+                    )
+                    local next_arg: ArgumentInfo
+                    i, next_arg = parse_argument_type(ps, i)
+                    if not next_arg then
+                        break
+                    end
+                    if next_arg.type then
+                        set_inline_trivia(next_arg.type, "leading", arg_leading)
+                    end
+                    table.insert(ars, next_arg)
+                end
+                if ars[#ars].type then
+                    set_inline_trivia(
+                        ars[#ars].type,
+                        "before_separator",
+                        take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
+                    )
+                end
+            end
+        end
+        i = verify_tk(ps, i, ")")
         local t, list = new_tuple(ps, i)
         t.argnames = {}
         t.is_optional = {}
@@ -3542,6 +3771,7 @@ do
     ): integer, Node
         asgn.exps = new_node(ps, i, "expression_list")
         local eq_line = ps.tokens[i].y
+        local pending_leading: {Comment} = {}
         repeat
             i = i + 1
             if #asgn.exps == 0 then
@@ -3552,10 +3782,19 @@ do
             local val: Node
             i, val = parse_expression(ps, i)
             if not val then
+                -- A `, --[[c]]` with no expression to follow: keep the comment
+                -- on the previous value rather than dropping it.
+                if #pending_leading > 0 and #asgn.exps > 0 then
+                    append_trailing_comments(asgn.exps[#asgn.exps], pending_leading)
+                end
                 if #asgn.exps == 0 then
                     asgn.exps = nil
                 end
                 return i
+            end
+            if #pending_leading > 0 then
+                set_inline_trivia(val, "leading", pending_leading)
+                pending_leading = {}
             end
             if ps.tokens[i].tk == "," then
                 local val_line = val.yend or val.y
@@ -3566,7 +3805,14 @@ do
                 local next_same_line = take_same_line_comments(
                     ps.tokens[i + 1], val_line
                 )
-                if #sep_trailing == 0 then
+                if
+                    #sep_trailing == 0
+                    and #next_same_line > 0
+                    and all_block_comments(next_same_line)
+                    and ps.tokens[i + 1].kind ~= "$EOF$"
+                then
+                    pending_leading = next_same_line
+                elseif #sep_trailing == 0 then
                     val.trailing_comments = next_same_line
                 else
                     val.trailing_comments = sep_trailing
@@ -3624,17 +3870,35 @@ do
             asgn.vars[1] = exp
             if ps.tokens[i].tk == "," then
                 local first_var = asgn.vars[1]
+                local first_line = first_var.yend or first_var.y
                 local sep_trailing, before_sep = partition_separator_trivia(
-                    ps.tokens[i], ps.tokens[i + 1], first_var.yend or first_var.y
+                    ps.tokens[i], ps.tokens[i + 1], first_line
                 )
                 set_inline_trivia(first_var, "before_separator", before_sep)
-                if #sep_trailing > 0 then
+                -- A same-line block-comment run after this comma is the second
+                -- var's `leading`; a line comment stays trailing on the first.
+                local second_leading: {Comment} = {}
+                if
+                    #sep_trailing == 0
+                    and ps.tokens[i + 1].kind ~= "$EOF$"
+                    and same_line_comments_all_block(ps.tokens[i + 1], first_line)
+                then
+                    second_leading = take_same_line_comments(
+                        ps.tokens[i + 1], first_line
+                    )
+                elseif #sep_trailing > 0 then
                     first_var.trailing_comments = sep_trailing
                 end
                 i = i + 1
+                local second_index = #asgn.vars + 1
                 i = parse_trying_list(ps, i, asgn.vars, parse_variable)
                 if #asgn.vars < 2 then
                     return fail(ps, i, "syntax error")
+                end
+                if #second_leading > 0 then
+                    set_inline_trivia(
+                        asgn.vars[second_index], "leading", second_leading
+                    )
                 end
             end
 

@@ -1,6 +1,7 @@
 local doc = require("cerulean.doc")
 local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
+local trivia_doc = require("cerulean.trivia_doc")
 
 local record TypeRenderOpts
     -- Generic doc forwarded into the inner function-type renderer
@@ -21,6 +22,9 @@ end
 
 local render_return: function(parser.TupleType): doc.Doc
 local render_type: function(parser.Type, TypeRenderOpts): doc.Doc
+-- Renders one element of a separated type list, wrapping it with its inline
+-- trivia: `leading` before it and `before_separator` after it.
+local render_type_element: function(parser.Type, TypeRenderOpts): doc.Doc
 
 local function arg_name_doc(
     arg_name: string, is_optional: boolean, is_variadic: boolean
@@ -56,7 +60,7 @@ local type_doc_render: function(type_def: parser.Type, ?TypeRenderOpts): doc.Doc
 function type_doc.render_typeargs(typeargs: {parser.TypeArgType}): doc.Doc
     local typearg_docs: {doc.Doc} = {}
     for _, typearg in ipairs(typeargs) do
-        table.insert(typearg_docs, render_type(typearg, TypeRenderOpts.new()))
+        table.insert(typearg_docs, render_type_element(typearg, TypeRenderOpts.new()))
     end
     return doc.concat(
         {
@@ -81,7 +85,19 @@ local function function_type_render(
             argnames[index], is_optional_arg(type_def, index), is_variadic
         )
         local rendered_type = render_type(arg_type, opts)
-        table.insert(arg_docs, doc.concat({arg_name, rendered_type, type_suffix}))
+        -- A comment between the binding ':' and the type sits right before it.
+        local after_colon = parser.inline_trivia(arg_type, "head")
+        if #after_colon > 0 then
+            rendered_type = trivia_doc.wrap_element(rendered_type, after_colon, {})
+        end
+        local arg_doc = doc.concat({arg_name, rendered_type, type_suffix})
+        -- `leading`/`before_separator` wrap the whole argument (name + type).
+        local leading = parser.inline_trivia(arg_type, "leading")
+        local trailing = parser.inline_trivia(arg_type, "before_separator")
+        if #leading > 0 or #trailing > 0 then
+            arg_doc = trivia_doc.wrap_element(arg_doc, leading, trailing)
+        end
+        table.insert(arg_docs, arg_doc)
     end
     local delim_opts = render_builders.DelimitedSequenceOptions.new("(", ")")
     local rets = type_def.rets
@@ -109,7 +125,7 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
         if type_def.typevals ~= nil and #type_def.typevals > 0 then
             local typeval_docs: {doc.Doc} = {}
             for _, typeval in ipairs(type_def.typevals) do
-                table.insert(typeval_docs, render_type(typeval, opts))
+                table.insert(typeval_docs, render_type_element(typeval, opts))
             end
             table.insert(parts, doc.text("<"))
             table.insert(
@@ -122,7 +138,7 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
         return doc.concat(
             {
                 doc.text("{"),
-                render_type(type_def.elements, opts),
+                render_type_element(type_def.elements, opts),
                 doc.text("}"),
             }
         )
@@ -138,13 +154,13 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
         local last = #type_def.types
         for index, t in ipairs(type_def.types) do
             local branch_opts = (index == last) and opts or TypeRenderOpts.new()
-            table.insert(type_docs, render_type(t, branch_opts))
+            table.insert(type_docs, render_type_element(t, branch_opts))
         end
         return render_builders.build_separated_docs(type_docs, " | ")
     elseif type_def is parser.TupleType then
         local type_docs: {doc.Doc} = {}
         for _, t in ipairs(type_def.tuple) do
-            table.insert(type_docs, render_type(t, opts))
+            table.insert(type_docs, render_type_element(t, opts))
         end
         local result = render_builders.build_separated_docs(type_docs, ", ")
         if type_def.is_va then
@@ -155,9 +171,9 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
         return doc.concat(
             {
                 doc.text("{"),
-                render_type(type_def.keys, opts),
+                render_type_element(type_def.keys, opts),
                 doc.text(": "),
-                render_type(type_def.values, opts),
+                render_type_element(type_def.values, opts),
                 doc.text("}"),
             }
         )
@@ -170,7 +186,7 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
     elseif type_def is parser.TupleTableType then
         local type_docs: {doc.Doc} = {}
         for _, t in ipairs(type_def.types) do
-            table.insert(type_docs, render_type(t, opts))
+            table.insert(type_docs, render_type_element(t, opts))
         end
         return doc.concat(
             {
@@ -198,13 +214,33 @@ render_type = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
     end
     local result = type_doc_render(type_def, inner_opts)
     if type_def.paren then
+        -- An empty paren list (`as(--[[c]])`) has no element to carry its
+        -- comments; they live on the container's `after_opener` slot.
+        if type_def is parser.TupleType and #type_def.tuple == 0 then
+            local after_opener = parser.inline_trivia(type_def, "after_opener")
+            if #after_opener > 0 then
+                local parts: {doc.Doc} = {}
+                trivia_doc.append_inline_joined(parts, after_opener)
+                result = doc.concat(parts)
+            end
+        end
         result = doc.concat({doc.text("("), result, doc.text(")")})
     end
     return result
 end
 
+render_type_element = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
+    local element = render_type(type_def, opts)
+    local leading = parser.inline_trivia(type_def, "leading")
+    local trailing = parser.inline_trivia(type_def, "before_separator")
+    if #leading == 0 and #trailing == 0 then
+        return element
+    end
+    return trivia_doc.wrap_element(element, leading, trailing)
+end
+
 function type_doc.render(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
-    return render_type(type_def, TypeRenderOpts.new(generic_doc))
+    return render_type_element(type_def, TypeRenderOpts.new(generic_doc))
 end
 
 -- `x as function(): T, next_field` re-parses as `function(): (T, next_field)` —
