@@ -153,9 +153,12 @@ function render_builders.any_items_have_comments(items: parser.Node): boolean
     return false
 end
 
-local function any_items_have_trailing_trivia(items: {parser.Node}): boolean
+local function any_items_have_inline_trivia(items: {parser.Node}): boolean
     for _, item in ipairs(items) do
-        if #parser.inline_trivia(item, "before_separator") > 0 then
+        if
+            #parser.inline_trivia(item, "before_separator") > 0
+            or #parser.inline_trivia(item, "leading") > 0
+        then
             return true
         end
     end
@@ -167,7 +170,7 @@ function render_builders.build_exp_list_doc(
 ): doc.Doc
     if
         not render_builders.any_items_have_comments(exps)
-        and not any_items_have_trailing_trivia(exps)
+        and not any_items_have_inline_trivia(exps)
     then
         return render_builders.build_mapped_comma_separated_docs(ctx, exps)
     end
@@ -175,7 +178,9 @@ function render_builders.build_exp_list_doc(
     local force_next_indent = false
     for index, exp in ipairs(exps) do
         local is_last = index == #exps
-        local item_parts: {doc.Doc} = {ctx.render_expr(exp)}
+        local item_parts: {doc.Doc} = {}
+        trivia_doc.append_leading(item_parts, parser.inline_trivia(exp, "leading"))
+        table.insert(item_parts, ctx.render_expr(exp))
         trivia_doc.append_inline(
             item_parts, parser.inline_trivia(exp, "before_separator")
         )
