@@ -2,6 +2,7 @@ dist
 .env
 fuzz/gen/
 fuzz/corpus/
+fuzz/ab_snapshot
 fuzz/regressions_spec.lua
 fuzz/__pycache__/
 .venv
