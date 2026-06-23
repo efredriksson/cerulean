@@ -7,15 +7,16 @@ local assert = require("luassert")
 
 local cli_fixtures = "spec/cerulean/fixtures/cli/"
 
-local function run(args)
-    local out_lines = {}
-    local err_lines = {}
-    local printer = cli.new_printer(
-        function(msg) table.insert(out_lines, msg) end,
-        function(msg) table.insert(err_lines, msg) end
+local function run(args, stdin_text)
+    local out = {}
+    local err = {}
+    local stdio = cli.Stdio.new(
+        function(text) table.insert(out, text) end,
+        function(text) table.insert(err, text) end,
+        function() return stdin_text or "" end
     )
-    local code = cli.run(args, printer)
-    return code, out_lines, err_lines
+    local code = cli.run(args, stdio)
+    return code, out, err
 end
 
 local function assert_contains(lines, text)
@@ -143,6 +144,46 @@ describe("cli.run", function()
         it("reports how many files could not be processed", function()
             local _, _, err = run({cli_fixtures})
             assert_contains(err, "could not be processed")
+        end)
+    end)
+
+    describe("stdin (-)", function()
+        it("formats stdin and writes only the result to stdout", function()
+            local code, out = run({"-"}, "local  x=1\n")
+            assert.same(0, code)
+            -- Exact equality also proves no summary line is mixed into stdout.
+            assert.same("local x = 1\n", table.concat(out))
+        end)
+
+        it("leaves already-formatted input byte-identical", function()
+            local code, out = run({"-"}, "local x = 1\n")
+            assert.same(0, code)
+            assert.same("local x = 1\n", table.concat(out))
+        end)
+
+        it("returns 1 with an empty stdout for invalid input", function()
+            local code, out, err = run({"-"}, "local x =\n")
+            assert.same(1, code)
+            assert.same("", table.concat(out))
+            assert_contains(err, "<stdin>")
+        end)
+
+        it("returns 1 with no stdout for --check when input would reformat", function()
+            local code, out = run({"--check", "-"}, "local  x=1\n")
+            assert.same(1, code)
+            assert.same("", table.concat(out))
+        end)
+
+        it("returns 0 for --check when input is already formatted", function()
+            local code, out = run({"--check", "-"}, "local x = 1\n")
+            assert.same(0, code)
+            assert.same("", table.concat(out))
+        end)
+
+        it("errors when '-' is combined with a file path", function()
+            local code, _, err = run({"-", "some_file.tl"})
+            assert.same(1, code)
+            assert_contains(err, "cannot combine")
         end)
     end)
 

@@ -9,6 +9,7 @@ local record FormatterOptions
     max_line_width: integer
     sort_requires: boolean
     files: {string}
+    read_stdin: boolean
 end
 
 local options = {FormatterOptions = FormatterOptions}
@@ -19,7 +20,8 @@ function FormatterOptions.new(
     indent_width: integer,
     max_line_width: integer,
     sort_requires: boolean,
-    files: {string}
+    files: {string},
+    read_stdin: boolean
 ): FormatterOptions
     local self: FormatterOptions = setmetatable({}, {__index = FormatterOptions})
     self.check_only = check_only
@@ -28,11 +30,12 @@ function FormatterOptions.new(
     self.max_line_width = max_line_width
     self.sort_requires = sort_requires
     self.files = files
+    self.read_stdin = read_stdin
     return self
 end
 
 function options.default(): FormatterOptions
-    return FormatterOptions.new(false, "nothing", 4, 88, true, {})
+    return FormatterOptions.new(false, "nothing", 4, 88, true, {}, false)
 end
 
 local function parse_positive_integer(raw: string, flag: string): integer, string
@@ -79,12 +82,18 @@ local function apply_args(
                 return nil, err
             end
             apply_to.max_line_width = n
+        elseif value == "-" then
+            apply_to.read_stdin = true
         elseif value:sub(1, 2) == "--" then
             return nil, string.format("unknown flag: '%s'", value)
         else
             table.insert(apply_to.files, value)
         end
         i = i + 1
+    end
+
+    if apply_to.read_stdin and #apply_to.files > 0 then
+        return nil, "cannot combine '-' (stdin) with file paths"
     end
 
     if #apply_to.files == 0 then

@@ -4,9 +4,10 @@ local cli = require("cerulean.cli")
 
 local code = cli.run(
     arg,
-    cli.new_printer(
-        function(msg: string) io.stdout:write(msg .. "\n") end,
-        function(msg: string) io.stderr:write(msg .. "\n") end
+    cli.Stdio.new(
+        function(text: string) io.stdout:write(text) end,
+        function(text: string) io.stderr:write(text) end,
+        function(): string return io.stdin:read("*a") end
     )
 )
 os.exit(code)
