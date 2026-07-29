@@ -8,6 +8,7 @@ local record FormatterOptions
     indent_width: integer
     max_line_width: integer
     sort_requires: boolean
+    hug_single_argument: boolean
     files: {string}
     read_stdin: boolean
 end
@@ -20,6 +21,7 @@ function FormatterOptions.new(
     indent_width: integer,
     max_line_width: integer,
     sort_requires: boolean,
+    hug_single_argument: boolean,
     files: {string},
     read_stdin: boolean
 ): FormatterOptions
@@ -29,13 +31,14 @@ function FormatterOptions.new(
     self.indent_width = indent_width
     self.max_line_width = max_line_width
     self.sort_requires = sort_requires
+    self.hug_single_argument = hug_single_argument
     self.files = files
     self.read_stdin = read_stdin
     return self
 end
 
 function options.default(): FormatterOptions
-    return FormatterOptions.new(false, "nothing", 4, 88, true, {}, false)
+    return FormatterOptions.new(false, "nothing", 4, 88, true, false, {}, false)
 end
 
 local function parse_positive_integer(raw: string, flag: string): integer, string
@@ -56,6 +59,8 @@ local function apply_args(
             apply_to.check_only = true
         elseif value == "--no-sort-requires" then
             apply_to.sort_requires = false
+        elseif value == "--hug-single-argument" then
+            apply_to.hug_single_argument = true
         elseif value == "--log-level" then
             i = i + 1
             if i > #script_args then
@@ -157,6 +162,14 @@ function options.from_config_file(): FormatterOptions, string
             return nil, "tlconfig.lua: cerulean.sort_requires must be a boolean"
         end
         opts.sort_requires = sr
+    end
+
+    local hsa = formatter["hug_single_argument"]
+    if hsa ~= nil then
+        if not (hsa is boolean) then
+            return nil, "tlconfig.lua: cerulean.hug_single_argument must be a boolean"
+        end
+        opts.hug_single_argument = hsa
     end
 
     return opts, nil

@@ -117,16 +117,41 @@ local function collect_chain_terms(
     table.insert(terms, node)
 end
 
+local function has_clear_delimiter_seams(
+    container: parser.Node, only_item: parser.Node
+): boolean
+    return #parser.inline_trivia(container, "after_opener") == 0
+        and #(container.dangling_comments or {}) == 0
+        and #(only_item.leading_comments or {}) == 0
+        and #(only_item.trailing_comments or {}) == 0
+        and #parser.inline_trivia(only_item, "leading") == 0
+        and #parser.inline_trivia(only_item, "before_separator") == 0
+end
+
 local function render_paren_in_chain(
     ctx: RenderContext, paren_node: parser.Node, same_indent_on_line: boolean
 ): doc.Doc
+    local inner_doc = render_expr(ctx, paren_node.e1, 0, same_indent_on_line)
+    if
+        ctx.hug_single_argument
+        and has_clear_delimiter_seams(paren_node, paren_node.e1)
+        and doc.can_hug(inner_doc)
+    then
+        return doc.group(
+            doc.concat(
+                {
+                    doc.text("("),
+                    inner_doc,
+                    doc.text(")"),
+                }
+            )
+        )
+    end
     return doc.group(
         doc.concat(
             {
                 doc.text("("),
-                doc.indent_softline(
-                    render_expr(ctx, paren_node.e1, 0, same_indent_on_line)
-                ),
+                doc.indent_softline(inner_doc),
                 doc.softclose(")"),
             }
         )
@@ -203,16 +228,28 @@ local function render_binary_chain(
 end
 
 local function render_string_literal(node: parser.Node): doc.Doc
-    return doc.text(
+    local rendered = doc.text(
         render_builders.normalize_string_literal(node.tk, node.is_longstring)
     )
+    return node.is_longstring and doc.mark_huggable(rendered) or rendered
 end
 
 local function call_doc_build_call_expr_doc(
     ctx: RenderContext, callee: parser.Node, args: parser.Node
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee, true)
-    local call_args_doc = delimited_list_doc.render_parens(args, args, ctx.render_expr)
+    local render_arg = ctx.render_expr
+    local can_hug_single_arg = false
+    if #args == 1 and ctx.hug_single_argument then
+        local only_arg = args[1]
+        local only_arg_doc = ctx.render_expr(only_arg)
+        render_arg = function(_node: parser.Node): doc.Doc return only_arg_doc end
+        can_hug_single_arg = has_clear_delimiter_seams(args, only_arg)
+            and doc.can_hug(only_arg_doc)
+    end
+    local call_args_doc = delimited_list_doc.render_parens(
+        args, args, render_arg, can_hug_single_arg
+    )
     local args_tc = render_builders.trailing_comment_doc(args)
     return doc.concat({callee_doc, call_args_doc, args_tc})
 end

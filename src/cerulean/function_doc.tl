@@ -55,14 +55,17 @@ function function_doc.render_anonymous(
     end
 
     local rendered = function_doc.render(ctx, node, header_prefix)
+    local result: doc.Doc
     if
         render_builders.block_has_any_comments(node.body)
         or #parser.inline_trivia(node, "head") > 0
         or render_builders.any_items_have_comments(node.args)
     then
-        return doc.concat({rendered, doc.break_parent()})
+        result = doc.concat({rendered, doc.break_parent()})
+    else
+        result = doc.group(rendered)
     end
-    return doc.group(rendered)
+    return doc.mark_huggable(result)
 end
 
 return function_doc

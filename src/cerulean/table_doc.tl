@@ -128,11 +128,9 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
             doc.text("}"),
         }
     )
-    if force_wrap then
-        return doc.concat({doc.break_parent(), table_body_doc})
-    else
-        return doc.group(table_body_doc)
-    end
+    local rendered = force_wrap and doc.concat({doc.break_parent(), table_body_doc})
+        or doc.group(table_body_doc)
+    return doc.mark_huggable(rendered)
 end
 
 return table_doc

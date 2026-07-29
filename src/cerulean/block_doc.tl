@@ -447,10 +447,16 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
 end
 
 function block_doc.make_context(
-    fmt_off_regions: source.Regions, source_lines: {string}
+    fmt_off_regions: source.Regions,
+    source_lines: {string},
+    hug_single_argument: boolean
 ): RenderContext
     return render_context.RenderContext.new(
-        render_block_doc, expr_doc.render, fmt_off_regions, source_lines
+        render_block_doc,
+        expr_doc.render,
+        fmt_off_regions,
+        source_lines,
+        hug_single_argument
     )
 end
 

@@ -78,7 +78,10 @@ end
 -- spanning node carrying the `after_opener` trivia (a comment on the opener line,
 -- which trails the `(`) and the `dangling_comments` before `)`.
 function delimited_list_doc.render_parens(
-    list_node: parser.Node, item_nodes: {parser.Node}, render_item: RenderItem
+    list_node: parser.Node,
+    item_nodes: {parser.Node},
+    render_item: RenderItem,
+    hug_single?: boolean
 ): doc.Doc
     local after_opener = parser.inline_trivia(list_node, "after_opener")
     local dangling = list_node.dangling_comments or {}
@@ -93,15 +96,17 @@ function delimited_list_doc.render_parens(
     )
 
     local function build_body(): doc.Doc
-        local items_trimmed = doc.trim_lines(items_doc)
+        local items_for_body = hug_single and items_doc or doc.trim_lines(items_doc)
         local body_parts: {doc.Doc} = {doc.text("(")}
         if #after_opener > 0 then
             trivia_doc.append_inline(body_parts, after_opener)
-            table.insert(body_parts, doc.indent_hardline(items_trimmed))
+            table.insert(body_parts, doc.indent_hardline(items_for_body))
+        elseif hug_single then
+            table.insert(body_parts, items_for_body)
         else
-            table.insert(body_parts, doc.indent_softline(items_trimmed))
+            table.insert(body_parts, doc.indent_softline(items_for_body))
         end
-        table.insert(body_parts, doc.softclose(")"))
+        table.insert(body_parts, hug_single and doc.text(")") or doc.softclose(")"))
         return doc.concat(body_parts)
     end
 

@@ -24,6 +24,7 @@ ceru --check src/
 | `--check` | off | Report files that would be reformatted; exit 1 if any |
 | `--indent <n>` | `4` | Indentation width in spaces |
 | `--line-length <n>` | `88` | Target line length |
+| `--hug-single-argument` | off | Keep a sole composite argument attached to its call |
 | `--no-sort-requires` | - | Disable sorting of `require` statements |
 | `-` | - | Read source from stdin and write the formatted result to stdout |
 | `--help`, `-h` | - | Show help message and exit |

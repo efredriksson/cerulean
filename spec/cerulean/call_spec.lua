@@ -157,6 +157,202 @@ describe("formatter function call wrapping", function()
       local x = f(g(1, 2), {alpha = 1, beta = 2})
    ]]))
 
+   it("keeps a long associative table argument detached by default", helpers.format([[
+      local result = register({ first_long_field_name = first_long_value, second_long_field_name = second_long_value, third_long_field_name = third_long_value })
+   ]], [[
+      local result = register(
+          {
+              first_long_field_name = first_long_value,
+              second_long_field_name = second_long_value,
+              third_long_field_name = third_long_value,
+          }
+      )
+   ]]))
+
+   it("optionally hugs a long associative table argument to its call", helpers.format([[
+      local result = register({ first_long_field_name = first_long_value, second_long_field_name = second_long_value, third_long_field_name = third_long_value })
+   ]], [[
+      local result = register({
+          first_long_field_name = first_long_value,
+          second_long_field_name = second_long_value,
+          third_long_field_name = third_long_value,
+      })
+   ]], { hug_single_argument = true }))
+
+   it("does not hug a table when another argument follows", helpers.check([[
+      return setmetatable(
+          {
+              pages = {},
+              currentPage = 0,
+              usedPages = 0,
+              ffiType = ffiType .. "[?]",
+              pageAllocSize = pageAllocSize,
+          },
+          ARENA_MT
+      )
+   ]], { hug_single_argument = true }))
+
+   it("hugs a sole table whose contents have comments", helpers.format([[
+      graph:pass(
+          {
+              -- Declared last because this pass writes the swapchain.
+              name = "present",
+              inputs = {"scene"},
+              execute = function(context: PassContext)
+                  context.pass:bindPipeline(self._presentPipeline.handle)
+                  context.pass:draw(3)
+              end,
+          }
+      )
+   ]], [[
+      graph:pass({
+          -- Declared last because this pass writes the swapchain.
+          name = "present",
+          inputs = {"scene"},
+          execute = function(context: PassContext)
+              context.pass:bindPipeline(self._presentPipeline.handle)
+              context.pass:draw(3)
+          end,
+      })
+   ]], { hug_single_argument = true }))
+
+   it("does not hug across a comment after the call opener", helpers.check([[
+      register(
+          -- This comment belongs between the call and its argument.
+          {
+              name = "example",
+          }
+      )
+   ]], { hug_single_argument = true }))
+
+   it("hugs nested calls whose sole argument is huggable", helpers.format([[
+      world:addPlugin(
+          particles.plugin({
+              capacity = POOL,
+              maxEmitters = EMITTERS,
+          })
+      )
+   ]], [[
+      world:addPlugin(particles.plugin({
+          capacity = POOL,
+          maxEmitters = EMITTERS,
+      }))
+   ]], { hug_single_argument = true }))
+
+   it("hugs a sole table through an as-cast", helpers.format([[
+      arch:addEntityObserver(
+          {
+              onEntityMove = function(_self: any, entity: integer)
+                  moved = entity
+              end,
+          } as any
+      )
+   ]], [[
+      arch:addEntityObserver({
+          onEntityMove = function(_self: any, entity: integer) moved = entity end,
+      } as any)
+   ]], { hug_single_argument = true }))
+
+   it("hugs a sole table through explicit parentheses", helpers.format([[
+      register(
+          ({
+              name = "example",
+              enabled = true,
+          })
+      )
+   ]], [[
+      register(({
+          name = "example",
+          enabled = true,
+      }))
+   ]], { hug_single_argument = true }))
+
+   it("hugs through an expression wrapper without a special case", helpers.format([[
+      consume(
+          ({
+              first_long_field_name = first_long_value,
+              second_long_field_name = second_long_value,
+          }).value
+      )
+   ]], [[
+      consume(({
+          first_long_field_name = first_long_value,
+          second_long_field_name = second_long_value,
+      }).value)
+   ]], { hug_single_argument = true }))
+
+   it("does not hug an arbitrary binary expression", helpers.check([[
+      consume(
+          first_really_long_operand_name
+              .. second_really_long_operand_name
+              .. third_really_long_operand_name
+      )
+   ]], { hug_single_argument = true }))
+
+   it("keeps a sole anonymous function detached by default", helpers.check([[
+      local built, reason = pcall(
+          function(): string
+              lighting = buildPipeline(device, "deferred.lighting.frag", RGBA8)
+              composite = buildPipeline(device, "deferred.composite.frag", RGBA8)
+          end
+      )
+   ]]))
+
+   it("optionally hugs a sole anonymous function argument", helpers.format([[
+      local built, reason = pcall(
+          function(): string
+              lighting = buildPipeline(device, "deferred.lighting.frag", RGBA8)
+              composite = buildPipeline(device, "deferred.composite.frag", RGBA8)
+          end
+      )
+   ]], [[
+      local built, reason = pcall(function(): string
+          lighting = buildPipeline(device, "deferred.lighting.frag", RGBA8)
+          composite = buildPipeline(device, "deferred.composite.frag", RGBA8)
+      end)
+   ]], { hug_single_argument = true }))
+
+   it("does not hug a cast table when another argument follows", helpers.check([[
+      return setmetatable(
+          {
+              _finished = finished,
+              _handles = {},
+              _keys = {},
+          } as Batch<T>,
+          BatchMT as metatable<Batch<T>>
+      )
+   ]], { hug_single_argument = true }))
+
+   it("keeps a long string argument detached by default", helpers.check([=[
+      ffi.cdef(
+          [[
+      void *dlopen(const char *path, int mode);
+      ]]
+      )
+   ]=]))
+
+   it("optionally hugs a long string argument to its call", helpers.format([=[
+      ffi.cdef(
+          [[
+      void *dlopen(const char *path, int mode);
+      ]]
+      )
+   ]=], [=[
+      ffi.cdef([[
+      void *dlopen(const char *path, int mode);
+      ]])
+   ]=], { hug_single_argument = true }))
+
+   it("does not hug a function when another argument follows", helpers.check([[
+      local ok, result = xpcall(
+          function(): string
+              firstResult = buildResultWithSeveralLongArguments(alpha, beta, gamma)
+              return finalizeResultWithSeveralLongArguments(firstResult, delta)
+          end,
+          debug.traceback
+      )
+   ]], { hug_single_argument = true }))
+
    it("reindents a wrapped call whose arguments include inline comments", helpers.format([[
       local x = f(
          alpha, -- keep alpha grouped here

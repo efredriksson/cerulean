@@ -2,6 +2,7 @@ require("tl").loader()
 
 local doc = require("cerulean.doc")
 local helpers = require("spec.cerulean.helpers")
+local assert = require("luassert")
 
 local group_ref = doc.group_ref()
 
@@ -111,6 +112,30 @@ describe("formatter doc primitives", function()
         alpha
         beta [broken]
     ]]))
+end)
+
+describe("formatter doc hugging metadata", function()
+    it("does not infer huggability from line opportunities", function()
+        local candidate = doc.concat({
+            doc.text("alpha"), doc.hardline(), doc.text("beta"),
+        })
+        assert.is_false(doc.can_hug(candidate))
+    end)
+
+    it("finds marked documents through wrappers", function()
+        local marked = doc.mark_huggable(doc.text("value"))
+        local candidate = doc.group(doc.indent(doc.concat({
+            doc.text("("), marked, doc.text(")"),
+        })))
+        assert.is_true(doc.can_hug(candidate))
+    end)
+
+    it("preserves a mark when concatenations flatten", function()
+        local marked = doc.mark_huggable(doc.concat({
+            doc.text("alpha"), doc.line(), doc.text("beta"),
+        }))
+        assert.is_true(doc.can_hug(doc.concat({doc.text("("), marked})))
+    end)
 end)
 
 describe("formatter doc close node", function()

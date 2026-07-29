@@ -12,6 +12,7 @@ return {
       indent_width = 2,
       max_line_width = 100,
       sort_requires = false,
+      hug_single_argument = true,
    },
 }
 ```
@@ -21,3 +22,4 @@ return {
 | `indent_width` | `4` | Indentation width in spaces |
 | `max_line_width` | `88` | Target line length |
 | `sort_requires` | `true` | Sort `require` statements alphabetically |
+| `hug_single_argument` | `false` | Keep a sole composite argument attached to its call |

@@ -16,6 +16,7 @@ describe("FormatterOptions.from_config_file_and_args", function()
             assert.same(4, opts.indent_width)
             assert.same(88, opts.max_line_width)
             assert.is_true(opts.sort_requires)
+            assert.is_false(opts.hug_single_argument)
             assert.same({"file.tl"}, opts.files)
         end)
     end)
@@ -78,6 +79,22 @@ describe("FormatterOptions.from_config_file_and_args", function()
             local opts, err = helpers.resolve_options(".", {"file.tl"})
             assert.is_nil(err)
             assert.is_true(opts.sort_requires)
+        end)
+    end)
+
+    describe("--hug-single-argument", function()
+        it("sets hug_single_argument to true", function()
+            local opts, err = helpers.resolve_options(
+                ".", {"--hug-single-argument", "file.tl"}
+            )
+            assert.is_nil(err)
+            assert.is_true(opts.hug_single_argument)
+        end)
+
+        it("hug_single_argument is false without the flag", function()
+            local opts, err = helpers.resolve_options(".", {"file.tl"})
+            assert.is_nil(err)
+            assert.is_false(opts.hug_single_argument)
         end)
     end)
 
@@ -178,6 +195,7 @@ describe("FormatterOptions.from_config_file_and_args", function()
             local opts, err = helpers.resolve_options(".", {
                 "--check",
                 "--no-sort-requires",
+                "--hug-single-argument",
                 "--log-level", "debug",
                 "--indent", "2",
                 "--line-length", "120",
@@ -187,6 +205,7 @@ describe("FormatterOptions.from_config_file_and_args", function()
             assert.is_nil(err)
             assert.is_true(opts.check_only)
             assert.is_false(opts.sort_requires)
+            assert.is_true(opts.hug_single_argument)
             assert.same("debug", opts.log_level)
             assert.same(2, opts.indent_width)
             assert.same(120, opts.max_line_width)
@@ -253,6 +272,7 @@ describe("FormatterOptions.from_config_file_and_args", function()
             assert.same(4, opts.indent_width)
             assert.same(88, opts.max_line_width)
             assert.is_true(opts.sort_requires)
+            assert.is_false(opts.hug_single_argument)
         end)
 
         it("reads formatter.indent_width", function()
@@ -273,12 +293,21 @@ describe("FormatterOptions.from_config_file_and_args", function()
             assert.is_false(opts.sort_requires)
         end)
 
+        it("reads formatter.hug_single_argument = true", function()
+            local opts, err = helpers.resolve_options(
+                fixtures .. "configs/hug_single_argument", {}
+            )
+            assert.is_nil(err)
+            assert.is_true(opts.hug_single_argument)
+        end)
+
         it("returns default options when tlconfig.lua has no formatter key", function()
             local opts, err = helpers.resolve_options(fixtures .. "configs/no_formatter_key", {})
             assert.is_nil(err)
             assert.same(4, opts.indent_width)
             assert.same(88, opts.max_line_width)
             assert.is_true(opts.sort_requires)
+            assert.is_false(opts.hug_single_argument)
         end)
 
         it("returns an error when the formatter key is not a table", function()

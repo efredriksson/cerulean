@@ -3,6 +3,7 @@ local fmt_logger = require("cerulean.fmt_logger")
 
 local interface Doc is fmt_logger.Stringable
     kind: string
+    huggable: boolean
     render: function(self, max_width: integer, indent_width: integer): string
 end
 
@@ -237,6 +238,38 @@ local function has_line_break_opportunity(node: Doc): boolean
     end
 
     return false
+end
+
+local function can_hug(node: Doc): boolean
+    if node.huggable then
+        return true
+    end
+    if node is DocConcat then
+        for _, part in ipairs(node.parts or {}) do
+            if can_hug(part) then
+                return true
+            end
+        end
+        return false
+    end
+    if node is DocIndent or node is DocGroup then
+        return node.child ~= nil and can_hug(node.child)
+    end
+    if node is DocIfBreak then
+        return can_hug(node.break_child) or can_hug(node.flat_child)
+    end
+    return false
+end
+
+-- Marks a block-like document as safe to place directly inside enclosing
+-- delimiters. Wrappers remain huggable because can_hug searches compositionally.
+function doc.mark_huggable(node: Doc): Doc
+    node.huggable = true
+    return node
+end
+
+function doc.can_hug(node: Doc): boolean
+    return can_hug(node)
 end
 
 local function push_pending_line_suffixes(
@@ -621,7 +654,7 @@ end
 local doc_mt <const>: metatable<Doc> = {__tostring = to_string}
 
 local function new_doc(kind: string): Doc
-    return setmetatable({kind = kind, render = render}, doc_mt)
+    return setmetatable({kind = kind, huggable = false, render = render}, doc_mt)
 end
 
 function doc.text(text: string): Doc
@@ -712,6 +745,7 @@ end
 
 function doc.concat(parts: {Doc}): Doc
     local flat_parts: {Doc} = {}
+    local huggable = false
     local function add_if_non_empyt(part: Doc)
         if not (part is DocText and part.text == "") then
             table.insert(flat_parts, part)
@@ -719,6 +753,7 @@ function doc.concat(parts: {Doc}): Doc
     end
 
     for _, part in ipairs(parts) do
+        huggable = huggable or part.huggable
         if part is DocConcat then
             for _, nested in ipairs(part.parts) do
                 add_if_non_empyt(nested)
@@ -729,6 +764,7 @@ function doc.concat(parts: {Doc}): Doc
     end
     local result = new_doc("concat") as DocConcat
     result.parts = flat_parts
+    result.huggable = huggable
     return result
 end
 
