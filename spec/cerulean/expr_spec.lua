@@ -276,7 +276,11 @@ describe("idempotency: ", function()
 
       1 } }
    ]=], [=[
-      f({1 --
-                  + {1, 1}})
+      f(
+          {
+              1 --
+                  + {1, 1},
+          }
+      )
    ]=], { skip_ast_equivalence = true }))
 end)

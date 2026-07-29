@@ -1675,6 +1675,60 @@ describe("formatter structural block rendering", function()
       ]]))
    end)
 
+   describe("own-line comment between statements in an inlinable block", function()
+      -- The block holds a hardline for the comment, so no enclosing group may pick a
+      -- flat layout: the flat separator would fuse the statement after the comment
+      -- onto the comment line. Whether the group was tempted to go flat depends only
+      -- on the width of the statements before the comment, so both lengths are here.
+      it("breaks the enclosing groups when the statement before the comment is short", helpers.format([[
+         f(function()
+             for i = 1, 2 do
+                 local a = g(i)
+                 -- keep
+                 local b = h(i)
+             end
+         end)
+      ]], [[
+         f(
+             function()
+                 for i = 1, 2 do
+                     local a = g(i)
+                     -- keep
+                     local b = h(i)
+                 end
+             end
+         )
+      ]]))
+
+      it("breaks the enclosing groups when the statement before the comment is long", helpers.format([[
+         f(function()
+             for i = 1, 2 do
+                 local a = g(i, some_quite_long_argument_name, another_long_argument_name, i)
+                 -- keep
+                 local b = h(i)
+             end
+         end)
+      ]], [[
+         f(
+             function()
+                 for i = 1, 2 do
+                     local a = g(i, some_quite_long_argument_name, another_long_argument_name, i)
+                     -- keep
+                     local b = h(i)
+                 end
+             end
+         )
+      ]]))
+
+      it("keeps a short anonymous function body broken around the comment", helpers.check([[
+         local x = function()
+             local a = 1
+             -- keep
+             local b = 2
+         end
+      ]]))
+   end)
+
    describe("function expression as an if condition with a comment after the parameter list", function()
       it("does not join the closing end onto the comment line when the function body is empty", helpers.format([[
          if function() --x

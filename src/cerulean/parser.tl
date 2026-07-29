@@ -447,6 +447,8 @@ local record parser
       "cast"
       "..."
       "paren"
+      "macro_quote"
+      "local_macro"
       "macroexp"
       "local_macroexp"
       "interface"
@@ -490,6 +492,7 @@ local record parser
         body:                           Node
         implicit_global_function:       boolean
         is_predeclared_local_function:  boolean
+        is_macro_invocation:            boolean
         name:                           Node
         is_repeat:                      boolean
         attribute:                      Attribute
@@ -1856,6 +1859,10 @@ do
         local kind = ps.tokens[i].kind
         if kind == "identifier" then
             return verify_kind(ps, i, "identifier", "variable")
+        elseif tk:sub(1, 1) == "\096" then
+            local node = new_node(ps, i, "macro_quote")
+            node.yend = token_yend(ps.tokens[i])
+            return i + 1, node
         elseif kind == "string" then
             local node = new_node(ps, i, "string")
             node.conststr, node.is_longstring = unquote(tk)
@@ -2125,7 +2132,14 @@ do
                         tkop.y,
                         e1.y
                     )
-                elseif tkop.tk == "(" then
+                elseif
+                    tkop.tk == "(" or (tkop.tk == "!" and ps.tokens[i + 1].tk == "(")
+                then
+                    local is_macro_invocation = tkop.tk == "!"
+                    if is_macro_invocation then
+                        i = i + 1
+                        tkop = ps.tokens[i]
+                    end
                     local prev_tk = ps.tokens[i - 1]
                     if tkop.y > prev_tk.y then
                         table.insert(
@@ -2211,6 +2225,7 @@ do
                         op = op,
                         e1 = e1,
                         e2 = args,
+                        is_macro_invocation = is_macro_invocation,
                     }
                     fmt_logger.debug(
                         "[expr] @funcall op node: base y=%s args_y=%s -> node y=%s",
@@ -2680,6 +2695,15 @@ do
         i = verify_tk(ps, i, "function")
         local node = new_node(ps, i - 2, "local_function")
         i, node.name = parse_identifier(ps, i)
+        return parse_function_args_rets_body(ps, i, node)
+    end
+
+    local function parse_local_macro(ps: ParseState, i: integer): integer, Node
+        i = verify_tk(ps, i, "local")
+        i = verify_tk(ps, i, "macro")
+        local node = new_node(ps, i - 2, "local_macro")
+        i, node.name = parse_identifier(ps, i)
+        i = verify_tk(ps, i, "!")
         return parse_function_args_rets_body(ps, i, node)
     end
 
@@ -4145,6 +4169,8 @@ do
         local node: Node
         if ntk == "function" then
             i, node = parse_local_function(ps, i)
+        elseif ntk == "macro" and ps.tokens[i + 2].kind == "identifier" then
+            i, node = parse_local_macro(ps, i)
         elseif ntk == "type" and ps.tokens[i + 2].kind == "identifier" then
             i, node = parse_type_declaration(ps, i + 2, "local_type")
         elseif ntk == "macroexp" and ps.tokens[i + 2].kind == "identifier" then

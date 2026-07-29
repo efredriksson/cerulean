@@ -195,6 +195,10 @@ describe("formatter signature wrapping", function()
          local f: function<K is Base, V>(key: K): V
       ]]))
 
+      it("does not copy outer type parameters onto callback arguments", helpers.check([[
+         local f: function<U>(transform: function(T): U): U
+      ]]))
+
       it("renders generic function type definition", helpers.format([[
          local type B = function<i   >(): return_type
       ]], [[

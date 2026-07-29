@@ -176,7 +176,57 @@ local function render_field_entry(
         return prefix() .. entry.name .. ": "
     end
 
-    return doc.concat({doc.text(field_name_prefix()), type_doc.render(entry.the_type)})
+    local field_decl = doc.concat(
+        {doc.text(field_name_prefix()), type_doc.render(entry.the_type)}
+    )
+
+    local field_type = entry.the_type
+    if field_type is parser.GenericType then
+        field_type = field_type.t
+    end
+    if not (field_type is parser.FunctionType) or field_type.macroexp == nil then
+        return field_decl
+    end
+
+    local macroexp = field_type.macroexp
+    assert(
+        macroexp.args ~= nil and macroexp.rets ~= nil and macroexp.exp ~= nil,
+        "bad record field macroexp"
+    )
+    local macroexp_typeargs = macroexp.typeargs
+        and type_doc.render_typeargs(macroexp.typeargs) or doc.text("")
+    local macroexp_header = doc.concat(
+        {
+            doc.text("macroexp"),
+            macroexp_typeargs,
+            signature_doc.render_signature_doc(macroexp.args),
+            type_doc.render_return(macroexp.rets),
+        }
+    )
+    local macroexp_body = doc.concat(
+        {doc.text("return "), ctx.render_expr(macroexp.exp)}
+    )
+
+    local header_group = doc.group_ref()
+    local header = header_group:group(
+        doc.concat(
+            {
+                field_decl,
+                header_group:if_break(
+                    doc.indent_line(doc.text("= ")), doc.text(" = ")
+                ),
+                macroexp_header,
+            }
+        )
+    )
+    local flat_body = doc.concat(
+        {
+            doc.indent_line(macroexp_body),
+            doc.close("end"),
+        }
+    )
+    local broken_body = doc.indent(flat_body)
+    return doc.concat({header, header_group:if_break(broken_body, flat_body)})
 end
 
 local function render_record_like_body_doc(
@@ -349,6 +399,13 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
         return doc.concat(
             {
                 doc.text("local function " .. node.name.tk),
+                render_function_typeargs(node),
+            }
+        )
+    elseif node.kind == "local_macro" and node.name ~= nil then
+        return doc.concat(
+            {
+                doc.text("local macro " .. node.name.tk .. "!"),
                 render_function_typeargs(node),
             }
         )
@@ -674,6 +731,7 @@ function stmt_doc.render_statement_doc(
         return render_type_doc(ctx, node, "global")
     elseif
         node.kind == "local_function"
+        or node.kind == "local_macro"
         or node.kind == "global_function"
         or node.kind == "record_function"
     then

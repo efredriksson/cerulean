@@ -36,4 +36,33 @@ describe("formatter local macroexp", function()
           return param_one
       end
    ]]))
+
+   it("preserves a macroexp body on a record metamethod", helpers.format([[
+      local record DoubleArray
+        metamethod __len: function(self) = macroexp(self: DoubleArray)
+          return self[0]
+        end
+      end
+   ]], [[
+      local record DoubleArray
+          metamethod __len: function(self) = macroexp(self: DoubleArray)
+              return self[0]
+          end
+      end
+   ]]))
+
+   it("wraps a long record field before its macroexp implementation", helpers.format([[
+      local record IdAllocator
+        generationOfWithSlot: function(id: integer, slot: integer): integer = macroexp(id: integer, slot: integer): integer
+          return (id - slot) / 2^22
+        end
+      end
+   ]], [[
+      local record IdAllocator
+          generationOfWithSlot: function(id: integer, slot: integer): integer
+              = macroexp(id: integer, slot: integer): integer
+                  return (id - slot) / 2 ^ 22
+              end
+      end
+   ]]))
 end)

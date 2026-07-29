@@ -209,12 +209,16 @@ local function render_string_literal(node: parser.Node): doc.Doc
 end
 
 local function call_doc_build_call_expr_doc(
-    ctx: RenderContext, callee: parser.Node, args: parser.Node
+    ctx: RenderContext,
+    callee: parser.Node,
+    args: parser.Node,
+    is_macro_invocation: boolean
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee, true)
     local call_args_doc = delimited_list_doc.render_parens(args, args, ctx.render_expr)
     local args_tc = render_builders.trailing_comment_doc(args)
-    return doc.concat({callee_doc, call_args_doc, args_tc})
+    local bang = is_macro_invocation and doc.text("!") or doc.text("")
+    return doc.concat({callee_doc, bang, call_args_doc, args_tc})
 end
 
 local function op_has_any_trivia(node: parser.Node): boolean
@@ -273,7 +277,7 @@ local function render_op(
             }
         )
     elseif op == "@funcall" then
-        return call_doc_build_call_expr_doc(ctx, left, right)
+        return call_doc_build_call_expr_doc(ctx, left, right, node.is_macro_invocation)
     elseif op == "as" or op == "is" then
         return join_op_with_trivia(
             node,
@@ -335,6 +339,8 @@ render_expr = function(
         return doc.text(node.tk)
     elseif node.kind == "string" then
         return render_string_literal(node)
+    elseif node.kind == "macro_quote" then
+        return doc.text(node.tk)
     elseif node.kind == "paren" then
         return render_paren_in_chain(ctx, node, same_indent_on_line ~= false)
     elseif node.kind == "literal_table" then

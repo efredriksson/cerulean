@@ -111,6 +111,21 @@ describe("formatter doc primitives", function()
         alpha
         beta [broken]
     ]]))
+
+    it("forces the containing group to break when a hardline is present", helpers.renders(
+        group_ref:group(doc.concat({
+            doc.text("alpha"),
+            doc.line(),
+            doc.text("beta"),
+            doc.hardline(),
+            doc.text("gamma"),
+            group_ref:if_break(doc.text(" [broken]"), doc.text(" [flat]")),
+        })), 88,
+    [[
+        alpha
+        beta
+        gamma [broken]
+    ]]))
 end)
 
 describe("formatter doc close node", function()
