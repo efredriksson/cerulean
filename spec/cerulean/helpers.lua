@@ -20,6 +20,14 @@ local function default_opts()
     return options_module.default()
 end
 
+local function test_formatter_opts(test_opts)
+    local opts = default_opts()
+    if test_opts and test_opts.max_line_width ~= nil then
+        opts.max_line_width = test_opts.max_line_width
+    end
+    return opts
+end
+
 local helpers = {}
 
 -- Strips the common leading indentation from a [[...]] string so tests can
@@ -166,7 +174,7 @@ local function assert_equivalent_ast_shape(before_source, after_source)
 end
 
 local function assert_stable_rewrite(output, opts)
-    local second_pass = rewriter.rewrite(output, "test.tl", default_opts())
+    local second_pass = rewriter.rewrite(output, "test.tl", test_formatter_opts(opts))
     assert.same({}, second_pass.parse_errors)
     assert.same(output, second_pass.output)
     assert.same("unchanged", second_pass.status)
@@ -193,7 +201,7 @@ function helpers.format(input, expected, opts)
     return function()
         local source = dedent(input)
         local expected_output = dedent(expected)
-        local result = rewriter.rewrite(source, "test.tl", default_opts())
+        local result = rewriter.rewrite(source, "test.tl", test_formatter_opts(opts))
 
         assert.same({}, result.parse_errors)
         assert.same("reformatted", result.status, "Formatting failed: " .. result.failure_reason)
@@ -225,7 +233,7 @@ function helpers.check(source, opts)
     opts = opts or {}
     return function()
         local dedented = dedent(source)
-        local result = rewriter.rewrite(dedented, "test.tl", default_opts())
+        local result = rewriter.rewrite(dedented, "test.tl", test_formatter_opts(opts))
         assert.same({}, result.parse_errors)
         assert.same(dedented, result.output)
         assert.same("unchanged", result.status, "Formatting failed: " .. result.failure_reason)

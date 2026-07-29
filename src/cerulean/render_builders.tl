@@ -172,7 +172,25 @@ function render_builders.build_exp_list_doc(
         not render_builders.any_items_have_comments(exps)
         and not any_items_have_inline_trivia(exps)
     then
-        return render_builders.build_mapped_comma_separated_docs(ctx, exps)
+        local item_docs: {doc.Doc} = {}
+        for _, exp in ipairs(exps) do
+            table.insert(item_docs, ctx.render_expr(exp))
+        end
+        if #item_docs < 2 then
+            return render_builders.build_comma_separated_docs(item_docs)
+        end
+        local tail_docs: {doc.Doc} = {}
+        for index = 2, #item_docs do
+            table.insert(tail_docs, item_docs[index])
+        end
+        local tail = doc.concat(
+            {
+                doc.text(","),
+                doc.line(),
+                render_builders.build_comma_line_item_docs(tail_docs),
+            }
+        )
+        return doc.concat({item_docs[1], doc.group(doc.indent(tail))})
     end
     local parts: {doc.Doc} = {}
     local force_next_indent = false

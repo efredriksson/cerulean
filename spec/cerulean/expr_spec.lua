@@ -112,6 +112,32 @@ describe("formatter function expressions", function()
           as A
    ]]))
 
+   local long_return = table.concat({
+      "local function raycast()\n",
+      "    return value.entity as integer, value.x as number, value.y as number, ",
+      "value.normal_x as number, value.normal_y as number, value.fraction as number\n",
+      "end\n",
+   })
+
+   it("wraps a long return expression list", helpers.format(long_return, [[
+      local function raycast()
+          return value.entity as integer,
+              value.x as number,
+              value.y as number,
+              value.normal_x as number,
+              value.normal_y as number,
+              value.fraction as number
+      end
+   ]], { max_line_width = 120 }))
+
+   local long_index_cast = "local transforms = currentArchetype.columns["
+      .. "builtins.TransformComponent as types.components.Component] as {{string: integer}}\n"
+
+   it("wraps a long cast after an indexed expression", helpers.format(long_index_cast, [[
+      local transforms = currentArchetype.columns[builtins.TransformComponent as types.components.Component]
+          as {{string: integer}}
+   ]], { max_line_width = 120 }))
+
    it("do not add lines after multi-line string expressions", helpers.format([=[
       local s  =  [[
       multi-line-string]]

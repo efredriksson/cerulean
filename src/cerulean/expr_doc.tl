@@ -225,22 +225,27 @@ end
 -- Renders `left op right`, keeping any comment attached to the operator: a
 -- comment between the operands is pushed onto its own line instead of dropped.
 local function join_op_with_trivia(
-    node: parser.Node, left_doc: doc.Doc, right_doc: doc.Doc, plain_separator: doc.Doc
+    node: parser.Node,
+    left_doc: doc.Doc,
+    right_doc: doc.Doc,
+    plain_before_separator: doc.Doc,
+    plain_after_separator?: doc.Doc
 ): doc.Doc
+    plain_after_separator = plain_after_separator or plain_before_separator
     local parts: {doc.Doc} = {left_doc}
     trivia_doc.emit_transition(
         parts,
         parser.inline_trivia(node, "op_leading"),
         node.e1.yend or node.e1.y,
         doc.text(node.op.op),
-        plain_separator
+        plain_before_separator
     )
     trivia_doc.emit_transition(
         parts,
         parser.inline_trivia(node, "op_trailing"),
         node.op.y,
         right_doc,
-        plain_separator
+        plain_after_separator
     )
     return doc.concat(parts)
 end
@@ -275,11 +280,22 @@ local function render_op(
     elseif op == "@funcall" then
         return call_doc_build_call_expr_doc(ctx, left, right)
     elseif op == "as" or op == "is" then
-        return join_op_with_trivia(
-            node,
-            render_expr(ctx, left, operator.prec, same_indent_on_line),
-            type_doc.render(right.casttype),
-            doc.text(" ")
+        if op ~= "as" or left.kind ~= "op" or left.op.op ~= "@index" then
+            return join_op_with_trivia(
+                node,
+                render_expr(ctx, left, operator.prec, same_indent_on_line),
+                type_doc.render(right.casttype),
+                doc.text(" ")
+            )
+        end
+        return doc.group(
+            join_op_with_trivia(
+                node,
+                render_expr(ctx, left, operator.prec, same_indent_on_line),
+                type_doc.render(right.casttype),
+                doc.indent(doc.line()),
+                doc.text(" ")
+            )
         )
     elseif operator.arity == 1 then
         local op_prec = operator.prec
