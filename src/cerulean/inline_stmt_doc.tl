@@ -47,9 +47,9 @@ function inline_stmt_doc.render_assignment_doc(
     local exps_doc = render_builders.build_exp_list_doc(ctx, stmt.exps)
     local eq_prefix: doc.Doc
     if #(last_var.trailing_comments or {}) > 0 then
-        eq_prefix = doc.concat(
-            {vars_doc, last_var_tc, doc.indent_hardline(doc.text("= "))}
-        )
+        eq_prefix = doc.concat({
+            vars_doc, last_var_tc, doc.indent_hardline(doc.text("= "))
+        })
     else
         eq_prefix = doc.concat({vars_doc, doc.text(" = ")})
     end
@@ -90,9 +90,9 @@ function inline_stmt_doc.render_declaration_doc(
     if stmt.decltuple == nil or #stmt.decltuple.tuple == 0 then
         prefix_doc = vars_doc
     else
-        prefix_doc = doc.concat(
-            {vars_doc, doc.text(": "), type_doc.render(stmt.decltuple)}
-        )
+        prefix_doc = doc.concat({
+            vars_doc, doc.text(": "), type_doc.render(stmt.decltuple)
+        })
     end
 
     if stmt.exps == nil or #stmt.exps == 0 then
@@ -105,9 +105,9 @@ function inline_stmt_doc.render_declaration_doc(
     local function build_init_doc(exp_doc: doc.Doc): doc.Doc
         local eq_prefix: doc.Doc
         if has_last_var_tc then
-            eq_prefix = doc.concat(
-                {prefix_doc, last_var_tc, doc.indent_hardline(doc.text("= "))}
-            )
+            eq_prefix = doc.concat({
+                prefix_doc, last_var_tc, doc.indent_hardline(doc.text("= "))
+            })
         else
             eq_prefix = doc.concat({prefix_doc, doc.text(" = ")})
         end

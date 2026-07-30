@@ -35,7 +35,6 @@ Options:
   --check                Check formatting; exit 1 if any file would be reformatted.
   --indent <n>           Indentation width (default: 4).
   --line-length <n>      Target line length (default: 88).
-  --hug-single-argument  Keep a sole composite argument attached to its call.
   --no-sort-requires     Disable sorting of require statements.
   --log-level <level>    Log level: nothing, info, debug (default: nothing).
   -                      Read source from stdin, write formatted result to stdout.

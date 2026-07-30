@@ -28,14 +28,12 @@ local function render_type_alias_doc(
     generic_doc?: doc.Doc
 ): doc.Doc
     local declaration = resolve_prefix(type_keyword) .. "type " .. name
-    return doc.concat(
-        {
-            doc.text(declaration),
-            typeargs and type_doc.render_typeargs(typeargs) or doc.text(""),
-            doc.text(" = "),
-            type_doc.render(def, generic_doc),
-        }
-    )
+    return doc.concat({
+        doc.text(declaration),
+        typeargs and type_doc.render_typeargs(typeargs) or doc.text(""),
+        doc.text(" = "),
+        type_doc.render(def, generic_doc),
+    })
 end
 
 local function with_indented_body(
@@ -209,12 +207,10 @@ local function render_record_like_body_doc(
     local end_comments = record_def.dangling_comments or stmt.dangling_comments or {}
     render_builders.append_comment_docs(parts, end_comments, line_before)
 
-    return doc.concat(
-        {
-            doc.indent_line(doc.concat(parts)),
-            doc.close("end"),
-        }
-    )
+    return doc.concat({
+        doc.indent_line(doc.concat(parts)),
+        doc.close("end"),
+    })
 end
 
 local function render_record_like_header_doc(
@@ -263,13 +259,11 @@ local function render_record_like_doc(
         end
     end
 
-    return doc.concat(
-        {
-            doc.concat(build_header_parts()),
-            render_record_like_header_doc(ctx, def),
-            render_record_like_body_doc(ctx, stmt, def),
-        }
-    )
+    return doc.concat({
+        doc.concat(build_header_parts()),
+        render_record_like_header_doc(ctx, def),
+        render_record_like_body_doc(ctx, stmt, def),
+    })
 end
 
 render_type_def_doc = function(
@@ -302,12 +296,10 @@ local function render_type_doc(
         return doc.text(keyword .. " type " .. stmt.var.tk)
     end
     if stmt.value.kind ~= "newtype" then
-        return doc.concat(
-            {
-                doc.text(keyword .. " type " .. stmt.var.tk .. " = "),
-                ctx.render_expr(stmt.value),
-            }
-        )
+        return doc.concat({
+            doc.text(keyword .. " type " .. stmt.var.tk .. " = "),
+            ctx.render_expr(stmt.value),
+        })
     end
 
     return render_type_def_doc(ctx, stmt.var.tk, stmt.value.newtype.def, stmt, keyword)
@@ -346,20 +338,18 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
     end
 
     if node.kind == "local_function" and node.name ~= nil then
-        return doc.concat(
-            {
-                doc.text("local function " .. node.name.tk),
-                render_function_typeargs(node),
-            }
-        )
+        return doc.concat({
+            doc.text("local function " .. node.name.tk),
+            render_function_typeargs(node),
+        })
     elseif
         node.kind == "global_function" and node.name ~= nil and not node.is_method
     then
         local prefix = node.implicit_global_function and "function "
             or "global function "
-        return doc.concat(
-            {doc.text(prefix .. node.name.tk), render_function_typeargs(node)}
-        )
+        return doc.concat({
+            doc.text(prefix .. node.name.tk), render_function_typeargs(node)
+        })
     elseif
         node.kind == "record_function" and node.fn_owner ~= nil and node.name ~= nil
     then
@@ -368,12 +358,10 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
             return nil
         end
         local separator = node.is_method and ":" or "."
-        return doc.concat(
-            {
-                doc.text("function " .. owner .. separator .. node.name.tk),
-                render_function_typeargs(node),
-            }
-        )
+        return doc.concat({
+            doc.text("function " .. owner .. separator .. node.name.tk),
+            render_function_typeargs(node),
+        })
     end
 
     return nil
@@ -394,25 +382,19 @@ local function render_local_macroexp_doc(ctx: RenderContext, node: parser.Node):
         node.name ~= nil and node.macrodef ~= nil and node.macrodef.exp ~= nil,
         "bad local_macroexp node"
     )
-    local header = doc.group(
-        doc.concat(
-            {
-                doc.text("local macroexp " .. node.name.tk),
-                signature_doc.render_signature_doc(node.macrodef.args),
-                type_doc.render_return(node.macrodef.rets),
-            }
-        )
-    )
-    local body_doc = doc.concat(
-        {doc.text("return "), ctx.render_expr(node.macrodef.exp)}
-    )
-    return doc.concat(
-        {
-            header,
-            doc.indent_line(body_doc),
-            doc.close("end"),
-        }
-    )
+    local header = doc.group(doc.concat({
+        doc.text("local macroexp " .. node.name.tk),
+        signature_doc.render_signature_doc(node.macrodef.args),
+        type_doc.render_return(node.macrodef.rets),
+    }))
+    local body_doc = doc.concat({
+        doc.text("return "), ctx.render_expr(node.macrodef.exp)
+    })
+    return doc.concat({
+        header,
+        doc.indent_line(body_doc),
+        doc.close("end"),
+    })
 end
 
 local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
@@ -494,9 +476,9 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return doc.group(doc.concat({while_and_exp_doc, doc.text(" do")}))
     end
 
-    local header = doc.concat(
-        {build_head_group(), render_builders.head_trivia_doc(node)}
-    )
+    local header = doc.concat({
+        build_head_group(), render_builders.head_trivia_doc(node)
+    })
     return block_with_close(header, body_doc, "end")
 end
 
@@ -523,13 +505,11 @@ local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc
         return nil
     end
 
-    local tail = doc.concat(
-        {
-            build_fornum_range_doc(node, ctx),
-            doc.text(" do"),
-            render_builders.head_trivia_doc(node),
-        }
-    )
+    local tail = doc.concat({
+        build_fornum_range_doc(node, ctx),
+        doc.text(" do"),
+        render_builders.head_trivia_doc(node),
+    })
     return block_with_close(
         render_builders.with_leading_inline_trivia(
             node, doc.text("for " .. node.var.tk .. " = "), tail
@@ -561,13 +541,11 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
     local should_wrap_around = not has_inline_trivia
         and (#node.exps > 1 or single_exp_is_chainable)
 
-    local for_in_keyword = doc.concat(
-        {
-            doc.text("for "),
-            render_builders.build_comma_separated_docs(var_docs),
-            doc.text(" in"),
-        }
-    )
+    local for_in_keyword = doc.concat({
+        doc.text("for "),
+        render_builders.build_comma_separated_docs(var_docs),
+        doc.text(" in"),
+    })
 
     local function build_wrapped_exps(): doc.Doc
         if single_exp_is_chainable then
@@ -578,24 +556,20 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
 
     local function build_header(): doc.Doc
         if should_wrap_around then
-            return doc.concat(
-                {
-                    render_builders.wrap_keyword_around(
-                        for_in_keyword, build_wrapped_exps(), doc.text("do")
-                    ),
-                    render_builders.head_trivia_doc(node),
-                }
-            )
+            return doc.concat({
+                render_builders.wrap_keyword_around(
+                    for_in_keyword, build_wrapped_exps(), doc.text("do")
+                ),
+                render_builders.head_trivia_doc(node),
+            })
         end
-        local tail_doc = doc.concat(
-            {doc.text(" do"), render_builders.head_trivia_doc(node)}
-        )
-        local exps_and_tail = doc.concat(
-            {
-                render_builders.build_mapped_comma_separated_docs(ctx, node.exps),
-                tail_doc,
-            }
-        )
+        local tail_doc = doc.concat({
+            doc.text(" do"), render_builders.head_trivia_doc(node)
+        })
+        local exps_and_tail = doc.concat({
+            render_builders.build_mapped_comma_separated_docs(ctx, node.exps),
+            tail_doc,
+        })
         return render_builders.with_leading_inline_trivia(
             node, doc.concat({for_in_keyword, doc.text(" ")}), exps_and_tail
         )
@@ -614,9 +588,9 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
         return nil
     end
 
-    local header = doc.concat(
-        {doc.text("repeat"), render_builders.head_trivia_doc(node)}
-    )
+    local header = doc.concat({
+        doc.text("repeat"), render_builders.head_trivia_doc(node)
+    })
 
     -- block_with_indent always emits a newline into the body, which produces a
     -- spurious blank line when the body is empty. Skip it in that case.

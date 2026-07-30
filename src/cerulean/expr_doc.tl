@@ -35,9 +35,9 @@ local function parenthesize_unary_operand(
     if child_prec == nil or child_prec >= parent_prec then
         return rendered
     end
-    return doc.group(
-        doc.concat({doc.text("("), doc.indent_softline(rendered), doc.softclose(")")})
-    )
+    return doc.group(doc.concat({
+        doc.text("("), doc.indent_softline(rendered), doc.softclose(")")
+    }))
 end
 
 -- Two adjacent `-` tokens form a `--` comment start, so a unary minus applied
@@ -62,11 +62,9 @@ local function parenthesize_if_lower_prec(
     rendered: doc.Doc, op_prec: integer, parent_prec: integer
 ): doc.Doc
     if op_prec < parent_prec then
-        return doc.group(
-            doc.concat(
-                {doc.text("("), doc.indent_softline(rendered), doc.softclose(")")}
-            )
-        )
+        return doc.group(doc.concat({
+            doc.text("("), doc.indent_softline(rendered), doc.softclose(")")
+        }))
     end
     return rendered
 end
@@ -133,29 +131,19 @@ local function render_paren_in_chain(
 ): doc.Doc
     local inner_doc = render_expr(ctx, paren_node.e1, 0, same_indent_on_line)
     if
-        ctx.hug_single_argument
-        and has_clear_delimiter_seams(paren_node, paren_node.e1)
-        and doc.can_hug(inner_doc)
+        has_clear_delimiter_seams(paren_node, paren_node.e1) and doc.can_hug(inner_doc)
     then
-        return doc.group(
-            doc.concat(
-                {
-                    doc.text("("),
-                    inner_doc,
-                    doc.text(")"),
-                }
-            )
-        )
+        return doc.group(doc.concat({
+            doc.text("("),
+            inner_doc,
+            doc.text(")"),
+        }))
     end
-    return doc.group(
-        doc.concat(
-            {
-                doc.text("("),
-                doc.indent_softline(inner_doc),
-                doc.softclose(")"),
-            }
-        )
-    )
+    return doc.group(doc.concat({
+        doc.text("("),
+        doc.indent_softline(inner_doc),
+        doc.softclose(")"),
+    }))
 end
 
 local function render_binary_chain(
@@ -187,9 +175,9 @@ local function render_binary_chain(
     table.insert(parts, first_group_ref:group(first_term_doc))
 
     local function op_on_line(term_group: doc.Doc, line: doc.Doc): doc.Doc
-        local op_and_term_doc = doc.concat(
-            {line, doc.text(operator.op .. " "), term_group}
-        )
+        local op_and_term_doc = doc.concat({
+            line, doc.text(operator.op .. " "), term_group
+        })
 
         if same_indent_on_line then
             return op_and_term_doc
@@ -214,9 +202,9 @@ local function render_binary_chain(
         else
             local term_doc = render_expr(ctx, term, operator_prec, false)
             local term_group = term_group_ref:group(term_doc)
-            local op_and_term = doc.concat(
-                {doc.text(" " .. operator.op .. " "), term_group}
-            )
+            local op_and_term = doc.concat({
+                doc.text(" " .. operator.op .. " "), term_group
+            })
             table.insert(
                 parts,
                 prev_group_ref:if_break(op_and_term, op_on_line(term_group, doc.line()))
@@ -240,7 +228,7 @@ local function call_doc_build_call_expr_doc(
     local callee_doc = ctx.render_expr(callee, true)
     local render_arg = ctx.render_expr
     local can_hug_single_arg = false
-    if #args == 1 and ctx.hug_single_argument then
+    if #args == 1 then
         local only_arg = args[1]
         local only_arg_doc = ctx.render_expr(only_arg)
         render_arg = function(_node: parser.Node): doc.Doc return only_arg_doc end
@@ -301,14 +289,12 @@ local function render_op(
         )
     elseif op == "@index" then
         local spacing = render_builders.key_starts_with_long_string(right) and " " or ""
-        return doc.concat(
-            {
-                render_expr(ctx, left, operator.prec, same_indent_on_line),
-                doc.text("[" .. spacing),
-                render_root_expr(ctx, right, false),
-                doc.text(spacing .. "]"),
-            }
-        )
+        return doc.concat({
+            render_expr(ctx, left, operator.prec, same_indent_on_line),
+            doc.text("[" .. spacing),
+            render_root_expr(ctx, right, false),
+            doc.text(spacing .. "]"),
+        })
     elseif op == "@funcall" then
         return call_doc_build_call_expr_doc(ctx, left, right)
     elseif op == "as" or op == "is" then

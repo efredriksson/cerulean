@@ -60,14 +60,12 @@ local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc
     elseif item.key_parsed == "short" then
         local key_text = item.key.conststr or item.key.tk
         if item.itemtype ~= nil then
-            return doc.concat(
-                {
-                    doc.text(key_text .. ": "),
-                    type_doc.render(item.itemtype),
-                    doc.text(" = "),
-                    ctx.render_expr(item.value),
-                }
-            )
+            return doc.concat({
+                doc.text(key_text .. ": "),
+                type_doc.render(item.itemtype),
+                doc.text(" = "),
+                ctx.render_expr(item.value),
+            })
         end
         return render_builders.with_leading_inline_trivia(
             item, doc.text(key_text .. " = "), ctx.render_expr(item.value)
@@ -76,14 +74,12 @@ local function build_table_item_text(ctx: RenderContext, item: parser.Node): doc
 
     local bracket_spacing = render_builders.key_starts_with_long_string(item.key)
         and " " or ""
-    return doc.concat(
-        {
-            doc.text("[" .. bracket_spacing),
-            ctx.render_expr(item.key),
-            doc.text(bracket_spacing .. "] = "),
-            ctx.render_expr(item.value),
-        }
-    )
+    return doc.concat({
+        doc.text("[" .. bracket_spacing),
+        ctx.render_expr(item.key),
+        doc.text(bracket_spacing .. "] = "),
+        ctx.render_expr(item.value),
+    })
 end
 
 -- A cast value needs `;`, or the trailing `,` gets read as a return-type separator.
@@ -120,14 +116,12 @@ function table_doc.build_table_doc(ctx: RenderContext, items: parser.Node): doc.
         items, items.dangling_comments or {}, table_item_render_spec(ctx, force_wrap)
     )
 
-    local table_body_doc = doc.concat(
-        {
-            doc.text("{"),
-            doc.indent(doc.concat({line_doc, items_doc})),
-            line_doc,
-            doc.text("}"),
-        }
-    )
+    local table_body_doc = doc.concat({
+        doc.text("{"),
+        doc.indent(doc.concat({line_doc, items_doc})),
+        line_doc,
+        doc.text("}"),
+    })
     local rendered = force_wrap and doc.concat({doc.break_parent(), table_body_doc})
         or doc.group(table_body_doc)
     return doc.mark_huggable(rendered)

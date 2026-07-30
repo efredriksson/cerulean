@@ -1508,13 +1508,11 @@ describe("formatter structural block rendering", function()
             end
          ]=], [=[
             global record A
-                interface B where (
-                    function()
-                        global record C
-                            -- keep
-                        end -- keep
-                    end
-                )
+                interface B where (function()
+                    global record C
+                        -- keep
+                    end -- keep
+                end)
                 end
             end
          ]=]))

@@ -1019,7 +1019,7 @@ describe("formatter comment matrix (single-line)", function()
    end)
 
    describe("known comment regressions", function()
-      it("preserves multiline table shape and trailing comma when call closing line has a trailing comment", helpers.format([[
+      it("hugs a multiline table before a trailing call comment", helpers.format([[
          local function f()
            return process(
              {
@@ -1030,12 +1030,10 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]], [[
          local function f()
-             return process(
-                 {
-                     a = 1,
-                     b = 2,
-                 }
-             ) -- trailing call comment
+             return process({
+                 a = 1,
+                 b = 2,
+             }) -- trailing call comment
          end
       ]]))
 

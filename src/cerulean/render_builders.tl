@@ -82,14 +82,12 @@ end
 function render_builders.build_delimited_body_doc(
     items_doc: doc.Doc, opts: DelimitedSequenceOptions, line_doc: doc.Doc
 ): doc.Doc
-    return doc.concat(
-        {
-            doc.text(opts.open_delim),
-            doc.indent(doc.concat({line_doc, items_doc})),
-            line_doc,
-            doc.text(opts.close_delim),
-        }
-    )
+    return doc.concat({
+        doc.text(opts.open_delim),
+        doc.indent(doc.concat({line_doc, items_doc})),
+        line_doc,
+        doc.text(opts.close_delim),
+    })
 end
 
 function render_builders.build_broken_delimited_sequence_doc_from_items(
@@ -274,9 +272,9 @@ end
 function render_builders.wrap_keyword_around(
     keyword: doc.Doc, expression: doc.Doc, closing: doc.Doc
 ): doc.Doc
-    return doc.group(
-        doc.concat({keyword, doc.indent_line(expression), doc.line(), closing})
-    )
+    return doc.group(doc.concat({
+        keyword, doc.indent_line(expression), doc.line(), closing
+    }))
 end
 
 function render_builders.wrap_keyword_before(

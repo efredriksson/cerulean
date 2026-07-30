@@ -62,13 +62,11 @@ function type_doc.render_typeargs(typeargs: {parser.TypeArgType}): doc.Doc
     for _, typearg in ipairs(typeargs) do
         table.insert(typearg_docs, render_type_element(typearg, TypeRenderOpts.new()))
     end
-    return doc.concat(
-        {
-            doc.text("<"),
-            render_builders.build_separated_docs(typearg_docs, ", "),
-            doc.text(">"),
-        }
-    )
+    return doc.concat({
+        doc.text("<"),
+        render_builders.build_separated_docs(typearg_docs, ", "),
+        doc.text(">"),
+    })
 end
 
 local function function_type_render(
@@ -109,14 +107,12 @@ local function function_type_render(
         rets_doc = render_return(rets)
     end
     local generic_doc = opts and opts.generic_doc or doc.text("")
-    return doc.concat(
-        {
-            doc.text("function"),
-            generic_doc,
-            render_builders.build_delimited_sequence_doc(arg_docs, delim_opts),
-            rets_doc,
-        }
-    )
+    return doc.concat({
+        doc.text("function"),
+        generic_doc,
+        render_builders.build_delimited_sequence_doc(arg_docs, delim_opts),
+        rets_doc,
+    })
 end
 
 type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
@@ -135,13 +131,11 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
         end
         return doc.concat(parts)
     elseif type_def is parser.ArrayType then
-        return doc.concat(
-            {
-                doc.text("{"),
-                render_type_element(type_def.elements, opts),
-                doc.text("}"),
-            }
-        )
+        return doc.concat({
+            doc.text("{"),
+            render_type_element(type_def.elements, opts),
+            doc.text("}"),
+        })
     elseif type_def is parser.TypeArgType then
         local typearg_text = doc.text(type_def.typearg)
         if type_def.constraint ~= nil then
@@ -168,15 +162,13 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
         end
         return result
     elseif type_def is parser.MapType then
-        return doc.concat(
-            {
-                doc.text("{"),
-                render_type_element(type_def.keys, opts),
-                doc.text(": "),
-                render_type_element(type_def.values, opts),
-                doc.text("}"),
-            }
-        )
+        return doc.concat({
+            doc.text("{"),
+            render_type_element(type_def.keys, opts),
+            doc.text(": "),
+            render_type_element(type_def.values, opts),
+            doc.text("}"),
+        })
     elseif type_def is parser.TypeVarType then
         return doc.text(type_def.typevar)
     elseif type_def is parser.FunctionType then
@@ -188,13 +180,11 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
         for _, t in ipairs(type_def.types) do
             table.insert(type_docs, render_type_element(t, opts))
         end
-        return doc.concat(
-            {
-                doc.text("{"),
-                render_builders.build_separated_docs(type_docs, ", "),
-                doc.text("}"),
-            }
-        )
+        return doc.concat({
+            doc.text("{"),
+            render_builders.build_separated_docs(type_docs, ", "),
+            doc.text("}"),
+        })
     elseif type_def is parser.GenericType then
         local typeargs_doc = type_doc.render_typeargs(type_def.typeargs)
         local inner_opts = TypeRenderOpts.new(typeargs_doc, opts.wrap_multi_return_rets)

@@ -69,7 +69,7 @@ local function render_with_ast(
 ): string
     local context = build_formatter_context(source_, ast)
     local ctx = block_doc.make_context(
-        context.fmt_off_regions, context.source_text.lines, opts.hug_single_argument
+        context.fmt_off_regions, context.source_text.lines
     )
     if opts.sort_requires then
         require_sort.sort_top_level_requires(context.ast, context.fmt_off_regions)

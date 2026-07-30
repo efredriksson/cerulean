@@ -157,19 +157,7 @@ describe("formatter function call wrapping", function()
       local x = f(g(1, 2), {alpha = 1, beta = 2})
    ]]))
 
-   it("keeps a long associative table argument detached by default", helpers.format([[
-      local result = register({ first_long_field_name = first_long_value, second_long_field_name = second_long_value, third_long_field_name = third_long_value })
-   ]], [[
-      local result = register(
-          {
-              first_long_field_name = first_long_value,
-              second_long_field_name = second_long_value,
-              third_long_field_name = third_long_value,
-          }
-      )
-   ]]))
-
-   it("optionally hugs a long associative table argument to its call", helpers.format([[
+   it("hugs a long associative table argument to its call", helpers.format([[
       local result = register({ first_long_field_name = first_long_value, second_long_field_name = second_long_value, third_long_field_name = third_long_value })
    ]], [[
       local result = register({
@@ -177,7 +165,7 @@ describe("formatter function call wrapping", function()
           second_long_field_name = second_long_value,
           third_long_field_name = third_long_value,
       })
-   ]], { hug_single_argument = true }))
+   ]]))
 
    it("does not hug a table when another argument follows", helpers.check([[
       return setmetatable(
@@ -190,7 +178,7 @@ describe("formatter function call wrapping", function()
           },
           ARENA_MT
       )
-   ]], { hug_single_argument = true }))
+   ]]))
 
    it("hugs a sole table whose contents have comments", helpers.format([[
       graph:pass(
@@ -214,7 +202,7 @@ describe("formatter function call wrapping", function()
               context.pass:draw(3)
           end,
       })
-   ]], { hug_single_argument = true }))
+   ]]))
 
    it("does not hug across a comment after the call opener", helpers.check([[
       register(
@@ -223,7 +211,7 @@ describe("formatter function call wrapping", function()
               name = "example",
           }
       )
-   ]], { hug_single_argument = true }))
+   ]]))
 
    it("hugs nested calls whose sole argument is huggable", helpers.format([[
       world:addPlugin(
@@ -237,7 +225,7 @@ describe("formatter function call wrapping", function()
           capacity = POOL,
           maxEmitters = EMITTERS,
       }))
-   ]], { hug_single_argument = true }))
+   ]]))
 
    it("hugs a sole table through an as-cast", helpers.format([[
       arch:addEntityObserver(
@@ -251,7 +239,7 @@ describe("formatter function call wrapping", function()
       arch:addEntityObserver({
           onEntityMove = function(_self: any, entity: integer) moved = entity end,
       } as any)
-   ]], { hug_single_argument = true }))
+   ]]))
 
    it("hugs a sole table through explicit parentheses", helpers.format([[
       register(
@@ -265,7 +253,7 @@ describe("formatter function call wrapping", function()
           name = "example",
           enabled = true,
       }))
-   ]], { hug_single_argument = true }))
+   ]]))
 
    it("hugs through an expression wrapper without a special case", helpers.format([[
       consume(
@@ -279,7 +267,7 @@ describe("formatter function call wrapping", function()
           first_long_field_name = first_long_value,
           second_long_field_name = second_long_value,
       }).value)
-   ]], { hug_single_argument = true }))
+   ]]))
 
    it("does not hug an arbitrary binary expression", helpers.check([[
       consume(
@@ -287,18 +275,9 @@ describe("formatter function call wrapping", function()
               .. second_really_long_operand_name
               .. third_really_long_operand_name
       )
-   ]], { hug_single_argument = true }))
-
-   it("keeps a sole anonymous function detached by default", helpers.check([[
-      local built, reason = pcall(
-          function(): string
-              lighting = buildPipeline(device, "deferred.lighting.frag", RGBA8)
-              composite = buildPipeline(device, "deferred.composite.frag", RGBA8)
-          end
-      )
    ]]))
 
-   it("optionally hugs a sole anonymous function argument", helpers.format([[
+   it("hugs a sole anonymous function argument", helpers.format([[
       local built, reason = pcall(
           function(): string
               lighting = buildPipeline(device, "deferred.lighting.frag", RGBA8)
@@ -310,7 +289,7 @@ describe("formatter function call wrapping", function()
           lighting = buildPipeline(device, "deferred.lighting.frag", RGBA8)
           composite = buildPipeline(device, "deferred.composite.frag", RGBA8)
       end)
-   ]], { hug_single_argument = true }))
+   ]]))
 
    it("does not hug a cast table when another argument follows", helpers.check([[
       return setmetatable(
@@ -321,17 +300,9 @@ describe("formatter function call wrapping", function()
           } as Batch<T>,
           BatchMT as metatable<Batch<T>>
       )
-   ]], { hug_single_argument = true }))
+   ]]))
 
-   it("keeps a long string argument detached by default", helpers.check([=[
-      ffi.cdef(
-          [[
-      void *dlopen(const char *path, int mode);
-      ]]
-      )
-   ]=]))
-
-   it("optionally hugs a long string argument to its call", helpers.format([=[
+   it("hugs a long string argument to its call", helpers.format([=[
       ffi.cdef(
           [[
       void *dlopen(const char *path, int mode);
@@ -341,7 +312,7 @@ describe("formatter function call wrapping", function()
       ffi.cdef([[
       void *dlopen(const char *path, int mode);
       ]])
-   ]=], { hug_single_argument = true }))
+   ]=]))
 
    it("does not hug a function when another argument follows", helpers.check([[
       local ok, result = xpcall(
@@ -351,7 +322,7 @@ describe("formatter function call wrapping", function()
           end,
           debug.traceback
       )
-   ]], { hug_single_argument = true }))
+   ]]))
 
    it("reindents a wrapped call whose arguments include inline comments", helpers.format([[
       local x = f(
@@ -672,7 +643,7 @@ describe("formatter function call wrapping", function()
       )
    ]]))
 
-   it("function call with tables are wrapped, not affect by other blocks", helpers.format([[
+   it("hugs a sole table argument regardless of preceding blocks", helpers.format([[
       function f1(stmt: Node)
          if stmt then
          end
@@ -698,13 +669,11 @@ describe("formatter function call wrapping", function()
       end
 
       function f2(): doc.Doc
-          return concatinator(
-              {
-                  a_very_long_long_long_function_call_site(some_variable, another_variable),
-                  a_short_call_site(),
-                  a_very_long_long_long_function_call_site(some_variable, another_variable),
-              }
-          )
+          return concatinator({
+              a_very_long_long_long_function_call_site(some_variable, another_variable),
+              a_short_call_site(),
+              a_very_long_long_long_function_call_site(some_variable, another_variable),
+          })
       end
    ]]))
 
