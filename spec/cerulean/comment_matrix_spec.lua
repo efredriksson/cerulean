@@ -1361,9 +1361,11 @@ describe("formatter comment matrix (single-line)", function()
       ]], [[
          if (not a) and
              -- try first
-             ((b == 1)
+             (
+                 (b == 1)
                      -- then second
-                     or (b == 2)) then
+                     or (b == 2)
+             ) then
              f()
          end
       ]]))
