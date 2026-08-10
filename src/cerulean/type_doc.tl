@@ -84,7 +84,7 @@ local function function_type_render(
         local arg_name, type_suffix = arg_name_doc(
             argnames[index], is_optional_arg(type_def, index), is_variadic
         )
-        local rendered_type = render_type(arg_type, opts)
+        local rendered_type = render_type(arg_type, TypeRenderOpts.new())
         -- A comment between the binding ':' and the type sits right before it.
         local after_colon = parser.inline_trivia(arg_type, "head")
         if #after_colon > 0 then
