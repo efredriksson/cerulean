@@ -144,6 +144,45 @@ local function render_interface_list_parts(record_def: parser.RecordLikeType): {
     return parts
 end
 
+local function macroexp_signature_doc(macroexp: parser.Node): doc.Doc
+    local typeargs = macroexp.typeargs and type_doc.render_typeargs(macroexp.typeargs)
+        or doc.text("")
+    return doc.concat(
+        {
+            typeargs,
+            signature_doc.render_signature_doc(macroexp.args),
+            type_doc.render_return(macroexp.rets),
+        }
+    )
+end
+
+-- Teal allows a macroexp body only one return expression.
+local function macroexp_body_doc(ctx: RenderContext, macroexp: parser.Node): doc.Doc
+    return doc.concat({doc.text("return "), ctx.render_expr(macroexp.exp)})
+end
+
+local function render_macroexp_field_doc(
+    ctx: RenderContext, field_decl: doc.Doc, macroexp: parser.Node
+): doc.Doc
+    local header_group = doc.group_ref()
+    local header = header_group:group(
+        doc.concat(
+            {
+                field_decl,
+                header_group:if_break(
+                    doc.indent_line(doc.text("= ")), doc.text(" = ")
+                ),
+                doc.text("macroexp"),
+                macroexp_signature_doc(macroexp),
+            }
+        )
+    )
+    local flat_body = doc.concat(
+        {doc.indent_line(macroexp_body_doc(ctx, macroexp)), doc.close("end")}
+    )
+    return doc.concat({header, header_group:if_break(doc.indent(flat_body), flat_body)})
+end
+
 local function render_field_entry(
     ctx: RenderContext, entry: parser.FieldEntry
 ): doc.Doc | nil
@@ -193,40 +232,7 @@ local function render_field_entry(
         macroexp.args ~= nil and macroexp.rets ~= nil and macroexp.exp ~= nil,
         "bad record field macroexp"
     )
-    local macroexp_typeargs = macroexp.typeargs
-        and type_doc.render_typeargs(macroexp.typeargs) or doc.text("")
-    local macroexp_header = doc.concat(
-        {
-            doc.text("macroexp"),
-            macroexp_typeargs,
-            signature_doc.render_signature_doc(macroexp.args),
-            type_doc.render_return(macroexp.rets),
-        }
-    )
-    local macroexp_body = doc.concat(
-        {doc.text("return "), ctx.render_expr(macroexp.exp)}
-    )
-
-    local header_group = doc.group_ref()
-    local header = header_group:group(
-        doc.concat(
-            {
-                field_decl,
-                header_group:if_break(
-                    doc.indent_line(doc.text("= ")), doc.text(" = ")
-                ),
-                macroexp_header,
-            }
-        )
-    )
-    local flat_body = doc.concat(
-        {
-            doc.indent_line(macroexp_body),
-            doc.close("end"),
-        }
-    )
-    local broken_body = doc.indent(flat_body)
-    return doc.concat({header, header_group:if_break(broken_body, flat_body)})
+    return render_macroexp_field_doc(ctx, field_decl, macroexp)
 end
 
 local function render_record_like_body_doc(
@@ -448,18 +454,14 @@ local function render_local_macroexp_doc(ctx: RenderContext, node: parser.Node):
         doc.concat(
             {
                 doc.text("local macroexp " .. node.name.tk),
-                signature_doc.render_signature_doc(node.macrodef.args),
-                type_doc.render_return(node.macrodef.rets),
+                macroexp_signature_doc(node.macrodef),
             }
         )
-    )
-    local body_doc = doc.concat(
-        {doc.text("return "), ctx.render_expr(node.macrodef.exp)}
     )
     return doc.concat(
         {
             header,
-            doc.indent_line(body_doc),
+            doc.indent_line(macroexp_body_doc(ctx, node.macrodef)),
             doc.close("end"),
         }
     )
