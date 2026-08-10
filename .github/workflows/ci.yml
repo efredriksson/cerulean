@@ -1,4 +1,7 @@
-on: push
+on:
+  push:
+    branches: [main, beta]
+  pull_request:
 
 jobs:
   lint-and-test:
