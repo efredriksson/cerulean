@@ -169,6 +169,12 @@ end
 local function propagate_breaks(node: Doc): boolean
     if node is DocBreakParent then
         return true
+    elseif node is DocHardLine then
+        -- A hardline breaks the line in flat mode too, and fits() stops measuring at
+        -- one, so a group holding a hardline can never legally render flat: it would
+        -- emit real newlines inside a layout chosen as single-line, splitting the
+        -- statements it was meant to join. Hardline implies break_parent.
+        return true
     elseif node is DocGroup then
         local child_propagate = propagate_breaks(node.child)
         node.should_break = node.should_break or child_propagate
