@@ -20,6 +20,37 @@ jobs:
       - name: Test
         run: make test
 
+  # Nothing else exercises Teal's unreleased next version, so a break would first
+  # surface when users upgrade. Pinned so upstream churn cannot turn this
+  # repository red; bump TEAL_DEV_REV deliberately.
+  test-teal-dev:
+    runs-on: ubuntu-latest
+    env:
+      TEAL_DEV_REV: 6f1d0c5c9451f9056226ff0fafeb9612e80d2039
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua dependencies
+        run: sudo apt-get install -y luarocks make && sudo luarocks install busted && sudo luarocks install luafilesystem
+      # Installed as a rock rather than put on the module path: busted resolves
+      # through luarocks and never sees LUA_PATH.
+      - name: Install Teal at pinned dev revision
+        run: |
+          git clone https://github.com/teal-language/tl.git /tmp/tl-dev
+          git -C /tmp/tl-dev checkout "$TEAL_DEV_REV"
+          cd /tmp/tl-dev && sudo luarocks make tl-dev-2.rockspec
+      - name: Verify the pinned Teal is the one under test
+        run: lua -e 'assert(require("spec.cerulean.toolchain").supports_macros())'
+      - name: Test
+        env:
+          # Workaround: this Teal's loader omits the compat53 preamble its own
+          # `tl gen` still emits, so `.tl` compiled at require time loses
+          # math.tointeger on 5.1. The rock is installed either way; the generated
+          # code just never references it. Drop this once the loader applies the
+          # preamble again.
+          LUA_INIT: require("compat53")
+        # Not `make test`: its lint step type-checks with the prerelease checker.
+        run: busted spec/
+
   build-rock:
     runs-on: ubuntu-latest
     steps:
