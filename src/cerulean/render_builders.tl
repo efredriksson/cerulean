@@ -245,11 +245,7 @@ function render_builders.is_top_level_binary_op(node: parser.Node): boolean
         return false
     end
     local op = node.op.op
-    return op ~= "@funcall"
-        and op ~= "@index"
-        and op ~= "."
-        and op ~= ":"
-        and op ~= "as"
+    return op ~= "@funcall" and op ~= "@index" and op ~= "." and op ~= ":"
 end
 
 function render_builders.has_chain_internal_trivia(node: parser.Node): boolean
