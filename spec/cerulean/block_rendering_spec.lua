@@ -397,6 +397,26 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      it("breaks an if-condition ending in an as cast around the keyword", helpers.format([[
+         if entity_registry.columns[transform_component_key_registry_id] as {string: integer} then
+         end
+      ]], [[
+         if
+             entity_registry.columns[transform_component_key_registry_id] as {string: integer}
+         then
+         end
+      ]]))
+
+      it("breaks an if-condition ending in an is cast around the keyword", helpers.format([[
+         if entity_registry.columns[transform_component_key_registry_id] is {string: integer} then
+         end
+      ]], [[
+         if
+             entity_registry.columns[transform_component_key_registry_id] is {string: integer}
+         then
+         end
+      ]]))
+
       it("breaks a long while-condition around the keyword and do", helpers.format([[
          while state.is_running_for_now and not state.cancelled and queue:has_pending_work_to_perform() do
              process()
