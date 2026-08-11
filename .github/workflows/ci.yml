@@ -26,7 +26,7 @@ jobs:
   test-teal-dev:
     runs-on: ubuntu-latest
     env:
-      TEAL_DEV_REV: 6f1d0c5c9451f9056226ff0fafeb9612e80d2039
+      TEAL_DEV_REV: d3b71000a084f4e5e73de7b47a0f8760983a87ec
     steps:
       - uses: actions/checkout@v4
       - name: Install Lua dependencies
@@ -41,15 +41,7 @@ jobs:
       - name: Verify the pinned Teal is the one under test
         run: lua -e 'assert(require("spec.cerulean.toolchain").supports_macros())'
       - name: Test
-        env:
-          # Workaround: this Teal's loader omits the compat53 preamble its own
-          # `tl gen` still emits, so `.tl` compiled at require time loses
-          # math.tointeger on 5.1. The rock is installed either way; the generated
-          # code just never references it. Drop this once the loader applies the
-          # preamble again.
-          LUA_INIT: require("compat53")
-        # Not `make test`: its lint step type-checks with the prerelease checker.
-        run: busted spec/
+        run: make test
 
   build-rock:
     runs-on: ubuntu-latest
