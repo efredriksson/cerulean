@@ -72,6 +72,27 @@ function f(
 end
 ```
 
+**Assignments wrap through the same levels**, using the `=` where a bracket would be. Level 2 puts the values below the `=`, level 3 gives one per line:
+
+```teal
+local x_min, y_min =
+    math.ceil(hitbox.x / block_size), math.ceil(hitbox.y / block_size_y)
+
+local x_max, y_max =
+    math.ceil((hitbox.x + hitbox.width) / block_size),
+    math.ceil((hitbox.y + hitbox.height) / block_size)
+```
+
+A `return` has no `=` to break at, so it skips level 2 and keeps its first value on the keyword line:
+
+```teal
+return archetype.columns[TransformComponent],
+    archetype.columns[VelocityComponent],
+    count
+```
+
+An assignment with a single value keeps the `=` on the line and wraps inside the value.
+
 ---
 
 ## `if`, `while`, and `until` header breaking
@@ -112,6 +133,30 @@ table.insert(
         .. string.format("%.1f", self.elapsed * 1000)
         .. "ms"
 )
+```
+
+---
+
+## Type casts
+
+A long `as` or `is` cast breaks before the operator, indenting the type under the expression:
+
+```teal
+-- before
+local transforms = current_archetype.columns[builtins.TransformComponent] as {string: integer}
+
+-- after
+local transforms = current_archetype.columns[builtins.TransformComponent]
+    as {string: integer}
+```
+
+If the type is still too long, it wraps beneath the operator:
+
+```teal
+local update = systems.registry[component_name]
+    as function(
+        entity: Entity, delta_time: number, world_state: WorldState, options: Options
+    ): boolean
 ```
 
 ---
