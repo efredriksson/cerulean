@@ -2581,14 +2581,16 @@ do
             end
         end
 
-        return i, {
-            i = i,
-            type = typ,
-            name = argument_name,
-            is_va = is_va,
-            is_self = is_self,
-            opt = (opt > 0) or is_va,
-        }, 0
+        return i,
+            {
+                i = i,
+                type = typ,
+                name = argument_name,
+                is_va = is_va,
+                is_self = is_self,
+                opt = (opt > 0) or is_va,
+            },
+            0
     end
 
     parse_argument_type_list = function(

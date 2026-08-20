@@ -142,11 +142,13 @@ function options.from_config_file(): FormatterOptions, string
     local mlw = formatter["max_line_width"]
     if mlw ~= nil then
         if not (mlw is number) then
-            return nil, "tlconfig.lua: cerulean.max_line_width must be a positive integer"
+            return nil,
+                "tlconfig.lua: cerulean.max_line_width must be a positive integer"
         end
         local n = math.tointeger(mlw)
         if not n or n <= 0 then
-            return nil, "tlconfig.lua: cerulean.max_line_width must be a positive integer"
+            return nil,
+                "tlconfig.lua: cerulean.max_line_width must be a positive integer"
         end
         opts.max_line_width = n
     end
