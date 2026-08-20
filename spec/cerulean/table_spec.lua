@@ -336,9 +336,11 @@ describe("formatter table constructor wrapping", function()
    it("trailing semicolon on is-cast to vararg function type stays multiline", helpers.format([[
       local n, KA = { o is function ( ) : string ... , } , x
    ]], [[
-      local n, KA = {
-          o is function(): string...;
-      }, x
+      local n, KA =
+          {
+              o is function(): string...;
+          },
+          x
    ]]))
 
    it("does not add blank line after multiline string entry followed by another entry", helpers.check([=[local x = {

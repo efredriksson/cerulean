@@ -479,6 +479,41 @@ describe("formatter structural block rendering", function()
       ]]))
    end)
 
+   describe("assignment value list layout", function()
+      it("drops a long value list below the equals sign", helpers.format([[
+         component_order, component_fields, component_nodes = registry.order, registry.fields, registry.nodes
+      ]], [[
+         component_order, component_fields, component_nodes =
+             registry.order, registry.fields, registry.nodes
+      ]]))
+
+      it("breaks every comma when the value list still overflows below the equals sign", helpers.format([[
+         component_order, component_fields, component_nodes = registry.component_field_order, registry.component_fields_by_name, registry.component_nodes_by_name
+      ]], [[
+         component_order, component_fields, component_nodes =
+             registry.component_field_order,
+             registry.component_fields_by_name,
+             registry.component_nodes_by_name
+      ]]))
+
+      it("drops a long declaration value list below the equals sign", helpers.format([[
+         local first_column, second_column = archetype.columns.position, archetype.columns.velocity
+      ]], [[
+         local first_column, second_column =
+             archetype.columns.position, archetype.columns.velocity
+      ]]))
+
+      it("keeps a short value list on the line", helpers.check([[
+         local short_a, short_b = 1, 2
+      ]]))
+
+      it("keeps the equals sign on the line when there is a single value", helpers.check([[
+         local handler_lookup_table = component_registry.build_handler_lookup(
+             event_name, entity_id
+         )
+      ]]))
+   end)
+
    describe("blocks that are not rendered structurally", function()
       it("keeps wrong space indentation when blank line gaps block structural rendering", helpers.format([[
          local function f()
