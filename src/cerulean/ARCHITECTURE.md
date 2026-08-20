@@ -42,8 +42,10 @@ Breaks `block_doc` ↔ `stmt_doc` ↔ `expr_doc` ↔ `table_doc` cycle via callb
 - `any_items_have_comments(items)` — any `leading_comments` / `trailing_comments`. Drives force-wrap. Deliberately ignores `"before_separator"` inline trivia (inline block-trivia must not flip flat → wrapped).
 - `item_line_doc(force_wrap)` — `hardline` if force-wrapping, else `softline`.
 - `append_lines_pre_node(node, line_before, line_from_before?)` — separator + extra `hardline` for `blank_line_before`. Accepts `parser.Node` or `parser.FieldEntry`.
-- `build_exp_list_doc(ctx, exps)` — comma-joined expression list, flat; threads item comments when present.
-- `build_return_exp_list_doc(ctx, exps)` — same list with the commas as break points, all giving at once. Return-only on purpose: a `return` has no operator to its left to give first, whereas assignment/declaration lists should break at `=`, which does not exist yet. Delegates to `build_exp_list_doc` for the comment-threaded path.
+- `build_grouped_comma_items_doc(item_docs)` — comma list whose commas all give at once: one line, or one item per line. The second stage of every two-stage break (delimited sequences, `=` value lists).
+- `exp_list_can_break(exps)` — more than one item and no threaded comments. Guards both list builders below.
+- `build_exp_list_doc(ctx, exps)` — comma-joined expression list; threads item comments when present, otherwise `build_grouped_comma_items_doc`. Callers frame it: `inline_stmt_doc` wraps it with `wrap_keyword_before` so a long `=` list drops below the `=` before its commas give.
+- `build_return_exp_list_doc(ctx, exps)` — same list, but the first value stays on the `return` line and only the continuations indent. Return-only: a `return` has no operator to its left to give first. Delegates to `build_exp_list_doc` for the comment-threaded path.
 - Delimiter builders (`build_delimited_sequence_doc`, `build_comma_separated_docs`, …).
 
 ## Comment Model

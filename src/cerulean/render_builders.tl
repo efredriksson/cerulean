@@ -52,6 +52,12 @@ function render_builders.build_comma_line_item_docs(item_docs: {doc.Doc}): doc.D
     return doc.concat(parts)
 end
 
+-- Every comma gives at once: the list is one line or one item per line, never a
+-- ragged fill. Shared by delimited sequences and `=` value lists.
+function render_builders.build_grouped_comma_items_doc(item_docs: {doc.Doc}): doc.Doc
+    return doc.group(render_builders.build_comma_line_item_docs(item_docs))
+end
+
 function render_builders.build_separated_docs(
     item_docs: {doc.Doc}, separator: string
 ): doc.Doc
@@ -110,7 +116,7 @@ function render_builders.build_broken_delimited_sequence_doc(
     end
 
     return render_builders.build_broken_delimited_sequence_doc_from_items(
-        doc.group(render_builders.build_comma_line_item_docs(item_docs)), opts
+        render_builders.build_grouped_comma_items_doc(item_docs), opts
     )
 end
 
@@ -169,6 +175,14 @@ local function any_items_have_inline_trivia(items: {parser.Node}): boolean
     return false
 end
 
+-- A threaded comment pins its item to a line of its own, so the commas stop being
+-- free break points and the list has to render through the comment path.
+function render_builders.exp_list_can_break(exps: {parser.Node}): boolean
+    return #exps > 1
+        and not render_builders.any_items_have_comments(exps)
+        and not any_items_have_inline_trivia(exps)
+end
+
 function render_builders.build_exp_list_doc(
     ctx: RenderContext, exps: {parser.Node}
 ): doc.Doc
@@ -176,7 +190,7 @@ function render_builders.build_exp_list_doc(
         not render_builders.any_items_have_comments(exps)
         and not any_items_have_inline_trivia(exps)
     then
-        return render_builders.build_mapped_comma_separated_docs(ctx, exps)
+        return render_builders.build_grouped_comma_items_doc(mapped_exp_docs(ctx, exps))
     end
     local parts: {doc.Doc} = {}
     local force_next_indent = false
@@ -210,16 +224,12 @@ function render_builders.build_exp_list_doc(
     return doc.concat(parts)
 end
 
--- Only `return` breaks at its commas: an assignment should break at `=` first,
--- a rule that does not exist yet.
+-- The first value stays on the `return` line: unlike an `=` list there is no
+-- operator to its left to give first, so only the continuations indent.
 function render_builders.build_return_exp_list_doc(
     ctx: RenderContext, exps: {parser.Node}
 ): doc.Doc
-    if
-        #exps < 2
-        or render_builders.any_items_have_comments(exps)
-        or any_items_have_inline_trivia(exps)
-    then
+    if not render_builders.exp_list_can_break(exps) then
         return render_builders.build_exp_list_doc(ctx, exps)
     end
     local item_docs = mapped_exp_docs(ctx, exps)

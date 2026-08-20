@@ -3034,9 +3034,14 @@ do
         local nodes: {string: parser.Node}
         local field_comments: {string: {{Comment}}}
         if meta then
-            field_order, fields, nodes, field_comments = def.meta_field_order, def.meta_fields, def.nodes, def.meta_field_comments
+            field_order, fields, nodes, field_comments =
+                def.meta_field_order,
+                def.meta_fields,
+                def.nodes,
+                def.meta_field_comments
         else
-            field_order, fields, nodes, field_comments = def.field_order, def.fields, def.nodes, def.field_comments
+            field_order, fields, nodes, field_comments =
+                def.field_order, def.fields, def.nodes, def.field_comments
         end
 
         if comments and not field_comments then
