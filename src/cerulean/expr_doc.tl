@@ -245,6 +245,33 @@ local function join_op_with_trivia(
     return doc.concat(parts)
 end
 
+-- The operator and the cast type break independently, so the layouts are offered in
+-- order of increasing damage: neither gives, the operator alone, the type alone, both.
+-- Breaking before the operator is preferred, but it only helps when the type then fits
+-- the wrapped line. When it does not, the type's own break points do the work and the
+-- operator stays where it is.
+local function build_cast_doc(
+    op: string, left_doc: doc.Doc, casttype_doc: doc.Doc
+): doc.Doc
+    local operator_on_line = doc.concat({doc.text(" " .. op .. " "), casttype_doc})
+    local function operator_breaks(type_doc_state: doc.Doc): doc.Doc
+        return doc.indent(doc.concat({doc.line(), doc.text(op .. " "), type_doc_state}))
+    end
+    return doc.concat(
+        {
+            left_doc,
+            doc.first_fit(
+                {
+                    doc.flat(operator_on_line),
+                    operator_breaks(doc.flat(casttype_doc)),
+                    operator_on_line,
+                    operator_breaks(casttype_doc),
+                }
+            ),
+        }
+    )
+end
+
 local function render_op(
     ctx: RenderContext,
     node: parser.Node,
@@ -280,13 +307,7 @@ local function render_op(
         if op_has_any_trivia(node) then
             return join_op_with_trivia(node, left_doc, casttype_doc, doc.text(" "))
         end
-        -- Only the operator and the cast type go in the group. An operand that
-        -- spans lines of its own (a table constructor, a wrapped call) would
-        -- otherwise force the break and push a short cast onto its own line.
-        local cast_doc = doc.indent(
-            doc.concat({doc.line(), doc.text(op .. " "), casttype_doc})
-        )
-        return doc.concat({left_doc, doc.group(cast_doc)})
+        return build_cast_doc(op, left_doc, casttype_doc)
     elseif operator.arity == 1 then
         local op_prec = operator.prec
         local child = parenthesize_unary_operand(

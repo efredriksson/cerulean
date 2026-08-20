@@ -63,6 +63,21 @@ end
 local record DocBreakParent is Doc where self.kind == "break_parent"
 end
 
+-- Alternative complete layouts, ordered least-broken to most-broken. The first whose
+-- every line fits wins; the last is the fallback. A group cannot express this: its one
+-- decision is taken before the doc it contains gets to make its own, so it cannot say
+-- "break here only if that is enough on its own".
+local record DocFirstFit is Doc where self.kind == "first_fit"
+    states: {Doc}
+end
+
+-- Renders its child flat whatever the surrounding mode is. Only useful for pinning one
+-- state of a DocFirstFit, so that the alternatives stay distinct layouts instead of all
+-- collapsing onto whatever the enclosing mode was.
+local record DocFlat is Doc where self.kind == "flat"
+    child: Doc
+end
+
 local doc = {Doc = Doc}
 
 local record GroupRef
@@ -196,6 +211,16 @@ local function propagate_breaks(node: Doc): boolean
         local break_propagates = propagate_breaks(node.break_child)
         local flat_propagates = propagate_breaks(node.flat_child)
         return break_propagates or flat_propagates
+    elseif node is DocFirstFit then
+        -- Each state is a complete layout. A forced break inside one must not leak
+        -- out and pre-break the parent, which would destroy the choice.
+        for _, candidate in ipairs(node.states) do
+            propagate_breaks(candidate)
+        end
+        return false
+    elseif node is DocFlat then
+        propagate_breaks(node.child)
+        return false
     end
     return false
 end
@@ -242,6 +267,15 @@ local function has_line_break_opportunity(node: Doc): boolean
         return false
     end
 
+    if node is DocFirstFit then
+        for _, candidate in ipairs(node.states) do
+            if has_line_break_opportunity(candidate) then
+                return true
+            end
+        end
+        return false
+    end
+
     return false
 end
 
@@ -273,93 +307,230 @@ local function write_raw_lines(state: RenderState, raw_lines: {string})
     end
 end
 
+-- Measuring comes in two modes that are otherwise the same walk. `stop_at_break`
+-- answers "does the next line fit" and reports success at the first break, which is
+-- all a group needs. Ranking whole layouts against each other needs every line
+-- measured instead, so without it the column resets to the indent at a break and the
+-- walk carries on. The column the walk ends on comes back with the verdict, so a
+-- caller can go on measuring whatever shares that last line.
+local measure: function(
+    {RenderCommand}, integer, RenderState, boolean
+): boolean, integer
+
 local function fits(
-    remaining_width: integer,
-    commands: {RenderCommand},
-    broken_groups: {integer: boolean},
-    indent_width: integer
+    column: integer, commands: {RenderCommand}, state: RenderState
 ): boolean
-    if remaining_width < 0 then
+    local next_line_fits = measure(commands, column, state, true)
+    return next_line_fits
+end
+
+-- The renderer picks a nested group's mode by trying it flat against everything that
+-- follows it. A measurement that guessed differently would be describing a layout
+-- that never gets produced.
+local function group_renders_flat(
+    node: DocGroup,
+    indent: integer,
+    group_id: integer,
+    column: integer,
+    state: RenderState,
+    tail: {RenderCommand}
+): boolean
+    if node.should_break then
         return false
+    end
+    local trial = clone_commands(tail)
+    table.insert(trial, RenderCommand.new(node.child, indent, true, group_id))
+    return fits(column, trial, state)
+end
+
+-- Walks one candidate layout to its end, then hands the trailing commands back to the
+-- next-line check: they share the candidate's last line.
+local function layout_fits(
+    candidate: Doc,
+    indent: integer,
+    column: integer,
+    tail: {RenderCommand},
+    state: RenderState
+): boolean
+    local candidate_fits, end_column = measure(
+        {RenderCommand.new(candidate, indent, false, nil)}, column, state, false
+    )
+    if not candidate_fits then
+        return false
+    end
+    return fits(end_column, clone_commands(tail), state)
+end
+
+-- Every state is a complete alternative layout. The first whose lines all fit wins;
+-- the most broken one is the fallback when none of them do.
+local function choose_first_fit_state(
+    node: DocFirstFit,
+    indent: integer,
+    column: integer,
+    tail: {RenderCommand},
+    state: RenderState
+): Doc
+    for _, candidate in ipairs(node.states) do
+        if layout_fits(candidate, indent, column, tail, state) then
+            return candidate
+        end
+    end
+    return node.states[#node.states]
+end
+
+-- A flat context forces the flat state; nothing else can render there.
+--
+-- A next-line check stands the most broken state in for the whole node. That is exact,
+-- not a guess: the check stops at the first break, and the state ordering puts the
+-- earliest break in the last state. It is also what keeps the cost linear. Running the
+-- real selection here instead would be exact too, but a first_fit sitting in another
+-- one's tail would then re-select it, so a cast chain like `x as A as B as C` would
+-- cost O(states^depth).
+local function first_fit_candidate(
+    node: DocFirstFit,
+    command: RenderCommand,
+    column: integer,
+    tail: {RenderCommand},
+    state: RenderState,
+    stop_at_break: boolean
+): Doc
+    if command.flat then
+        return node.states[1]
+    elseif stop_at_break then
+        return node.states[#node.states]
+    end
+    -- Reached when a first_fit sits inside another one's candidate. No caller builds
+    -- that today, but measuring it as anything but its own best layout would be wrong.
+    return choose_first_fit_state(node, command.indent, column, tail, state)
+end
+
+measure = function(
+    commands: {RenderCommand},
+    column: integer,
+    state: RenderState,
+    stop_at_break: boolean
+): boolean, integer
+    local max_width = state.max_width
+    if column > max_width then
+        return false, column
     end
 
     while #commands > 0 do
         local command = table.remove(commands)
         local node = command.node
         local flat = command.flat
+        local indent = command.indent
         local current_group_id = command.current_group_id
 
         if node is DocText then
             if node.text:find("\n") then
-                return false
+                return false, column
             end
-            remaining_width = remaining_width - #node.text
+            column = column + #node.text
         elseif node is DocRaw then
-            return false
+            return false, column
         elseif node is DocBreakText then
             if flat then
-                remaining_width = remaining_width - #node.flat_text
+                column = column + #node.flat_text
             else
-                remaining_width = remaining_width - #node.broken_text
+                column = column + #node.broken_text
             end
         elseif node is DocLine then
             if flat then
-                remaining_width = remaining_width - #node.flat_text
+                column = column + #node.flat_text
+            elseif stop_at_break then
+                return true, column
             else
-                return true
+                column = indent
             end
-        elseif node is DocTrimEnd and not flat then
-            return true
-        elseif node is DocIfBreak then
-            local take_break_branch = should_take_break_branch(
-                node.target_group_id, current_group_id, flat, broken_groups
-            )
-            local chosen = take_break_branch and node.break_child or node.flat_child
-            table.insert(
-                commands,
-                RenderCommand.new(chosen, command.indent, flat, current_group_id)
-            )
-        elseif node is DocBreakParent then
-            -- propagate_breaks already set group.should_break; nothing to measure here.
         elseif node is DocHardLine then
-            return true
-        elseif node is DocBlankLine then
+            -- A hardline emits a real newline whatever the mode, so a layout being
+            -- measured as flat could never survive rendering. Groups are already kept
+            -- out of that state by propagate_breaks; `flat` reaches here through a
+            -- DocFlat, which overrides the mode without consulting it.
+            if flat then
+                return false, column
+            end
+            if stop_at_break then
+                return true, column
+            end
+            column = indent
+        elseif node is DocBlankLine or node is DocTrimEnd then
             if not flat then
-                return true
+                if stop_at_break then
+                    return true, column
+                end
+                column = indent
             end
         elseif node is DocClosed then
             if flat then
-                remaining_width = remaining_width - #node.close_text - #node.close_flat_sep
+                column = column + #node.close_flat_sep + #node.close_text
+            elseif stop_at_break then
+                return true, column
             else
-                return true
+                column = indent + #node.close_text
             end
+        elseif node is DocIfBreak then
+            local take_break_branch = should_take_break_branch(
+                node.target_group_id, current_group_id, flat, state.broken_groups
+            )
+            local chosen = take_break_branch and node.break_child or node.flat_child
+            table.insert(
+                commands, RenderCommand.new(chosen, indent, flat, current_group_id)
+            )
+        elseif node is DocBreakParent then
+            -- propagate_breaks already set group.should_break; nothing to measure here.
         elseif node is DocConcat then
             push_concat_parts(
-                commands, node.parts or {}, command.indent, flat, current_group_id
+                commands, node.parts or {}, indent, flat, current_group_id
             )
         elseif node is DocIndent then
             table.insert(
                 commands,
                 RenderCommand.new(
-                    node.child, command.indent + indent_width, flat, current_group_id
+                    node.child, indent + state.indent_width, flat, current_group_id
+                )
+            )
+        elseif node is DocFlat then
+            table.insert(
+                commands, RenderCommand.new(node.child, indent, true, current_group_id)
+            )
+        elseif node is DocFirstFit then
+            table.insert(
+                commands,
+                RenderCommand.new(
+                    first_fit_candidate(
+                        node, command, column, commands, state, stop_at_break
+                    ),
+                    indent,
+                    flat,
+                    current_group_id
                 )
             )
         elseif node is DocGroup then
+            -- A group that must break cannot be part of a layout chosen as flat.
             if flat and node.should_break then
-                return false
+                return false, column
             end
             local group_id = node.group_id or current_group_id
+            local child_flat = flat
+                or (
+                    not stop_at_break
+                    and group_renders_flat(
+                        node, indent, group_id, column, state, commands
+                    )
+                )
             table.insert(
-                commands, RenderCommand.new(node.child, command.indent, flat, group_id)
+                commands, RenderCommand.new(node.child, indent, child_flat, group_id)
             )
         end
 
-        if remaining_width < 0 then
-            return false
+        if column > max_width then
+            return false, column
         end
     end
 
-    return true
+    return true, column
 end
 
 local function render_doc(root: Doc, state: RenderState)
@@ -482,41 +653,33 @@ local function render_doc(root: Doc, state: RenderState)
                     node.child, indent + state.indent_width, node_flat, current_group_id
                 )
             )
+        elseif node is DocFlat then
+            table.insert(
+                commands, RenderCommand.new(node.child, indent, true, current_group_id)
+            )
+        elseif node is DocFirstFit then
+            local chosen = first_fit_candidate(
+                node, command, state.column, commands, state, false
+            )
+            table.insert(
+                commands, RenderCommand.new(chosen, indent, node_flat, current_group_id)
+            )
         elseif node is DocGroup then
             local group_id = node.group_id or current_group_id
-            if node_flat then
-                table.insert(
-                    commands, RenderCommand.new(node.child, indent, true, group_id)
+            local child_flat = node_flat
+                or group_renders_flat(
+                    node, indent, group_id, state.column, state, commands
                 )
-            elseif node.should_break then
-                if group_id ~= nil and has_line_break_opportunity(node.child) then
-                    state.broken_groups[group_id] = true
-                end
-                table.insert(
-                    commands, RenderCommand.new(node.child, indent, false, group_id)
-                )
-            else
-                local trial = clone_commands(commands)
-                table.insert(
-                    trial, RenderCommand.new(node.child, indent, true, group_id)
-                )
-                local fits_flat = fits(
-                    state.max_width - state.column,
-                    trial,
-                    state.broken_groups,
-                    state.indent_width
-                )
-                if
-                    group_id ~= nil
-                    and not fits_flat
-                    and has_line_break_opportunity(node.child)
-                then
-                    state.broken_groups[group_id] = true
-                end
-                table.insert(
-                    commands, RenderCommand.new(node.child, indent, fits_flat, group_id)
-                )
+            if
+                group_id ~= nil
+                and not child_flat
+                and has_line_break_opportunity(node.child)
+            then
+                state.broken_groups[group_id] = true
             end
+            table.insert(
+                commands, RenderCommand.new(node.child, indent, child_flat, group_id)
+            )
         end
     end
 end
@@ -601,6 +764,14 @@ local function to_string_node(node: Doc, indent: string): string
     elseif node is DocGroup then
         local child = to_string_node(node.child, indent)
         return wrap_container(group_label(node), {child})
+    elseif node is DocFirstFit then
+        local states: {string} = {}
+        for _, candidate in ipairs(node.states) do
+            table.insert(states, to_string_node(candidate, indent))
+        end
+        return wrap_container("first_fit", states)
+    elseif node is DocFlat then
+        return wrap_container("flat", {to_string_node(node.child, indent)})
     elseif node is DocConcat then
         local parts: {string} = {}
         for index, part in ipairs(node.parts or {}) do
@@ -780,6 +951,28 @@ end
 
 function doc.group(child: Doc): Doc
     return build_group_doc(child, nil)
+end
+
+function doc.first_fit(states: {Doc}): Doc
+    -- The last state is the fallback, and it is the only one that can reach the
+    -- renderer without having been measured, so it must not be pinned flat. It also
+    -- stands in for the whole node during a next-line check, which needs a break to
+    -- stop at.
+    assert(#states > 1, "first_fit needs alternative layouts")
+    local fallback = states[#states]
+    assert(not (fallback is DocFlat), "first_fit fallback state renders unmeasured")
+    assert(
+        has_line_break_opportunity(fallback), "first_fit fallback state cannot break"
+    )
+    local result = new_doc("first_fit") as DocFirstFit
+    result.states = states
+    return result
+end
+
+function doc.flat(child: Doc): Doc
+    local result = new_doc("flat") as DocFlat
+    result.child = child
+    return result
 end
 
 function GroupRef:group(child: Doc): Doc

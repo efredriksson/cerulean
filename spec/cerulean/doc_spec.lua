@@ -218,6 +218,110 @@ describe("formatter doc trim_lines", function()
         ]]))
 end)
 
+-- Four alternative layouts over two independent break sites, least broken to most
+-- broken: neither gives, the left break alone, the inner group alone, both. Shaped like
+-- the `as` cast that the primitive exists for.
+local function first_fit_layouts()
+    local inner = doc.group(doc.concat({
+        doc.text("fn("),
+        doc.indent_softline(doc.text("argument")),
+        doc.softclose(")"),
+    }))
+    local function left_breaks(inner_state)
+        return doc.indent(doc.concat({doc.line(), doc.text("as "), inner_state}))
+    end
+    local left_stays = doc.concat({doc.text(" as "), inner})
+    return doc.concat({
+        doc.text("value"),
+        doc.first_fit({
+            doc.flat(left_stays),
+            left_breaks(doc.flat(inner)),
+            left_stays,
+            left_breaks(inner),
+        }),
+    })
+end
+
+-- A forced break inside a state that is pinned flat: the state cannot render as the
+-- single line it was measured as, so it must never be chosen.
+local function first_fit_over(forced)
+    return doc.concat({
+        doc.text("x ="),
+        doc.first_fit({
+            doc.flat(forced),
+            doc.indent(doc.concat({doc.line(), forced})),
+        }),
+    })
+end
+
+describe("formatter doc first_fit", function()
+    it("takes the flat state when it fits", helpers.renders(
+        first_fit_layouts(), 88,
+    [[
+        value as fn(argument)
+    ]]))
+
+    it("takes the next state when the flat one does not fit", helpers.renders(
+        first_fit_layouts(), 20,
+    [[
+        value
+            as fn(argument)
+    ]]))
+
+    it("keeps the left side on the line when breaking there does not help", helpers.renders(
+        first_fit_layouts(), 15,
+    [[
+        value as fn(
+            argument
+        )
+    ]]))
+
+    it("falls back to the last state when no state fits", helpers.renders(
+        first_fit_layouts(), 10,
+    [[
+        value
+            as fn(
+                argument
+            )
+    ]]))
+
+    it("skips a flat-pinned state holding a grouped forced break", helpers.renders(
+        first_fit_over(
+            doc.group(doc.concat({doc.text("a"), doc.hardline(), doc.text("b")}))
+        ), 88,
+    [[
+        x =
+            a
+            b
+    ]]))
+
+    it("skips a flat-pinned state holding a bare hardline", helpers.renders(
+        first_fit_over(doc.concat({doc.text("a"), doc.hardline(), doc.text("b")})), 88,
+    [[
+        x =
+            a
+            b
+    ]]))
+
+    it("rejects a fallback state that is pinned flat", function()
+        assert.has_error(function()
+            doc.first_fit({doc.text("a"), doc.flat(doc.line())})
+        end, "first_fit fallback state renders unmeasured")
+    end)
+
+    it("rejects a fallback state that cannot break", function()
+        assert.has_error(function()
+            doc.first_fit({doc.text("a"), doc.text("b")})
+        end, "first_fit fallback state cannot break")
+    end)
+
+    it("rejects a first_fit with no alternative", function()
+        assert.has_error(function()
+            doc.first_fit({doc.line()})
+        end, "first_fit needs alternative layouts")
+    end)
+end)
+
 describe("formatter doc introspection", function()
     it("introspects a text leaf as a quoted literal", helpers.introspects(
         doc.text("hello"), '"hello"'

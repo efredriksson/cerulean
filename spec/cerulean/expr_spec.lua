@@ -153,13 +153,12 @@ describe("formatter function expressions", function()
           as function(source: Entity): boolean
    ]]))
 
-   it("indents a function type cast that breaks under its own operator", helpers.format([[
+   it("keeps the operator on the line when breaking there would not help", helpers.format([[
       local update = systems.registry[component_name] as function(entity: Entity, delta_time: number, world_state: WorldState, options: Options): boolean
    ]], [[
-      local update = systems.registry[component_name]
-          as function(
-              entity: Entity, delta_time: number, world_state: WorldState, options: Options
-          ): boolean
+      local update = systems.registry[component_name] as function(
+          entity: Entity, delta_time: number, world_state: WorldState, options: Options
+      ): boolean
    ]]))
 
    it("do not add lines after multi-line string expressions", helpers.format([=[

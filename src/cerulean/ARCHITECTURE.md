@@ -27,6 +27,20 @@ If blocked or render fails: keep original source.
 
 Dep direction: `rewriter` → render → doc builders → doc core.
 
+## Doc Algebra
+
+Wadler-Lindig: groups try flat, break when they don't fit. Two things in `doc.tl` are worth knowing before changing it.
+
+**One walker, two modes.** `measure(commands, column, state, stop_at_break)` walks the command stack and returns whether it fit plus the column it ended on. `stop_at_break` reports success at the first break — the "does the next line fit" question a group asks, wrapped as `fits`. Without it the column resets to the indent and the walk continues, measuring every line of a layout; that is `layout_fits`. Both share `group_renders_flat` with the renderer, so a measurement can never describe a layout `render_doc` would not produce.
+
+**`first_fit` / `flat`.** `first_fit(states)` offers alternative *complete* layouts and takes the first whose every line fits. A group cannot express this: its one decision is taken before the doc inside it makes its own, so it cannot say "break here only if that alone is enough". Used by the `as`/`is` cast, whose operator and cast type break independently. `flat(child)` pins a subtree against the surrounding mode, which is what keeps the states distinct layouts instead of collapsing them onto the enclosing mode. Three rules hold it together:
+
+- **States run least-broken to most-broken.** The last one is the fallback, so it must offer a break and must not be pinned flat — it is the only state that can reach the renderer unmeasured. `doc.first_fit` asserts both.
+- **A next-line check substitutes the last state.** Exact, since the check stops at the first break and the ordering puts the earliest break there. It is also the cost bound: running the real selection instead would make a `first_fit` in another one's tail re-select it, so a cast chain would cost O(states^depth).
+- **What follows is measured one line deep.** `layout_fits` measures the candidate's own lines exactly, then hands the rest to `fits` — the same next-line rule every group uses. A `first_fit` therefore chooses on its own lines plus one line of what comes after.
+
+Measurement rejects anything under `flat` that would emit a newline anyway (a group marked `should_break`, a bare `hardline`, `raw`), so a pinned state cannot render differently than it measured.
+
 ## RenderContext
 
 Breaks `block_doc` ↔ `stmt_doc` ↔ `expr_doc` ↔ `table_doc` cycle via callbacks: `render_expr(node)`, `render_stmt(node)`, `render_block(node)`. `block_doc.make_context()` wires impls (closures over `self`); created once in `rewriter.rewrite`, threaded through render + require-sort.

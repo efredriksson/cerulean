@@ -585,10 +585,9 @@ describe("formatter function call wrapping", function()
       f(x as function(C: (boolean | nil | string | number | boolean | nil | string | number)), false)
    ]], [[
       f(
-          x
-              as function(
-                  C: (boolean | nil | string | number | boolean | nil | string | number)
-              ),
+          x as function(
+              C: (boolean | nil | string | number | boolean | nil | string | number)
+          ),
           false
       )
    ]]))

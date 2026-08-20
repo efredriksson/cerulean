@@ -150,13 +150,12 @@ local transforms = current_archetype.columns[builtins.TransformComponent]
     as {string: integer}
 ```
 
-If the type is still too long, it wraps beneath the operator:
+Breaking there has to earn its place. When the type still does not fit the wrapped line, the operator stays put and the type gives instead:
 
 ```teal
-local update = systems.registry[component_name]
-    as function(
-        entity: Entity, delta_time: number, world_state: WorldState, options: Options
-    ): boolean
+local update = systems.registry[component_name] as function(
+    entity: Entity, delta_time: number, world_state: WorldState, options: Options
+): boolean
 ```
 
 ---
