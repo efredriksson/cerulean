@@ -18,7 +18,7 @@ function inline_stmt_doc.render_return_doc(
         return doc.concat(parts)
     end
 
-    local return_exp_doc = render_builders.build_exp_list_doc(ctx, stmt.exps)
+    local return_exp_doc = render_builders.build_return_exp_list_doc(ctx, stmt.exps)
     local last_exp = stmt.exps[#stmt.exps]
     local last_tc = render_builders.trailing_comment_doc(last_exp)
     local stmt_doc = render_builders.with_leading_inline_trivia(

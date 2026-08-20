@@ -275,12 +275,18 @@ local function render_op(
     elseif op == "@funcall" then
         return call_doc_build_call_expr_doc(ctx, left, right)
     elseif op == "as" or op == "is" then
-        return join_op_with_trivia(
-            node,
-            render_expr(ctx, left, operator.prec, same_indent_on_line),
-            type_doc.render(right.casttype),
-            doc.text(" ")
+        local left_doc = render_expr(ctx, left, operator.prec, same_indent_on_line)
+        local casttype_doc = type_doc.render(right.casttype)
+        if op_has_any_trivia(node) then
+            return join_op_with_trivia(node, left_doc, casttype_doc, doc.text(" "))
+        end
+        -- Only the operator and the cast type go in the group. An operand that
+        -- spans lines of its own (a table constructor, a wrapped call) would
+        -- otherwise force the break and push a short cast onto its own line.
+        local cast_doc = doc.indent(
+            doc.concat({doc.line(), doc.text(op .. " "), casttype_doc})
         )
+        return doc.concat({left_doc, doc.group(cast_doc)})
     elseif operator.arity == 1 then
         local op_prec = operator.prec
         local child = parenthesize_unary_operand(

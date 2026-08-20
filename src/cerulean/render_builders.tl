@@ -69,14 +69,18 @@ function render_builders.build_comma_separated_docs(item_docs: {doc.Doc}): doc.D
     return render_builders.build_separated_docs(item_docs, ", ")
 end
 
-function render_builders.build_mapped_comma_separated_docs(
-    ctx: RenderContext, nodes: {parser.Node}
-): doc.Doc
+local function mapped_exp_docs(ctx: RenderContext, nodes: {parser.Node}): {doc.Doc}
     local item_docs: {doc.Doc} = {}
     for _, node in ipairs(nodes) do
         table.insert(item_docs, ctx.render_expr(node))
     end
-    return render_builders.build_comma_separated_docs(item_docs)
+    return item_docs
+end
+
+function render_builders.build_mapped_comma_separated_docs(
+    ctx: RenderContext, nodes: {parser.Node}
+): doc.Doc
+    return render_builders.build_comma_separated_docs(mapped_exp_docs(ctx, nodes))
 end
 
 function render_builders.build_delimited_body_doc(
@@ -204,6 +208,31 @@ function render_builders.build_exp_list_doc(
         table.insert(parts, exp_doc)
     end
     return doc.concat(parts)
+end
+
+-- Only `return` breaks at its commas: an assignment should break at `=` first,
+-- a rule that does not exist yet.
+function render_builders.build_return_exp_list_doc(
+    ctx: RenderContext, exps: {parser.Node}
+): doc.Doc
+    if
+        #exps < 2
+        or render_builders.any_items_have_comments(exps)
+        or any_items_have_inline_trivia(exps)
+    then
+        return render_builders.build_exp_list_doc(ctx, exps)
+    end
+    local item_docs = mapped_exp_docs(ctx, exps)
+    -- Outside the indent, so only the continuations shift right.
+    local first_doc = table.remove(item_docs, 1)
+    local continuations = doc.concat(
+        {
+            doc.text(","),
+            doc.line(),
+            render_builders.build_comma_line_item_docs(item_docs),
+        }
+    )
+    return doc.concat({first_doc, doc.group(doc.indent(continuations))})
 end
 
 function render_builders.block_has_any_comments(block: parser.Node): boolean

@@ -112,6 +112,56 @@ describe("formatter function expressions", function()
           as A
    ]]))
 
+   it("wraps a long return expression list after every comma", helpers.format([[
+      local function raycast()
+          return value.entity as integer, value.x as number, value.y as number, value.z as number
+      end
+   ]], [[
+      local function raycast()
+          return value.entity as integer,
+              value.x as number,
+              value.y as number,
+              value.z as number
+      end
+   ]]))
+
+   it("wraps a long cast after an indexed expression", helpers.format([[
+      local transforms = current_archetype.columns[builtins.TransformComponent] as {string: integer}
+   ]], [[
+      local transforms = current_archetype.columns[builtins.TransformComponent]
+          as {string: integer}
+   ]]))
+
+   it("wraps a long cast after a dotted expression", helpers.format([[
+      local positions = current_archetype.columns.position_component_lookup as {string: integer}
+   ]], [[
+      local positions = current_archetype.columns.position_component_lookup
+          as {string: integer}
+   ]]))
+
+   it("wraps a long cast after a call expression", helpers.format([[
+      local velocities = current_archetype.get_columns(component_key_names) as {string: integer}
+   ]], [[
+      local velocities = current_archetype.get_columns(component_key_names)
+          as {string: integer}
+   ]]))
+
+   it("wraps a long cast to a function type before the operator", helpers.format([[
+      local handler = registry.entity_handlers[event_name_key] as function(source: Entity): boolean
+   ]], [[
+      local handler = registry.entity_handlers[event_name_key]
+          as function(source: Entity): boolean
+   ]]))
+
+   it("indents a function type cast that breaks under its own operator", helpers.format([[
+      local update = systems.registry[component_name] as function(entity: Entity, delta_time: number, world_state: WorldState, options: Options): boolean
+   ]], [[
+      local update = systems.registry[component_name]
+          as function(
+              entity: Entity, delta_time: number, world_state: WorldState, options: Options
+          ): boolean
+   ]]))
+
    it("do not add lines after multi-line string expressions", helpers.format([=[
       local s  =  [[
       multi-line-string]]
@@ -196,7 +246,8 @@ describe("formatter function expressions", function()
       return { ab_field = x is number | function(): boolean, boolean | {string: number} | nil | string }
    ]], [[
       return {
-          ab_field = x is number | function(): boolean, boolean | {string: number} | nil | string;
+          ab_field = x
+              is number | function(): boolean, boolean | {string: number} | nil | string;
       }
    ]]))
 
