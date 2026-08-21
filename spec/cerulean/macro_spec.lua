@@ -111,3 +111,324 @@ describe("formatter local macros", function()
    ]]))
 
 end)
+
+-- A parameter annotated `Statement` takes a whole statement, so the invocation can
+-- hold something that is not an expression at all. Reading those needs the macro's
+-- declared signature, which the parser keeps per file.
+describe("formatter macro statement arguments", function()
+
+   macro_it("formats an assignment argument", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(z=3)
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(z = 3)
+   ]]))
+
+   macro_it("formats a declaration argument", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(local q   =  5)
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(local q = 5)
+   ]]))
+
+   macro_it("gives a block statement argument its own lines", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(if c then y=1 end)
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(
+          if c then
+              y = 1
+          end
+      )
+   ]]))
+
+   macro_it("formats a call argument", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(print( 1 ))
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(print(1))
+   ]]))
+
+   macro_it("keeps a comment inside a statement argument", helpers.check([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(
+          -- keep me
+          z = 3
+      )
+   ]]))
+
+   macro_it("keeps a comment before the closing paren", helpers.check([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(
+          z = 3
+          -- dangling
+      )
+   ]]))
+
+   macro_it("gives every statement of a do block its own line", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(do a=1 b=2 end)
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(
+          do
+              a = 1
+              b = 2
+          end
+      )
+   ]]))
+
+   -- Nothing follows the only parameter, so the commas belong to the statement.
+   macro_it("keeps a top-level comma inside the last statement argument", helpers.check([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(a, b = 1, 2)
+   ]]))
+
+   -- A statement argument may not contain a top-level comma when another argument
+   -- follows it, so the first one ends it and the expression after reads normally.
+   macro_it("splits a statement argument at the first comma", helpers.format([[
+      local macro pair!(a: Statement, b: Expression)
+          return ```
+              $a
+              print($b)
+          ```
+      end
+
+      pair!(z=3,   7)
+   ]], [[
+      local macro pair!(a: Statement, b: Expression)
+          return ```
+              $a
+              print($b)
+          ```
+      end
+
+      pair!(z = 3, 7)
+   ]]))
+
+   macro_it("reads every argument of a Statement vararg as a statement", helpers.format([[
+      local macro all!(...: Statement)
+          return ```
+              $1
+          ```
+      end
+
+      all!(z=3,  y=4)
+   ]], [[
+      local macro all!(...: Statement)
+          return ```
+              $1
+          ```
+      end
+
+      all!(z = 3, y = 4)
+   ]]))
+
+   macro_it("formats a record declaration argument", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(record Foo x:integer end)
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(
+          record Foo
+              x: integer
+          end
+      )
+   ]]))
+
+   macro_it("formats an enum declaration argument", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(enum Color "red" "blue" end)
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(
+          enum Color
+              "red"
+              "blue"
+          end
+      )
+   ]]))
+
+   macro_it("formats an interface declaration argument", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(interface Shape area: function(): number end)
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(
+          interface Shape
+              area: function(): number
+          end
+      )
+   ]]))
+
+   macro_it("keeps type arguments on a record declaration argument", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(record Box<T> item: T end)
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(
+          record Box<T>
+              item: T
+          end
+      )
+   ]]))
+
+   macro_it("formats two declarations in one argument", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(record A x:integer end record B y:integer end)
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!(
+          record A
+              x: integer
+          end
+          record B
+              y: integer
+          end
+      )
+   ]]))
+
+   -- Teal rejects a string here; the formatter still has to produce something, and
+   -- reading the argument as an expression is what it did before it knew signatures.
+   macro_it("falls back to an expression when the argument is not a statement", helpers.format([[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!"str"
+   ]], [[
+      local macro wrap!(a: Statement)
+          return ```
+              $a
+          ```
+      end
+
+      wrap!("str")
+   ]]))
+
+   macro_it("reads the arguments of an undeclared macro as expressions", helpers.check([[
+      local x = undeclared!(a, b)
+   ]]))
+
+end)

@@ -449,6 +449,7 @@ local record parser
       "paren"
       "macro_quote"
       "local_macro"
+      "bare_type"
       "macroexp"
       "local_macroexp"
       "interface"
@@ -758,6 +759,7 @@ local attributes <total>: {Attribute: boolean} = {
 local is_attribute <const>: {string: boolean} = attributes as {string: boolean}
 
 -- ── Parser block ─────────────────────────────────────────────────────────────
+
 local record ParseState
     tokens: {Token}
     errs: {Error}
@@ -765,6 +767,13 @@ local record ParseState
     end_alignment_hint: Error
     source_lines: {string}
     required_modules: {string}
+    -- Macros are file-local: only `local macro`, only invoked through a bare name,
+    -- only after the declaration has been read. So one flat table filled during the
+    -- single forward pass answers every lookup, with no scope stack.
+    macro_params: {string: Node}
+    -- A bare `record Foo ... end` is a statement only as a macro argument.
+    -- Everywhere else it still has to ask for `local` or `global`.
+    allow_bare_type: boolean
 end
 
 local enum ParseTypeListMode
@@ -1019,17 +1028,24 @@ do
 
     local type SkipFunction = function(ParseState, integer): integer, Node | boolean
 
-    local function skip(
-        ps: ParseState, i: integer, skip_fn: SkipFunction
-    ): integer, Node | boolean
-        local err_ps: ParseState = {
+    -- A sub-parse collects its own errors so a probe that fails leaks none of them.
+    -- A probe meant to be thrown away passes its own `required_modules`.
+    local function fork(ps: ParseState, required_modules?: {string}): ParseState
+        return {
             filename = ps.filename,
             tokens = ps.tokens,
             errs = {},
             source_lines = ps.source_lines,
-            required_modules = {},
+            required_modules = required_modules or ps.required_modules,
+            macro_params = ps.macro_params,
+            allow_bare_type = ps.allow_bare_type,
         }
-        return skip_fn(err_ps, i)
+    end
+
+    local function skip(
+        ps: ParseState, i: integer, skip_fn: SkipFunction
+    ): integer, Node | boolean
+        return skip_fn(fork(ps, {}), i)
     end
 
     local function failskip(
@@ -1158,13 +1174,7 @@ do
             elseif ps.tokens[i + 1].tk == ":" then
                 node.key_parsed = "short"
                 local orig_i = i
-                local try_ps: ParseState = {
-                    filename = ps.filename,
-                    tokens = ps.tokens,
-                    errs = {},
-                    source_lines = ps.source_lines,
-                    required_modules = ps.required_modules,
-                }
+                local try_ps = fork(ps)
                 i, node.key = verify_kind(try_ps, i, "identifier", "string")
                 node.key.conststr = node.key.tk
                 node.key.tk = '"' .. node.key.tk .. '"'
@@ -1404,13 +1414,7 @@ do
     local function attempt<T>(
         ps: ParseState, i: integer, parse_item: ParseItem<T>
     ): integer, T
-        local try_ps: ParseState = {
-            filename = ps.filename,
-            tokens = ps.tokens,
-            errs = {},
-            source_lines = ps.source_lines,
-            required_modules = ps.required_modules,
-        }
+        local try_ps = fork(ps)
         local tryi, item = parse_item(try_ps, i)
         if not item then
             return i
@@ -2014,6 +2018,115 @@ do
             }
         end
 
+        -- A top-level comma belongs to the statement itself unless another argument
+        -- is still expected, as in `wrap!(a, b = 1, 2)`. Teal instead keeps the
+        -- longest extent that parses, which is why `pair!(z = 3, 7)` reaches it as
+        -- one argument.
+        local function statement_argument_end(
+            ps: ParseState, i: integer, more_arguments_follow: boolean
+        ): integer
+            local depth = 0
+            while ps.tokens[i].kind ~= "$EOF$" do
+                local tk = ps.tokens[i].tk
+                if
+                    depth == 0 and (tk == ")" or (tk == "," and more_arguments_follow))
+                then
+                    return i
+                end
+                if tk == "(" or tk == "[" or tk == "{" then
+                    depth = depth + 1
+                elseif tk == ")" or tk == "]" or tk == "}" then
+                    depth = depth - 1
+                end
+                i = i + 1
+            end
+            return i
+        end
+
+        -- Parsing drains comments off the token objects, which the slice shares with
+        -- the file, so an attempt that turns out not to apply has to put them back.
+        local function snapshot_comments(tokens: {Token}): {Token: {tl.LexerComment}}
+            local saved: {Token: {tl.LexerComment}} = {}
+            for _, token in ipairs(tokens) do
+                if token.comments ~= nil then
+                    local copy: {tl.LexerComment} = {}
+                    for _, comment in ipairs(token.comments) do
+                        table.insert(copy, comment)
+                    end
+                    saved[token] = copy
+                end
+            end
+            return saved
+        end
+
+        local function restore_comments(saved: {Token: {tl.LexerComment}})
+            for token, copy in pairs(saved) do
+                token.comments = copy
+            end
+        end
+
+        local function parse_statement_argument(
+            ps: ParseState, i: integer, more_arguments_follow: boolean
+        ): integer, Node
+            local stop = statement_argument_end(ps, i, more_arguments_follow)
+            local slice: {Token} = {}
+            for k = i, stop - 1 do
+                slice[k - i + 1] = ps.tokens[k]
+            end
+            local last = ps.tokens[math.max(i, stop - 1)]
+            slice[#slice + 1] = {y = last.y, x = last.x, tk = "$EOF$", kind = "$EOF$"}
+
+            local slice_ps = fork(ps)
+            slice_ps.tokens = slice
+            slice_ps.allow_bare_type = true
+
+            local saved = snapshot_comments(slice)
+            local _, node = parse_statements(slice_ps, 1, true)
+            if #slice_ps.errs == 0 and node ~= nil then
+                return stop, node
+            end
+
+            -- Teal rejects a `Statement` parameter handed anything else, but a
+            -- formatter still has to produce something.
+            restore_comments(saved)
+            local next_i, exp = parse_expression(ps, i)
+            return next_i, exp
+        end
+
+        -- A trailing `...` governs every argument from its own position on. Past a
+        -- fixed list there is no parameter, which is also how the caller asks
+        -- whether another argument is still expected.
+        local function macro_param(params: Node, n: integer): Node
+            local last = params[#params]
+            if n > #params and last ~= nil and last.tk == "..." then
+                return last
+            end
+            return params[n]
+        end
+
+        -- Teal rejects any other annotation. A formatter stays permissive, so an
+        -- unannotated parameter's argument reads as an expression.
+        local function is_statement_param(param: Node): boolean
+            local argtype = param ~= nil and param.argtype
+            return argtype is NominalType and argtype.names[1] == "Statement"
+        end
+
+        -- `parse_list` keeps the index each item returns, so every branch has to
+        -- advance it or the parameter lookup drifts.
+        local function macro_arg_parser(params: Node): ParseItem<Node>
+            return function(
+                ps: ParseState, i: integer, n: integer
+            ): integer, Node, integer
+                if not is_statement_param(macro_param(params, n)) then
+                    local next_i, exp = parse_expression(ps, i)
+                    return next_i, exp, n + 1
+                end
+                local more_follow = macro_param(params, n + 1) ~= nil
+                local next_i, node = parse_statement_argument(ps, i, more_follow)
+                return next_i, node, n + 1
+            end
+        end
+
         local function P(ps: ParseState, i: integer): integer, Node
             if ps.tokens[i].kind == "$EOF$" then
                 return i
@@ -2073,7 +2186,13 @@ do
                 -- arguments take the same shapes a call's arguments do, so the
                 -- branches below read them unchanged.
                 local is_macro_invocation = tkop.tk == "!"
+                -- Undeclared leaves this nil and the arguments stay expressions,
+                -- which is what `f!(...)` got before and what Teal rejects outright.
+                local macro_params: Node = nil
                 if is_macro_invocation then
+                    if e1.kind == "variable" then
+                        macro_params = ps.macro_params[e1.tk]
+                    end
                     i = i + 1
                     tkop = ps.tokens[i]
                     if not args_starters[tkop.kind] then
@@ -2170,8 +2289,12 @@ do
                     local open_paren_leading_trivia = take_same_line_comments(
                         ps.tokens[i + 1], ps.tokens[i].y
                     )
+                    local parse_arg: ParseItem<Node> = parse_expression
+                    if macro_params then
+                        parse_arg = macro_arg_parser(macro_params)
+                    end
                     i, args = parse_bracket_list(
-                        ps, i, args, "(", ")", "sep", parse_expression
+                        ps, i, args, "(", ")", "sep", parse_arg
                     )
                     set_inline_trivia(args, "after_opener", open_paren_leading_trivia)
                     args.dangling_comments = get_attached_comments(
@@ -2714,7 +2837,11 @@ do
         local node = new_node(ps, i - 2, "local_macro")
         i, node.name = parse_identifier(ps, i)
         i = verify_tk(ps, i, "!")
-        return parse_function_args_rets_body(ps, i, node)
+        i, node = parse_function_args_rets_body(ps, i, node)
+        if node.name ~= nil and node.args ~= nil then
+            ps.macro_params[node.name.tk] = node.args
+        end
+        return i, node
     end
 
     local function parse_function(
@@ -4142,7 +4269,9 @@ do
         local istart = i
         local def: Type
 
-        i = i + 2
+        -- `local record Foo` and `global record Foo` put two tokens before the name;
+        -- the bare `record Foo` that only a macro argument may hold puts one.
+        i = i + (node_name == "bare_type" and 1 or 2)
 
         i, asgn.var = verify_kind(ps, i, "identifier")
         if not asgn.var then
@@ -4159,6 +4288,17 @@ do
         nt.newtype = new_typedecl(ps, istart, def)
 
         return i, asgn
+    end
+
+    local function at_bare_type(ps: ParseState, i: integer): boolean
+        return ps.allow_bare_type
+            and parse_type_body_fns[ps.tokens[i].tk as BodyTypeName] ~= nil
+            and ps.tokens[i + 1].kind == "identifier"
+    end
+
+    local function parse_bare_type(ps: ParseState, i: integer): integer, Node
+        local tn = ps.tokens[i].tk as BodyTypeName
+        return parse_type_constructor(ps, i, "bare_type", tn)
     end
 
     local function skip_type_declaration(ps: ParseState, i: integer): integer, Node
@@ -4356,7 +4496,9 @@ do
             local fn = parse_statement_fns[tk]
             if not fn then
                 local skip_fn = needs_local_or_global[tk]
-                if skip_fn and ps.tokens[i + 1].kind == "identifier" then
+                if at_bare_type(ps, i) then
+                    fn = parse_bare_type
+                elseif skip_fn and ps.tokens[i + 1].kind == "identifier" then
                     fn = skip_fn
                 else
                     fn = parse_call_or_assignment
@@ -4428,6 +4570,8 @@ do
             filename = filename or "",
             source_lines = source_lines or {},
             required_modules = {},
+            macro_params = {},
+            allow_bare_type = false,
         }
         local i = 1
         local hashbang: string
