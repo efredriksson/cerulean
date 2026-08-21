@@ -205,6 +205,31 @@ local function render_binary_chain(
     return doc.group(doc.concat(parts))
 end
 
+-- The quoted code is laid out like any other code when the parser managed to read
+-- it, and copied through verbatim when it did not. A `` ` `` quote holds one
+-- expression and stays on its line; a ``` ``` ``` quote holds statements and gets a
+-- block of its own between the delimiters.
+local function render_macro_quote(ctx: RenderContext, node: parser.Node): doc.Doc
+    if node.exp ~= nil then
+        return doc.concat({doc.text("`"), ctx.render_expr(node.exp), doc.text("`")})
+    end
+    if node.body == nil then
+        return doc.text(node.tk)
+    end
+    local body_doc = ctx.render_block(node.body)
+    if body_doc == nil then
+        return doc.text(node.tk)
+    end
+    return doc.concat(
+        {
+            doc.text("```"),
+            doc.indent(doc.concat({doc.hardline(), body_doc})),
+            doc.hardline(),
+            doc.text("```"),
+        }
+    )
+end
+
 local function render_string_literal(node: parser.Node): doc.Doc
     return doc.text(
         render_builders.normalize_string_literal(node.tk, node.is_longstring)
@@ -365,9 +390,8 @@ render_expr = function(
     elseif node.kind == "string" then
         return render_string_literal(node)
     elseif node.kind == "macro_quote" then
-        -- The quoted code is one token. Reformatting it would mean parsing a
-        -- fragment whose `$` splices are not Teal on their own, so it is passed
-        -- through verbatim, as long strings are.
+        return render_macro_quote(ctx, node)
+    elseif node.kind == "macro_var" then
         return doc.text(node.tk)
     elseif node.kind == "paren" then
         return render_paren_in_chain(ctx, node, same_indent_on_line ~= false)

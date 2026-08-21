@@ -739,6 +739,8 @@ function stmt_doc.render_statement_doc(
         or node.kind == "record_function"
     then
         return render_function_definition_doc(ctx, node)
+    elseif node.kind == "macro_var" then
+        return doc.text(node.tk)
     elseif node.kind == "local_macroexp" then
         return render_local_macroexp_doc(ctx, node)
     elseif node.kind == "if" then

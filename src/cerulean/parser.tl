@@ -448,6 +448,7 @@ local record parser
       "..."
       "paren"
       "macro_quote"
+      "macro_var"
       "local_macro"
       "bare_type"
       "macroexp"
@@ -494,6 +495,7 @@ local record parser
         implicit_global_function:       boolean
         is_predeclared_local_function:  boolean
         is_macro_invocation:            boolean
+        is_triple_quote:                boolean
         name:                           Node
         is_repeat:                      boolean
         attribute:                      Attribute
@@ -774,6 +776,9 @@ local record ParseState
     -- A bare `record Foo ... end` is a statement only as a macro argument.
     -- Everywhere else it still has to ask for `local` or `global`.
     allow_bare_type: boolean
+    -- `$name` splices are grammatical only inside a macro quote. Teal gates them
+    -- the same way, so outside one a `$` still fails as it always did.
+    allow_macro_vars: boolean
 end
 
 local enum ParseTypeListMode
@@ -944,6 +949,33 @@ do
         )
     end
 
+    -- `$name` lexes as a `$` followed by an identifier. It stands in for whatever
+    -- the macro is handed, so the formatter carries it as a leaf and prints it back
+    -- as written.
+    local function at_macro_var(ps: ParseState, i: integer): boolean
+        return ps.allow_macro_vars
+            and ps.tokens[i].tk == "$"
+            and ps.tokens[i + 1].kind == "identifier"
+    end
+
+    local function parse_macro_var(ps: ParseState, i: integer): integer, Node
+        local node = new_node(ps, i, "macro_var")
+        node.tk = "$" .. ps.tokens[i + 1].tk
+        node.yend = ps.tokens[i + 1].y
+        return i + 2, node
+    end
+
+    -- Alone on its line, `$name` splices in whole statements rather than naming a
+    -- value. Teal decides this by the line the splice sits on, so this does too:
+    -- `$a.b = 1` keeps reading as an assignment.
+    local function at_macro_var_statement(ps: ParseState, i: integer): boolean
+        if not at_macro_var(ps, i) then
+            return false
+        end
+        local after = ps.tokens[i + 2]
+        return after.tk == ";" or after.y > ps.tokens[i + 1].y
+    end
+
     local function new_type(ps: ParseState, i: integer, typename: TypeName): Type
         local token = ps.tokens[i]
         local t: Type = setmetatable({}, type_mt)
@@ -1039,6 +1071,7 @@ do
             required_modules = required_modules or ps.required_modules,
             macro_params = ps.macro_params,
             allow_bare_type = ps.allow_bare_type,
+            allow_macro_vars = ps.allow_macro_vars,
         }
     end
 
@@ -1635,6 +1668,15 @@ do
         return i, typ
     end
 
+    -- A nominal type name is a dotted chain, and a macro can splice either end of
+    -- it: `$var.$b` names a type the macro is handed.
+    local function parse_nominal_head(ps: ParseState, i: integer): integer, NominalType
+        if at_macro_var(ps, i) then
+            return i + 2, new_nominal(ps, i, "$" .. ps.tokens[i + 1].tk)
+        end
+        return i + 1, new_nominal(ps, i, ps.tokens[i].tk)
+    end
+
     local function parse_simple_type_or_nominal(
         ps: ParseState, i: integer
     ): integer, FirstOrderType
@@ -1644,11 +1686,14 @@ do
             return i + 1, new_type(ps, i, tk as TypeName) as StructuralType
         end
 
-        local typ = new_nominal(ps, i, tk)
-        i = i + 1
+        local typ: NominalType
+        i, typ = parse_nominal_head(ps, i)
         while ps.tokens[i].tk == "." do
             i = i + 1
-            if ps.tokens[i].kind == "identifier" then
+            if at_macro_var(ps, i) then
+                table.insert(typ.names, "$" .. ps.tokens[i + 1].tk)
+                i = i + 2
+            elseif ps.tokens[i].kind == "identifier" then
                 table.insert(typ.names, ps.tokens[i].tk)
                 i = i + 1
             else
@@ -1666,7 +1711,7 @@ do
         ps: ParseState, i: integer
     ): integer, FirstClassType, integer
         local tk = ps.tokens[i].tk
-        if ps.tokens[i].kind == "identifier" then
+        if ps.tokens[i].kind == "identifier" or at_macro_var(ps, i) then
             return parse_simple_type_or_nominal(ps, i)
         elseif tk == "{" then
             local istart = i
@@ -1858,10 +1903,64 @@ do
         return str:sub(l, -l), true
     end
 
+    -- A macro quote arrives as a single token carrying its own source text.
+    -- Re-lexing and re-parsing that text is what lets the formatter lay the quoted
+    -- code out instead of copying it: one backtick quotes an expression, three
+    -- quote a block of statements.
+    --
+    -- Anything that does not come back clean leaves `body` and `exp` unset and the
+    -- renderer prints the token as written. That fallback is load-bearing: the
+    -- outer safety net re-parses the formatted file, but the quote is one token
+    -- there too, so a mangled interior would sail straight past it.
+    local function parse_macro_quote_body(ps: ParseState, node: Node)
+        local text = node.tk
+        local triple = text:sub(1, 3) == "```"
+        local delim = triple and 3 or 1
+        node.is_triple_quote = triple
+
+        local code = text:sub(delim + 1, -(delim + 1))
+        local source = triple and code or ("return " .. code)
+        local tokens, errs = tl.lex(source .. "\n", ps.filename)
+        if #errs > 0 then
+            return
+        end
+        for _, token in ipairs(tokens) do
+            -- A comment inside a quote has no way of being checked: the comment
+            -- count that guards the rest of the file cannot see through the token.
+            if #(token.comments or {}) > 0 then
+                return
+            end
+        end
+
+        -- Forking rather than starting a fresh parse carries the file's macro
+        -- declarations in, so an invocation written inside a quote reads its
+        -- arguments against the same signatures it would outside one.
+        local quote_ps = fork(ps)
+        quote_ps.tokens = tokens
+        quote_ps.errs = errs
+        quote_ps.source_lines = split_source_lines(source)
+        quote_ps.allow_macro_vars = true
+        local _, block = parse_statements(quote_ps, 1, true)
+        clear_redundant_errors(errs)
+        if #errs > 0 or block == nil then
+            return
+        end
+        if triple then
+            node.body = block
+            return
+        end
+        local returned = block[1]
+        if returned ~= nil and returned.kind == "return" and returned.exps ~= nil then
+            node.exp = returned.exps[1]
+        end
+    end
+
     local function parse_literal(ps: ParseState, i: integer): integer, Node
         local tk = ps.tokens[i].tk
         local kind = ps.tokens[i].kind
-        if kind == "identifier" then
+        if at_macro_var(ps, i) then
+            return parse_macro_var(ps, i)
+        elseif kind == "identifier" then
             return verify_kind(ps, i, "identifier", "variable")
         elseif kind == "string" then
             local node = new_node(ps, i, "string")
@@ -1869,10 +1968,9 @@ do
             node.yend = token_yend(ps.tokens[i])
             return i + 1, node
         elseif kind == "`" then
-            -- A macro quote lexes as one token, delimiters and newlines included,
-            -- so the formatter carries it through untouched like a long string.
             local node = new_node(ps, i, "macro_quote")
             node.yend = token_yend(ps.tokens[i])
+            parse_macro_quote_body(ps, node)
             return i + 1, node
         elseif kind == "number" or kind == "integer" then
             local n = tonumber(tk)
@@ -2578,6 +2676,10 @@ do
         ps: ParseState, i: integer
     ): integer, Node, integer
         local node: Node
+        if at_macro_var(ps, i) then
+            i, node = parse_macro_var(ps, i)
+            return i, node
+        end
         i, node = verify_kind(ps, i, "identifier")
         if not node then
             return i
@@ -4206,7 +4308,11 @@ do
         local asgn: Node = new_node(ps, i, node_name)
         local var: Node
 
-        i, var = verify_kind(ps, i, "identifier")
+        if at_macro_var(ps, i) then
+            i, var = parse_macro_var(ps, i)
+        else
+            i, var = verify_kind(ps, i, "identifier")
+        end
         if not var then
             return fail(ps, i, "expected a type name")
         end
@@ -4324,7 +4430,10 @@ do
         local node: Node
         if ntk == "function" then
             i, node = parse_local_function(ps, i)
-        elseif ntk == "type" and ps.tokens[i + 2].kind == "identifier" then
+        elseif
+            ntk == "type"
+            and (ps.tokens[i + 2].kind == "identifier" or at_macro_var(ps, i + 2))
+        then
             i, node = parse_type_declaration(ps, i + 2, "local_type")
         elseif ntk == "macro" and ps.tokens[i + 2].kind == "identifier" then
             i, node = parse_local_macro(ps, i)
@@ -4500,6 +4609,8 @@ do
                     fn = parse_bare_type
                 elseif skip_fn and ps.tokens[i + 1].kind == "identifier" then
                     fn = skip_fn
+                elseif at_macro_var_statement(ps, i) then
+                    fn = parse_macro_var
                 else
                     fn = parse_call_or_assignment
                 end
@@ -4572,6 +4683,7 @@ do
             required_modules = {},
             macro_params = {},
             allow_bare_type = false,
+            allow_macro_vars = false,
         }
         local i = 1
         local hashbang: string
