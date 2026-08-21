@@ -102,7 +102,10 @@ local function collect_chain_terms(
     terms: {parser.Node},
     gap_before_comments: {integer: parser.Comment}
 )
-    if node.kind == "op" and node.op.prec == operator.prec then
+    -- Terms are rejoined with the enclosing chain's operator, so only the identical
+    -- operator may be flattened into it. `<<` and `>>` share a precedence, and
+    -- matching on precedence alone rewrote one into the other.
+    if node.kind == "op" and node.op.arity == 2 and node.op.op == operator.op then
         collect_chain_terms(node.e1, operator, terms, gap_before_comments)
         local lhs_line = node.e1.yend or node.e1.y
         local before_op = trivia_doc.partition(

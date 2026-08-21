@@ -253,6 +253,31 @@ describe("formatter function expressions", function()
 
 end)
 
+describe("formatter binary operator chains", function()
+   it("keeps each shift operator when one expression mixes them", helpers.check([[
+      local x = a >> b << c
+   ]]))
+
+   it("keeps each shift operator when the mix starts with a left shift", helpers.check([[
+      local x = a << b >> c
+   ]]))
+
+   it("keeps a unary operand out of a chain of the same token", helpers.check([[
+      local x = a ~ ~b
+   ]]))
+
+   it("wraps a long chain of one shift operator at every operator", helpers.format([[
+      local x = alpha_value >> beta_value >> gamma_value >> delta_value >> epsilon_value >> zeta
+   ]], [[
+      local x = alpha_value
+          >> beta_value
+          >> gamma_value
+          >> delta_value
+          >> epsilon_value
+          >> zeta
+   ]]))
+end)
+
 describe("idempotency: ", function()
    it("added parentheses for operators can be wrapped directly if neccessary", helpers.format([[
       return some_condition_that_is_long_long_long_enough_to_cause_wrapping_here_now / ~ value ^ y
