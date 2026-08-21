@@ -447,6 +447,8 @@ local record parser
       "cast"
       "..."
       "paren"
+      "macro_quote"
+      "local_macro"
       "macroexp"
       "local_macroexp"
       "interface"
@@ -490,6 +492,7 @@ local record parser
         body:                           Node
         implicit_global_function:       boolean
         is_predeclared_local_function:  boolean
+        is_macro_invocation:            boolean
         name:                           Node
         is_repeat:                      boolean
         attribute:                      Attribute
@@ -1110,7 +1113,7 @@ do
     ): {Comment}, {Comment}
 
     local function token_yend(tk: Token): integer
-        if tk.kind == "string" then
+        if tk.kind == "string" or tk.kind == "`" then
             local _, line_breaks = tk.tk:gsub("\n", "\n")
             return tk.y + line_breaks
         end
@@ -1861,6 +1864,12 @@ do
             node.conststr, node.is_longstring = unquote(tk)
             node.yend = token_yend(ps.tokens[i])
             return i + 1, node
+        elseif kind == "`" then
+            -- A macro quote lexes as one token, delimiters and newlines included,
+            -- so the formatter carries it through untouched like a long string.
+            local node = new_node(ps, i, "macro_quote")
+            node.yend = token_yend(ps.tokens[i])
+            return i + 1, node
         elseif kind == "number" or kind == "integer" then
             local n = tonumber(tk)
             local node: Node
@@ -2060,6 +2069,18 @@ do
                 if tkop.kind == "," or tkop.kind == ")" then
                     break
                 end
+                -- `!` only marks the call that follows it as a macro invocation. Its
+                -- arguments take the same shapes a call's arguments do, so the
+                -- branches below read them unchanged.
+                local is_macro_invocation = tkop.tk == "!"
+                if is_macro_invocation then
+                    i = i + 1
+                    tkop = ps.tokens[i]
+                    if not args_starters[tkop.kind] then
+                        fail(ps, i, "expected macro arguments")
+                        return i, failstore(ps, tkop, e1)
+                    end
+                end
                 if tkop.tk == "." or tkop.tk == ":" then
                     local op: Operator = new_operator(tkop, 2, tkop.tk)
 
@@ -2211,6 +2232,7 @@ do
                         op = op,
                         e1 = e1,
                         e2 = args,
+                        is_macro_invocation = is_macro_invocation,
                     }
                     fmt_logger.debug(
                         "[expr] @funcall op node: base y=%s args_y=%s -> node y=%s",
@@ -2285,6 +2307,7 @@ do
                         op = op,
                         e1 = e1,
                         e2 = args,
+                        is_macro_invocation = is_macro_invocation,
                     }
 
                     table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
@@ -2682,6 +2705,15 @@ do
         i = verify_tk(ps, i, "function")
         local node = new_node(ps, i - 2, "local_function")
         i, node.name = parse_identifier(ps, i)
+        return parse_function_args_rets_body(ps, i, node)
+    end
+
+    local function parse_local_macro(ps: ParseState, i: integer): integer, Node
+        i = verify_tk(ps, i, "local")
+        i = verify_tk(ps, i, "macro")
+        local node = new_node(ps, i - 2, "local_macro")
+        i, node.name = parse_identifier(ps, i)
+        i = verify_tk(ps, i, "!")
         return parse_function_args_rets_body(ps, i, node)
     end
 
@@ -4154,6 +4186,8 @@ do
             i, node = parse_local_function(ps, i)
         elseif ntk == "type" and ps.tokens[i + 2].kind == "identifier" then
             i, node = parse_type_declaration(ps, i + 2, "local_type")
+        elseif ntk == "macro" and ps.tokens[i + 2].kind == "identifier" then
+            i, node = parse_local_macro(ps, i)
         elseif ntk == "macroexp" and ps.tokens[i + 2].kind == "identifier" then
             i, node = parse_local_macroexp(ps, i)
         elseif

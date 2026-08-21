@@ -33,6 +33,7 @@ local record tl
         "."
         ";"
         "?"
+        "`"
         "::"
         "..."
         "identifier"
