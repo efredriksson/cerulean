@@ -408,6 +408,13 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
                 render_function_typeargs(node),
             }
         )
+    elseif node.kind == "local_macro" and node.name ~= nil then
+        return doc.concat(
+            {
+                doc.text("local macro " .. node.name.tk .. "!"),
+                render_function_typeargs(node),
+            }
+        )
     elseif
         node.kind == "global_function" and node.name ~= nil and not node.is_method
     then
@@ -726,6 +733,7 @@ function stmt_doc.render_statement_doc(
         return render_type_doc(ctx, node, "global")
     elseif
         node.kind == "local_function"
+        or node.kind == "local_macro"
         or node.kind == "global_function"
         or node.kind == "record_function"
     then

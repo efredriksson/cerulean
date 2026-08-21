@@ -8,6 +8,7 @@ local ast_traversal = {}
 local BLOCK_NODE_KINDS: {parser.NodeKind: boolean} = {
     ["function"]        = true,
     ["local_function"]  = true,
+    ["local_macro"]     = true,
     ["global_function"] = true,
     ["record_function"] = true,
     ["if"]              = true,
@@ -21,6 +22,7 @@ local BLOCK_NODE_KINDS: {parser.NodeKind: boolean} = {
 
 local FUNCTION_DEF_KINDS: {parser.NodeKind: boolean} = {
     ["local_function"]  = true,
+    ["local_macro"]     = true,
     ["global_function"] = true,
     ["record_function"] = true,
     ["function"]        = true,

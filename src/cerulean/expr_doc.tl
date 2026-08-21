@@ -211,13 +211,17 @@ local function render_string_literal(node: parser.Node): doc.Doc
     )
 end
 
+-- A macro invocation is a call written `name!(...)`. Teal also accepts the
+-- paren-less argument forms a call accepts, and they normalise to parens here the
+-- same way `require "m"` does.
 local function call_doc_build_call_expr_doc(
-    ctx: RenderContext, callee: parser.Node, args: parser.Node
+    ctx: RenderContext, node: parser.Node, callee: parser.Node, args: parser.Node
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee, true)
+    local bang_doc = node.is_macro_invocation and doc.text("!") or doc.text("")
     local call_args_doc = delimited_list_doc.render_parens(args, args, ctx.render_expr)
     local args_tc = render_builders.trailing_comment_doc(args)
-    return doc.concat({callee_doc, call_args_doc, args_tc})
+    return doc.concat({callee_doc, bang_doc, call_args_doc, args_tc})
 end
 
 local function op_has_any_trivia(node: parser.Node): boolean
@@ -276,7 +280,7 @@ local function render_op(
             }
         )
     elseif op == "@funcall" then
-        return call_doc_build_call_expr_doc(ctx, left, right)
+        return call_doc_build_call_expr_doc(ctx, node, left, right)
     elseif op == "as" or op == "is" then
         local left_doc = render_expr(ctx, left, operator.prec, same_indent_on_line)
         local casttype_doc = type_doc.render(right.casttype)
@@ -344,6 +348,11 @@ render_expr = function(
         return doc.text(node.tk)
     elseif node.kind == "string" then
         return render_string_literal(node)
+    elseif node.kind == "macro_quote" then
+        -- The quoted code is one token. Reformatting it would mean parsing a
+        -- fragment whose `$` splices are not Teal on their own, so it is passed
+        -- through verbatim, as long strings are.
+        return doc.text(node.tk)
     elseif node.kind == "paren" then
         return render_paren_in_chain(ctx, node, same_indent_on_line ~= false)
     elseif node.kind == "literal_table" then
