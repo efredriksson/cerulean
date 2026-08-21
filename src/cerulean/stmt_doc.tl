@@ -38,10 +38,12 @@ local function render_type_alias_doc(
     )
 end
 
+-- A soft line here flattens inside a macro statement argument, putting the body
+-- back on the call's line and turning the separators between entries into `; `.
 local function with_indented_body(
     header: doc.Doc, body: doc.Doc, tail: doc.Doc
 ): doc.Doc
-    return doc.concat({header, doc.indent_line(body), tail})
+    return doc.concat({header, doc.indent_hardline(body), tail})
 end
 
 local function block_with_indent(
@@ -93,7 +95,7 @@ local render_type_def_doc: function(
     stmt_name: string,
     def: parser.Type,
     stmt: parser.Node,
-    keyword: string,
+    keyword?: string,
     generic_doc?: doc.Doc
 ): doc.Doc | nil
 
@@ -265,12 +267,8 @@ local function render_record_like_body_doc(
     local end_comments = record_def.dangling_comments or stmt.dangling_comments or {}
     render_builders.append_comment_docs(parts, end_comments, line_before)
 
-    return doc.concat(
-        {
-            doc.indent_line(doc.concat(parts)),
-            doc.close("end"),
-        }
-    )
+    -- Hardline for the same reason with_indented_body uses one.
+    return doc.concat({doc.indent_hardline(doc.concat(parts)), doc.close("end")})
 end
 
 local function render_record_like_header_doc(
@@ -333,7 +331,7 @@ render_type_def_doc = function(
     stmt_name: string,
     def: parser.Type,
     stmt: parser.Node,
-    keyword: string,
+    keyword?: string,
     generic_doc?: doc.Doc
 ): doc.Doc | nil
     if def is parser.EnumType then
@@ -352,15 +350,16 @@ render_type_def_doc = function(
 end
 
 local function render_type_doc(
-    ctx: RenderContext, stmt: parser.Node, keyword: string
+    ctx: RenderContext, stmt: parser.Node, keyword?: string
 ): doc.Doc | nil
+    local prefix = resolve_prefix(keyword)
     if stmt.value == nil then
-        return doc.text(keyword .. " type " .. stmt.var.tk)
+        return doc.text(prefix .. "type " .. stmt.var.tk)
     end
     if stmt.value.kind ~= "newtype" then
         return doc.concat(
             {
-                doc.text(keyword .. " type " .. stmt.var.tk .. " = "),
+                doc.text(prefix .. "type " .. stmt.var.tk .. " = "),
                 ctx.render_expr(stmt.value),
             }
         )
@@ -731,6 +730,8 @@ function stmt_doc.render_statement_doc(
         return render_type_doc(ctx, node, "local")
     elseif node.kind == "global_type" then
         return render_type_doc(ctx, node, "global")
+    elseif node.kind == "bare_type" then
+        return render_type_doc(ctx, node)
     elseif
         node.kind == "local_function"
         or node.kind == "local_macro"

@@ -755,10 +755,19 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
-      it("separates nested record and interface with a space when rendered inline", helpers.format([[
+      it("gives a type body one entry per line wherever the declaration sits", helpers.format([[
          return { function() global record n4d<Oz> record u end interface l end end end }
       ]], [[
-         return {function() global record n4d<Oz> record u end interface l end end end}
+         return {
+             function()
+                 global record n4d<Oz>
+                     record u
+                     end
+                     interface l
+                     end
+                 end
+             end,
+         }
       ]]))
 
       it("wraps long funtion types", helpers.format([[

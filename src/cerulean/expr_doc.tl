@@ -211,6 +211,22 @@ local function render_string_literal(node: parser.Node): doc.Doc
     )
 end
 
+-- Flattened, the separator between two statements reads `; ` and a leading comment
+-- swallows the rest of the line. One bare statement is safe.
+local function block_needs_own_lines(block: parser.Node): boolean
+    return #block ~= 1 or render_builders.any_items_have_comments(block)
+end
+
+-- A macro parameter declared `Statement` puts a block where the argument list
+-- expects an expression, so one reaches the expression dispatcher.
+local function render_statements(ctx: RenderContext, block: parser.Node): doc.Doc
+    local rendered = ctx.render_block(block) or doc.text("")
+    if block_needs_own_lines(block) then
+        return doc.concat({doc.break_parent(), rendered})
+    end
+    return rendered
+end
+
 -- A macro invocation is a call written `name!(...)`. Teal also accepts the
 -- paren-less argument forms a call accepts, and they normalise to parens here the
 -- same way `require "m"` does.
@@ -357,6 +373,8 @@ render_expr = function(
         return render_paren_in_chain(ctx, node, same_indent_on_line ~= false)
     elseif node.kind == "literal_table" then
         return table_doc.build_table_doc(ctx, node)
+    elseif node.kind == "statements" then
+        return render_statements(ctx, node)
     elseif node.kind == "function" then
         return function_doc.render_anonymous(ctx, node, doc.text("function"))
     elseif node.kind == "op" then
