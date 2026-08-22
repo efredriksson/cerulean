@@ -2,6 +2,7 @@
 -- Original work Copyright 2019 Hisham Muhammad, MIT License (see LICENSES/MIT-teal.txt).
 -- Modifications Copyright (c) 2026 Emil Fredriksson, MIT License (see LICENSE).
 -- This copy should be simplified and specialized over time.
+local ast = require("cerulean.ast")
 local fmt_logger = require("cerulean.fmt_logger")
 local tl = require("tl")
 
@@ -9,432 +10,49 @@ local type Error = tl.Error
 local type Token = tl.Token
 
 local record parser
-   enum TypeName
-      "generic"
-      "typedecl"
-      "typearg"
-      "function"
-      "array"
-      "map"
-      "tupletable"
-      "record"
-      "interface"
-      "self"
-      "enum"
-      "boolean"
-      "string"
-      "nil"
-      "thread"
-      "number"
-      "integer"
-      "union"
-      "nominal"
-      "tuple"
-      "poly"
-      "any"
-      "table"
-   end
-
-   record Operator
-      y: integer
-      x: integer
-      arity: integer
-      op: string
-      prec: integer
-   end
-
-   interface Where
-      f: string
-      y: integer
-      x: integer
-   end
-
-   interface HasInlineTrivia
-      inline_trivia: {InlineSlot: {Comment}}
-   end
-
-   interface Type is Where, HasInlineTrivia where self.typename
-      typename: TypeName    -- discriminator
-      paren: boolean
-   end
-
-   record GenericType is Type where self.typename == "generic"
-
-      typeargs: {TypeArgType}
-      t: FirstOrderType
-      fresh: boolean
-   end
-
-   interface FirstOrderType is Type
-   end
-
-   type FirstClassType = GenericType | FirstOrderType
-
-   interface StructuralType
-      is FirstOrderType
-   end
-
-   record TypeDeclType
-      is Type
-      where self.typename == "typedecl"
-
-      def: FirstClassType
-      closed: boolean
-      is_alias: boolean
-      is_nested_alias: boolean
-   end
-
-   interface HasDeclName
-      declname: string
-   end
-
-   record NominalType
-      is FirstOrderType
-      where self.typename == "nominal"
-
-      names: {string}
-      typevals: {FirstClassType}
-      found: TypeDeclType      -- type is found but typeargs are not resolved
-      resolved: Type       -- type is found and typeargs are resolved
-   end
-
-   record SelfType
-      is FirstOrderType
-      where self.typename == "self"
-
-      -- to be used only in error reports, not for type resolution
-      display_type: RecordLikeType
-   end
-
-   interface ArrayLikeType
-      is StructuralType
-      where self.elements
-
-      elements: Type
-      consttypes: {Type}
-      inferred_len: integer
-   end
-
-   record ArrayType
-      is ArrayLikeType
-      where self.typename == "array"
-   end
-
-   record Comment
-        is tl.LexerComment
-        yend: integer
-        blank_line_before: boolean
-   end
-
-   enum InlineSlot
-      "op_leading"
-      "op_trailing"
-      "before_separator"
-      "head"
-      "after_opener"
-      "leading"
-   end
-
-   record FieldEntry
-      where self.the_type ~= nil
-      name: string
-      the_type: Type
-      node: Node
-      leading_comments: {Comment}
-      is_meta: boolean
-      is_string_key: boolean
-      string_key_token: string
-      is_longstring_key: boolean
-      line: integer
-      yend: integer
-      blank_line_before: boolean
-      trailing_comments: {Comment}
-      new: function(string, Type, Node, {Comment}, boolean, integer): FieldEntry
-   end
-
-   interface RecordLikeType
-      is StructuralType, HasDeclName, ArrayLikeType
-      where self.fields
-
-      interface_list: {ArrayType | NominalType}
-      interfaces_expanded: boolean
-      fields: {string: Type}
-      nodes: {string: Node}
-      field_order: {string}
-      field_comments: {string: {{Comment}}}
-      meta_fields: {string: Type}
-      meta_field_order: {string}
-      meta_field_comments: {string: {{Comment}}}
-      field_entries: {FieldEntry}
-      dangling_comments: {Comment}
-   end
-
-   record RecordType
-      is RecordLikeType
-      where self.typename == "record"
-   end
-
-   record InterfaceType
-      is RecordLikeType
-      where self.typename == "interface"
-   end
-
-   record TupleType
-      is FirstOrderType
-      where self.typename == "tuple"
-
-      is_va: boolean
-      argnames: {string}
-      is_optional: {boolean}
-      tuple: {Type}
-   end
-
-   interface TypeArgType
-      is Type
-      where self.typename == "typearg"
-
-      typearg: string
-      constraint: Type
-   end
-
-   record MapType
-      is StructuralType
-      where self.typename == "map"
-
-      keys: Type
-      values: Type
-   end
-
-   record NilType
-      is StructuralType
-      where self.typename == "nil"
-   end
-
-   record FunctionType
-      is StructuralType
-      where self.typename == "function"
-
-      is_method: boolean
-      maybe_method: boolean
-      is_record_function: boolean
-      bare: boolean
-      min_arity: integer
-      args: TupleType
-      rets: TupleType
-      macroexp: Node
-      yend: integer
-   end
-
-   interface AggregateType
-      is StructuralType
-      where self.types
-
-      types: {Type}
-   end
-
-   record UnionType
-      is AggregateType
-      where self.typename == "union"
-   end
-
-   record TupleTableType
-      is AggregateType
-      where self.typename == "tupletable"
-   end
-
-   -- Intersection types, currently restricted to polymorphic functions
-   -- defined inside records, representing polymorphic Lua APIs.
-   record PolyType
-      is AggregateType
-      where self.typename == "poly"
-
-      types: {FunctionType | GenericType}
-   end
-
-   record EnumType
-      is StructuralType, HasDeclName
-      where self.typename == "enum"
-
-      enum_items: {Node}
-      dangling_comments: {Comment}
-   end
-
-   enum Attribute
-      "const"
-      "close"
-      "total"
-   end
-
-   enum NodeKind
-      "op"
-      "nil"
-      "string"
-      "number"
-      "integer"
-      "boolean"
-      "literal_table"
-      "literal_table_item"
-      "function"
-      "expression_list"
-      "if"
-      "if_block"
-      "while"
-      "fornum"
-      "forin"
-      "goto"
-      "label"
-      "repeat"
-      "do"
-      "break"
-      "return"
-      "newtype"
-      "argument"
-      "type_identifier"
-      "variable"
-      "variable_list"
-      "statements"
-      "assignment"
-      "argument_list"
-      "local_function"
-      "global_function"
-      "local_type"
-      "global_type"
-      "record_function"
-      "local_declaration"
-      "global_declaration"
-      "identifier"
-      "cast"
-      "..."
-      "paren"
-      "macro_quote"
-      "local_macro"
-      "bare_type"
-      "macroexp"
-      "local_macroexp"
-      "interface"
-      "pragma"
-      "error_node"
-   end
-
-    simple_types: {TypeName: boolean}
     type Error = tl.Error
-    type Token = tl.Token
-
-    record Node
-        is {Node}, Where, HasInlineTrivia
-        where self.kind ~= nil
-
-        -- fmt: off
-        tk:                             string
-        kind:                           NodeKind
-        leading_comments:               {Comment}
-        semicolon:                      boolean
-        hashbang:                       string
-        is_longstring:                  boolean
-        yend:                           integer
-        close_x:                        integer
-        key:                            Node
-        value:                          Node
-        key_parsed:                     KeyParsed
-        typeargs:                       {TypeArgType}
-        min_arity:                      integer
-        args:                           Node
-        rets:                           TupleType
-        body:                           Node
-        implicit_global_function:       boolean
-        is_macro_invocation:            boolean
-        name:                           Node
-        is_repeat:                      boolean
-        attribute:                      Attribute
-        fn_owner:                       Node
-        is_method:                      boolean
-        exp:                            Node
-        if_parent:                      Node
-        if_block_n:                     integer
-        if_blocks:                      {Node}
-        var:                            Node
-        from:                           Node
-        to:                             Node
-        step:                           Node
-        vars:                           Node
-        exps:                           Node
-        newtype:                        TypeDeclType
-        op:                             Operator
-        e1:                             Node
-        e2:                             Node
-        constnum:                       number
-        conststr:                       string
-        failstore:                      boolean
-        label:                          string
-        casttype:                       Type
-        is_lvalue:                      boolean
-        macrodef:                       Node
-        expanded:                       Node
-        argtype:                        Type
-        itemtype:                       Type
-        decltuple:                      TupleType
-        pkey:                           string
-        pvalue:                         string
-        opt:                            boolean
-        trailing_comma:                 boolean
-        dangling_comments:              {Comment}
-        trailing_comments:              {Comment}
-        blank_line_before:              boolean
-        is_self:                        boolean
-        is_type_declaration:            boolean
-        f:                              string
-        -- fmt: on
-    end
 
     parse_program: function(
-        tokens: {tl.Token},
-        errs: {Error},
-        filename?: string,
-        source_lines?: {string}
-    ): Node, {string}
+        tokens: {tl.Token}, errs: {Error}, filename?: string, source_lines?: {string}
+    ): ast.Node, {string}
     parse: function(
-        input: string,
-        filename: string
-    ): Node, {Error}, {string}, integer
-    inline_trivia: function(node: HasInlineTrivia, slot: InlineSlot): {Comment}
+        input: string, filename: string
+    ): ast.Node, {Error}, {string}, integer
 end
 
--- ── Type aliases for parser_types public types ──────────────────────────────
+-- ── Local aliases for the ast data contract ─────────────────────────────────
 
--- Local alias so internal code can refer to the exported Node without the
--- 'parser.' prefix.
-local type Node = parser.Node
+local type Node = ast.Node
 
-local type NodeKind = parser.NodeKind
-local type Where = parser.Where
-local type TypeName = parser.TypeName
-local type Type = parser.Type
-local type GenericType = parser.GenericType
-local type TypeDeclType = parser.TypeDeclType
-local type TupleType = parser.TupleType
-local type TypeArgType = parser.TypeArgType
-local type NominalType = parser.NominalType
-local type FunctionType = parser.FunctionType
-local type Attribute = parser.Attribute
-
--- parser_types-internal structural types exposed through the public declaration file
-local type FirstOrderType = parser.FirstOrderType
-local type FirstClassType = parser.FirstClassType
-local type StructuralType = parser.StructuralType
-local type ArrayType = parser.ArrayType
-local type RecordLikeType = parser.RecordLikeType
-local type NilType = parser.NilType
-local type UnionType = parser.UnionType
-local type TupleTableType = parser.TupleTableType
-local type MapType = parser.MapType
-local type PolyType = parser.PolyType
-local type EnumType = parser.EnumType
-local type SelfType = parser.SelfType
+local type NodeKind = ast.NodeKind
+local type Where = ast.Where
+local type TypeName = ast.TypeName
+local type Type = ast.Type
+local type GenericType = ast.GenericType
+local type TypeDeclType = ast.TypeDeclType
+local type TupleType = ast.TupleType
+local type TypeArgType = ast.TypeArgType
+local type NominalType = ast.NominalType
+local type FunctionType = ast.FunctionType
+local type Attribute = ast.Attribute
+local type FirstOrderType = ast.FirstOrderType
+local type FirstClassType = ast.FirstClassType
+local type StructuralType = ast.StructuralType
+local type ArrayType = ast.ArrayType
+local type RecordLikeType = ast.RecordLikeType
+local type NilType = ast.NilType
+local type UnionType = ast.UnionType
+local type TupleTableType = ast.TupleTableType
+local type MapType = ast.MapType
+local type PolyType = ast.PolyType
+local type EnumType = ast.EnumType
+local type SelfType = ast.SelfType
 local type TokenKind = tl.TokenKind
-local type Comment = parser.Comment
-local type InlineSlot = parser.InlineSlot
-local type Operator = parser.Operator
-local type HasInlineTrivia = parser.HasInlineTrivia
+local type Comment = ast.Comment
+local type InlineSlot = ast.InlineSlot
+local type Operator = ast.Operator
+local type HasInlineTrivia = ast.HasInlineTrivia
+local type FieldEntry = ast.FieldEntry
 
 local function set_inline_trivia(
     node: HasInlineTrivia, slot: InlineSlot, trivia: {Comment}
@@ -444,41 +62,6 @@ local function set_inline_trivia(
     end
     node.inline_trivia = node.inline_trivia or {}
     node.inline_trivia[slot] = trivia
-end
-
-local EMPTY_INLINE_TRIVIA: {Comment} = {}
-
--- Returns the trivia list for `slot` on `node`, or an empty list when absent.
--- Callers must treat the result as read-only — the empty case shares one constant.
-function parser.inline_trivia(node: HasInlineTrivia, slot: InlineSlot): {Comment}
-    if node.inline_trivia == nil then
-        return EMPTY_INLINE_TRIVIA
-    end
-    return node.inline_trivia[slot] or EMPTY_INLINE_TRIVIA
-end
-
-function parser.FieldEntry.new(
-    name: string,
-    the_type: parser.Type,
-    node: parser.Node,
-    comments: {parser.Comment},
-    is_meta: boolean,
-    line: integer
-): parser.FieldEntry
-    local self = setmetatable({}, {__index = parser.FieldEntry}) as parser.FieldEntry
-    self.name = name
-    self.the_type = the_type
-    self.node = node
-    self.leading_comments = comments
-    self.is_meta = is_meta
-    self.line = line
-    return self
-end
-
-local enum KeyParsed
-    "short"
-    "long"
-    "implicit"
 end
 
 -- ── pre-parser functions ─────────────────────────────────────────────────────
@@ -533,17 +116,7 @@ local function clear_redundant_errors(errors: {Error})
     end
 end
 
-local simple_types: {TypeName: boolean} = {
-    ["nil"] = true,
-    ["any"] = true,
-    ["number"] = true,
-    ["string"] = true,
-    ["thread"] = true,
-    ["boolean"] = true,
-    ["integer"] = true,
-    ["self"] = true,
-    ["table"] = true,
-}
+local simple_types = ast.simple_types
 
 local function node_is_require_call(n: Node): string
     if not (n.e1 and n.e2) then
@@ -2998,14 +2571,14 @@ do
         field_name: string,
         newt: Type,
         def: RecordLikeType,
-        node: parser.Node,
+        node: Node,
         end_i: integer,
         comments?: {Comment},
         meta?: string
     ): boolean
         local field_order: {string}
         local fields: {string: Type}
-        local nodes: {string: parser.Node}
+        local nodes: {string: Node}
         local field_comments: {string: {{Comment}}}
         if meta then
             field_order, fields, nodes, field_comments =
@@ -3030,7 +2603,7 @@ do
         nodes[field_name] = node
 
         local entry_line = node ~= nil and node.y or newt.y
-        local entry = parser.FieldEntry.new(
+        local entry = FieldEntry.new(
             field_name, newt, node, comments or {}, meta ~= nil, entry_line
         )
         entry.yend = ps.tokens[end_i - 1].y
@@ -3092,11 +2665,9 @@ do
             def = def.t
         end
 
-        if
-            def is parser.RecordType or def is parser.InterfaceType or def is EnumType
-        then
-            if not (def as parser.HasDeclName).declname then
-                (def as parser.HasDeclName).declname = declname
+        if def is ast.RecordType or def is ast.InterfaceType or def is EnumType then
+            if not (def as ast.HasDeclName).declname then
+                (def as ast.HasDeclName).declname = declname
             end
         end
     end
@@ -3520,7 +3091,7 @@ do
                 }
             )
             typ.rets = new_tuple(ps, wstart, {new_type(ps, wstart, "boolean")})
-            typ.macroexp = where_macroexp as parser.Node
+            typ.macroexp = where_macroexp as Node
 
             def.meta_fields = {}
             def.meta_field_order = {}
@@ -3633,7 +3204,7 @@ do
                         if tt is FunctionType then
                             local macroexp_node: Node
                             i, macroexp_node = parse_macroexp(ps, i + 1, i + 2)
-                            tt.macroexp = macroexp_node as parser.Node
+                            tt.macroexp = macroexp_node as Node
                         else
                             fail(ps, i + 1, "macroexp must have a function type")
                         end
@@ -4420,7 +3991,5 @@ do
         return node, errs, required_modules, comment_count
     end
 end
-
-parser.simple_types = simple_types
 
 return parser

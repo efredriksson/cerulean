@@ -1,12 +1,12 @@
 -- Comma-separated, comment-threaded list → doc.Doc.
+local ast = require("cerulean.ast")
 local doc = require("cerulean.doc")
-local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local trivia_doc = require("cerulean.trivia_doc")
 
-local type RenderItem = function(parser.Node): doc.Doc
+local type RenderItem = function(ast.Node): doc.Doc
 -- `is_last` lets table-style lists add a trailing comma that paren lists omit.
-local type MakeSeparator = function(parser.Node, boolean): doc.Doc
+local type MakeSeparator = function(ast.Node, boolean): doc.Doc
 
 local record ItemRenderSpec
     force_wrap: boolean
@@ -32,7 +32,7 @@ end
 -- The framing-agnostic item loop shared by every delimited list, so their comment
 -- handling can't drift. Grouped unless the spec forces a wrap.
 function delimited_list_doc.render_items(
-    item_nodes: {parser.Node}, dangling: {parser.Comment}, spec: ItemRenderSpec
+    item_nodes: {ast.Node}, dangling: {ast.Comment}, spec: ItemRenderSpec
 ): doc.Doc
     local parts: {doc.Doc} = {}
     local line_before = false
@@ -46,10 +46,10 @@ function delimited_list_doc.render_items(
         )
         table.insert(parts, pre_item_doc)
         local item_parts: {doc.Doc} = {}
-        trivia_doc.append_leading(item_parts, parser.inline_trivia(item, "leading"))
+        trivia_doc.append_leading(item_parts, ast.inline_trivia(item, "leading"))
         table.insert(item_parts, spec.render_item(item))
         trivia_doc.append_inline(
-            item_parts, parser.inline_trivia(item, "before_separator")
+            item_parts, ast.inline_trivia(item, "before_separator")
         )
         table.insert(item_parts, spec.make_separator(item, index == #item_nodes))
         table.insert(parts, doc.concat(item_parts))
@@ -65,7 +65,7 @@ function delimited_list_doc.render_items(
     return items_doc
 end
 
-local function paren_separator(item: parser.Node, is_last: boolean): doc.Doc
+local function paren_separator(item: ast.Node, is_last: boolean): doc.Doc
     if is_last then
         return doc.text("")
     end
@@ -78,9 +78,9 @@ end
 -- spanning node carrying the `after_opener` trivia (a comment on the opener line,
 -- which trails the `(`) and the `dangling_comments` before `)`.
 function delimited_list_doc.render_parens(
-    list_node: parser.Node, item_nodes: {parser.Node}, render_item: RenderItem
+    list_node: ast.Node, item_nodes: {ast.Node}, render_item: RenderItem
 ): doc.Doc
-    local after_opener = parser.inline_trivia(list_node, "after_opener")
+    local after_opener = ast.inline_trivia(list_node, "after_opener")
     local dangling = list_node.dangling_comments or {}
     local force_wrap = render_builders.any_items_have_comments(list_node)
         or #after_opener > 0

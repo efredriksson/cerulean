@@ -1,7 +1,7 @@
 -- Render any function, regular and anonymous
 -- header prefix ("local function foo" vs "function").
+local ast = require("cerulean.ast")
 local doc = require("cerulean.doc")
-local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local signature_doc = require("cerulean.signature_doc")
@@ -12,7 +12,7 @@ local type RenderContext = render_context.RenderContext
 local function_doc = {}
 
 function function_doc.render(
-    ctx: RenderContext, node: parser.Node, header_prefix: doc.Doc
+    ctx: RenderContext, node: ast.Node, header_prefix: doc.Doc
 ): doc.Doc
     assert(node.args ~= nil and node.body ~= nil, "bad function node")
 
@@ -39,14 +39,14 @@ function function_doc.render(
             doc.close("end"),
         }
     )
-    if #parser.inline_trivia(node, "head") > 0 then
+    if #ast.inline_trivia(node, "head") > 0 then
         func_doc = doc.concat({func_doc, doc.break_parent()})
     end
     return func_doc
 end
 
 function function_doc.render_anonymous(
-    ctx: RenderContext, node: parser.Node, header_prefix: doc.Doc
+    ctx: RenderContext, node: ast.Node, header_prefix: doc.Doc
 ): doc.Doc
     if node.typeargs ~= nil and #node.typeargs > 0 then
         header_prefix = doc.concat(
@@ -57,7 +57,7 @@ function function_doc.render_anonymous(
     local rendered = function_doc.render(ctx, node, header_prefix)
     if
         render_builders.block_has_any_comments(node.body)
-        or #parser.inline_trivia(node, "head") > 0
+        or #ast.inline_trivia(node, "head") > 0
         or render_builders.any_items_have_comments(node.args)
     then
         return doc.concat({rendered, doc.break_parent()})

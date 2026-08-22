@@ -1,8 +1,8 @@
+local ast = require("cerulean.ast")
 local ast_traversal = require("cerulean.ast_traversal")
 local doc = require("cerulean.doc")
 local expr_doc = require("cerulean.expr_doc")
 local fmt_logger = require("cerulean.fmt_logger")
-local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local source = require("cerulean.source")
@@ -12,7 +12,7 @@ local type RenderContext = render_context.RenderContext
 
 local block_doc = {}
 
-local function node_end_line(node: parser.Node): integer
+local function node_end_line(node: ast.Node): integer
     -- Last source line the node's own text reaches, or 0 if none.
     -- The parser sets `yend` only when it closes a node on a real token. An unclosed
     -- node has no `yend`, and its `y` is the next token's line, which can fall far
@@ -29,10 +29,10 @@ local function node_end_line(node: parser.Node): integer
     return last
 end
 
-local function max_source_line(node: parser.Node): integer
+local function max_source_line(node: ast.Node): integer
     local max_line = node_end_line(node)
 
-    local function set_max_line(child: parser.Node)
+    local function set_max_line(child: ast.Node)
         local child_end = node_end_line(child)
         if child_end > max_line then
             max_line = child_end
@@ -43,9 +43,7 @@ local function max_source_line(node: parser.Node): integer
     return max_line
 end
 
-local function verbatim_extent(
-    stmt: parser.Node, block_dangling: {parser.Comment}
-): integer
+local function verbatim_extent(stmt: ast.Node, block_dangling: {ast.Comment}): integer
     -- verbatime needs to include any dangling comments
     -- for enclosing block that overlap with statement
     local last = max_source_line(stmt)
@@ -57,10 +55,10 @@ local function verbatim_extent(
     return last
 end
 
-local function block_min_source_line(block: parser.Node): integer
+local function block_min_source_line(block: ast.Node): integer
     local min_line = block.y
 
-    local function consider_comments(candidate: parser.Node)
+    local function consider_comments(candidate: ast.Node)
         for _, comment in ipairs(candidate.leading_comments or {}) do
             if comment.y < min_line then
                 min_line = comment.y
@@ -73,12 +71,12 @@ local function block_min_source_line(block: parser.Node): integer
     return min_line
 end
 
-local function block_surface_range(block: parser.Node): source.Range
+local function block_surface_range(block: ast.Node): source.Range
     return source.Range.new(block_min_source_line(block), max_source_line(block))
 end
 
-local function stmt_child_blocks(stmt: parser.Node): {parser.Node}
-    local result: {parser.Node} = {}
+local function stmt_child_blocks(stmt: ast.Node): {ast.Node}
+    local result: {ast.Node} = {}
     if stmt.body ~= nil then
         table.insert(result, stmt.body)
     end
@@ -88,7 +86,7 @@ local function stmt_child_blocks(stmt: parser.Node): {parser.Node}
     return result
 end
 
-local function stmt_child_surface_ranges(stmt: parser.Node): {source.Range}
+local function stmt_child_surface_ranges(stmt: ast.Node): {source.Range}
     local result: {source.Range} = {}
     for _, child_block in ipairs(stmt_child_blocks(stmt)) do
         table.insert(result, block_surface_range(child_block))
@@ -97,7 +95,7 @@ local function stmt_child_surface_ranges(stmt: parser.Node): {source.Range}
 end
 
 local function stmt_overlaps_fmt_off(
-    stmt: parser.Node, fmt_off_regions: source.Regions
+    stmt: ast.Node, fmt_off_regions: source.Regions
 ): boolean
     local stmt_range = source.Range.new(stmt.y, max_source_line(stmt))
     local own_ranges = source.subtract_many(
@@ -135,15 +133,12 @@ end
 local record Run
     first_line: integer
     last_line: integer
-    first_stmt: parser.Node
-    last_stmt: parser.Node
+    first_stmt: ast.Node
+    last_stmt: ast.Node
 end
 
 function Run.new(
-    first_line: integer,
-    last_line: integer,
-    first_stmt: parser.Node,
-    last_stmt: parser.Node
+    first_line: integer, last_line: integer, first_stmt: ast.Node, last_stmt: ast.Node
 ): Run
     local self: Run = setmetatable({}, {__index = Run})
     self.first_line = first_line
@@ -158,7 +153,7 @@ end
 -- rendering is a flat walk with no index arithmetic.
 local record Segment
     run: Run
-    stmt: parser.Node
+    stmt: ast.Node
 end
 
 function Segment.frozen(run: Run): Segment
@@ -167,7 +162,7 @@ function Segment.frozen(run: Run): Segment
     return self
 end
 
-function Segment.structural(stmt: parser.Node): Segment
+function Segment.structural(stmt: ast.Node): Segment
     local self: Segment = setmetatable({}, {__index = Segment})
     self.stmt = stmt
     return self
@@ -177,7 +172,7 @@ end
 -- back to cover any leading comment that falls inside a frozen region after the
 -- previous emission boundary.
 local function back_extended_first_line(
-    stmt: parser.Node, previous_boundary: integer, fmt_off_regions: source.Regions
+    stmt: ast.Node, previous_boundary: integer, fmt_off_regions: source.Regions
 ): integer
     local first_line = stmt.y
     for _, comment in ipairs(stmt.leading_comments or {}) do
@@ -208,11 +203,11 @@ end
 -- and resolve its source line span. Returns the run and the index of its last
 -- statement so the caller can resume after it.
 local function build_run(
-    block: parser.Node,
+    block: ast.Node,
     start_idx: integer,
     previous_boundary: integer,
     fmt_off_regions: source.Regions,
-    block_dangling: {parser.Comment}
+    block_dangling: {ast.Comment}
 ): Run, integer
     local first_stmt = block[start_idx]
     local first_line = back_extended_first_line(
@@ -244,7 +239,7 @@ local function code_precedes_on_line(
 end
 
 -- nil when the next segment is a frozen run (its `.stmt` is nil) or there is none.
-local function next_structural_stmt(segments: {Segment}, idx: integer): parser.Node
+local function next_structural_stmt(segments: {Segment}, idx: integer): ast.Node
     local next_segment = segments[idx + 1]
     if next_segment == nil then
         return nil
@@ -256,7 +251,7 @@ end
 -- owns the rest of the line. A sibling statement always precedes the block's closer,
 -- so at most one of the two can apply.
 local function last_line_structural_col(
-    block: parser.Node, run: Run, next_structural: parser.Node
+    block: ast.Node, run: Run, next_structural: ast.Node
 ): integer
     if next_structural ~= nil and next_structural.y == run.last_line then
         return next_structural.x
@@ -321,7 +316,7 @@ local function collect_run_lines(
 end
 
 local function blank_before_fmt_off_start(
-    stmt: parser.Node, fmt_off_regions: source.Regions
+    stmt: ast.Node, fmt_off_regions: source.Regions
 ): boolean
     for _, comment in ipairs(stmt.leading_comments or {}) do
         if fmt_off_regions:includes_line(comment.y) then
@@ -334,9 +329,7 @@ end
 -- Partition a block into its frozen runs and structural statements. All
 -- run-boundary arithmetic lives here, so the renderer walks a flat list.
 local function group_segments(
-    block: parser.Node,
-    fmt_off_regions: source.Regions,
-    block_dangling: {parser.Comment}
+    block: ast.Node, fmt_off_regions: source.Regions, block_dangling: {ast.Comment}
 ): {Segment}
     local segments: {Segment} = {}
     local previous_boundary = 0
@@ -359,7 +352,7 @@ local function group_segments(
     return segments
 end
 
-local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc | nil
+local function render_block_doc(ctx: RenderContext, block: ast.Node): doc.Doc | nil
     local parts: {doc.Doc} = {}
     local verbatim_boundary: integer = 0
     local line_before = false
@@ -370,7 +363,7 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
     for idx, segment in ipairs(segments) do
         if segment.run ~= nil then
             local run = segment.run
-            local pre_fmt_off: {parser.Comment} = {}
+            local pre_fmt_off: {ast.Comment} = {}
             for _, comment in ipairs(run.first_stmt.leading_comments or {}) do
                 if not ctx.fmt_off_regions:includes_line(comment.y) then
                     table.insert(pre_fmt_off, comment)
@@ -435,7 +428,7 @@ local function render_block_doc(ctx: RenderContext, block: parser.Node): doc.Doc
     -- as raw source; skip them to avoid duplication. Comments that start after
     -- the last verbatim boundary are always included, even if they share a line
     -- with the last structural statement's yend.
-    local dangling: {parser.Comment} = {}
+    local dangling: {ast.Comment} = {}
     for _, comment in ipairs(block.dangling_comments or {}) do
         if comment.y > verbatim_boundary then
             table.insert(dangling, comment)
@@ -455,7 +448,7 @@ function block_doc.make_context(
 end
 
 function block_doc.render_block(
-    ctx: RenderContext, block: parser.Node, max_width: integer, indent_width: integer
+    ctx: RenderContext, block: ast.Node, max_width: integer, indent_width: integer
 ): string | nil
     local block_doc_node = render_block_doc(ctx, block)
     if block_doc_node is nil then

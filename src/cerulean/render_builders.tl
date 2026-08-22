@@ -1,5 +1,5 @@
+local ast = require("cerulean.ast")
 local doc = require("cerulean.doc")
-local parser = require("cerulean.parser")
 local render_context = require("cerulean.render_context")
 local trivia_doc = require("cerulean.trivia_doc")
 
@@ -75,7 +75,7 @@ function render_builders.build_comma_separated_docs(item_docs: {doc.Doc}): doc.D
     return render_builders.build_separated_docs(item_docs, ", ")
 end
 
-local function mapped_exp_docs(ctx: RenderContext, nodes: {parser.Node}): {doc.Doc}
+local function mapped_exp_docs(ctx: RenderContext, nodes: {ast.Node}): {doc.Doc}
     local item_docs: {doc.Doc} = {}
     for _, node in ipairs(nodes) do
         table.insert(item_docs, ctx.render_expr(node))
@@ -84,7 +84,7 @@ local function mapped_exp_docs(ctx: RenderContext, nodes: {parser.Node}): {doc.D
 end
 
 function render_builders.build_mapped_comma_separated_docs(
-    ctx: RenderContext, nodes: {parser.Node}
+    ctx: RenderContext, nodes: {ast.Node}
 ): doc.Doc
     return render_builders.build_comma_separated_docs(mapped_exp_docs(ctx, nodes))
 end
@@ -134,7 +134,7 @@ function render_builders.build_delimited_sequence_doc(
     return render_builders.build_grouped_delimited_sequence_doc(item_docs, opts)
 end
 
-function render_builders.trailing_comment_doc(node: parser.Node): doc.Doc
+function render_builders.trailing_comment_doc(node: ast.Node): doc.Doc
     local parts: {doc.Doc} = {}
     for _, comment in ipairs(node.trailing_comments or {}) do
         table.insert(parts, doc.text(" " .. comment.text))
@@ -142,8 +142,8 @@ function render_builders.trailing_comment_doc(node: parser.Node): doc.Doc
     return doc.concat(parts)
 end
 
-function render_builders.head_trivia_doc(node: parser.Node): doc.Doc
-    local head = parser.inline_trivia(node, "head")
+function render_builders.head_trivia_doc(node: ast.Node): doc.Doc
+    local head = ast.inline_trivia(node, "head")
     if #head == 0 then
         return doc.text("")
     end
@@ -152,7 +152,7 @@ function render_builders.head_trivia_doc(node: parser.Node): doc.Doc
     return doc.concat(parts)
 end
 
-function render_builders.any_items_have_comments(items: parser.Node): boolean
+function render_builders.any_items_have_comments(items: ast.Node): boolean
     for _, item in ipairs(items) do
         if
             #(item.leading_comments or {}) > 0 or #(item.trailing_comments or {}) > 0
@@ -163,11 +163,11 @@ function render_builders.any_items_have_comments(items: parser.Node): boolean
     return false
 end
 
-local function any_items_have_inline_trivia(items: {parser.Node}): boolean
+local function any_items_have_inline_trivia(items: {ast.Node}): boolean
     for _, item in ipairs(items) do
         if
-            #parser.inline_trivia(item, "before_separator") > 0
-            or #parser.inline_trivia(item, "leading") > 0
+            #ast.inline_trivia(item, "before_separator") > 0
+            or #ast.inline_trivia(item, "leading") > 0
         then
             return true
         end
@@ -177,14 +177,14 @@ end
 
 -- A threaded comment pins its item to a line of its own, so the commas stop being
 -- free break points and the list has to render through the comment path.
-function render_builders.exp_list_can_break(exps: {parser.Node}): boolean
+function render_builders.exp_list_can_break(exps: {ast.Node}): boolean
     return #exps > 1
         and not render_builders.any_items_have_comments(exps)
         and not any_items_have_inline_trivia(exps)
 end
 
 function render_builders.build_exp_list_doc(
-    ctx: RenderContext, exps: {parser.Node}
+    ctx: RenderContext, exps: {ast.Node}
 ): doc.Doc
     if
         not render_builders.any_items_have_comments(exps)
@@ -197,11 +197,9 @@ function render_builders.build_exp_list_doc(
     for index, exp in ipairs(exps) do
         local is_last = index == #exps
         local item_parts: {doc.Doc} = {}
-        trivia_doc.append_leading(item_parts, parser.inline_trivia(exp, "leading"))
+        trivia_doc.append_leading(item_parts, ast.inline_trivia(exp, "leading"))
         table.insert(item_parts, ctx.render_expr(exp))
-        trivia_doc.append_inline(
-            item_parts, parser.inline_trivia(exp, "before_separator")
-        )
+        trivia_doc.append_inline(item_parts, ast.inline_trivia(exp, "before_separator"))
         local exp_doc = doc.concat(item_parts)
         if force_next_indent then
             exp_doc = doc.indent_hardline(exp_doc)
@@ -227,7 +225,7 @@ end
 -- The first value stays on the `return` line: unlike an `=` list there is no
 -- operator to its left to give first, so only the continuations indent.
 function render_builders.build_return_exp_list_doc(
-    ctx: RenderContext, exps: {parser.Node}
+    ctx: RenderContext, exps: {ast.Node}
 ): doc.Doc
     if not render_builders.exp_list_can_break(exps) then
         return render_builders.build_exp_list_doc(ctx, exps)
@@ -245,7 +243,7 @@ function render_builders.build_return_exp_list_doc(
     return doc.concat({first_doc, doc.group(doc.indent(continuations))})
 end
 
-function render_builders.block_has_any_comments(block: parser.Node): boolean
+function render_builders.block_has_any_comments(block: ast.Node): boolean
     return render_builders.any_items_have_comments(block)
         or #(block.dangling_comments or {}) > 0
 end
@@ -259,7 +257,7 @@ function render_builders.item_line_doc(should_force_wrap: boolean): doc.Doc
 end
 
 function render_builders.append_lines_pre_node(
-    node: parser.Node | parser.FieldEntry,
+    node: ast.Node | ast.FieldEntry,
     line_before: boolean,
     line_from_before?: doc.Doc,
     suppress_blank?: boolean
@@ -276,7 +274,7 @@ function render_builders.append_lines_pre_node(
     return doc.concat(parts)
 end
 
-function render_builders.is_top_level_binary_op(node: parser.Node): boolean
+function render_builders.is_top_level_binary_op(node: ast.Node): boolean
     if node.kind ~= "op" or node.op == nil then
         return false
     end
@@ -287,14 +285,14 @@ function render_builders.is_top_level_binary_op(node: parser.Node): boolean
     return op ~= "@funcall" and op ~= "@index" and op ~= "." and op ~= ":"
 end
 
-function render_builders.has_chain_internal_trivia(node: parser.Node): boolean
+function render_builders.has_chain_internal_trivia(node: ast.Node): boolean
     if node.kind ~= "op" or node.op == nil then
         return false
     end
-    if #parser.inline_trivia(node, "op_leading") > 0 then
+    if #ast.inline_trivia(node, "op_leading") > 0 then
         return true
     end
-    if #parser.inline_trivia(node, "op_trailing") > 0 then
+    if #ast.inline_trivia(node, "op_trailing") > 0 then
         return true
     end
     if node.e1 ~= nil and render_builders.has_chain_internal_trivia(node.e1) then
@@ -321,9 +319,9 @@ function render_builders.wrap_keyword_before(
 end
 
 function render_builders.with_leading_inline_trivia(
-    node: parser.Node, prefix: doc.Doc, content: doc.Doc
+    node: ast.Node, prefix: doc.Doc, content: doc.Doc
 ): doc.Doc
-    local after_opener = parser.inline_trivia(node, "after_opener")
+    local after_opener = ast.inline_trivia(node, "after_opener")
     if #after_opener == 0 then
         return doc.concat({prefix, content})
     end
@@ -334,7 +332,7 @@ function render_builders.with_leading_inline_trivia(
 end
 
 function render_builders.append_comment_docs(
-    parts: {doc.Doc}, comments: {parser.Comment}, line_before: boolean
+    parts: {doc.Doc}, comments: {ast.Comment}, line_before: boolean
 ): boolean
     for _, comment in ipairs(comments) do
         if line_before then
@@ -349,7 +347,7 @@ function render_builders.append_comment_docs(
     return line_before
 end
 
-function render_builders.key_starts_with_long_string(node: parser.Node): boolean
+function render_builders.key_starts_with_long_string(node: ast.Node): boolean
     -- When the key expression's leftmost token is a long string, the subscript `[`
     -- must be spaced away to prevent `[[[k]]` from being lexed as a long string.
     return node.is_longstring

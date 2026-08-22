@@ -1,11 +1,11 @@
 -- AST traversal helpers and AST-derived source span collection.
-local parser = require("cerulean.parser")
+local ast = require("cerulean.ast")
 local source = require("cerulean.source")
 
 local ast_traversal = {}
 
 -- fmt: off
-local BLOCK_NODE_KINDS: {parser.NodeKind: boolean} = {
+local BLOCK_NODE_KINDS: {ast.NodeKind: boolean} = {
     ["function"]        = true,
     ["local_function"]  = true,
     ["local_macro"]     = true,
@@ -20,7 +20,7 @@ local BLOCK_NODE_KINDS: {parser.NodeKind: boolean} = {
     ["newtype"]         = true,
 }
 
-local FUNCTION_DEF_KINDS: {parser.NodeKind: boolean} = {
+local FUNCTION_DEF_KINDS: {ast.NodeKind: boolean} = {
     ["local_function"]  = true,
     ["local_macro"]     = true,
     ["global_function"] = true,
@@ -29,16 +29,16 @@ local FUNCTION_DEF_KINDS: {parser.NodeKind: boolean} = {
 }
 
 -- fmt: on
-function ast_traversal.is_block_node(node: parser.Node): boolean
+function ast_traversal.is_block_node(node: ast.Node): boolean
     return BLOCK_NODE_KINDS[node.kind] ~= nil
 end
 
-function ast_traversal.is_function_def(node: parser.Node): boolean
+function ast_traversal.is_function_def(node: ast.Node): boolean
     return FUNCTION_DEF_KINDS[node.kind] ~= nil
 end
 
-local function get_sub_nodes(node: parser.Node): {parser.Node}
-    local sub_nodes: {parser.Node} = {}
+local function get_sub_nodes(node: ast.Node): {ast.Node}
+    local sub_nodes: {ast.Node} = {}
 
     for _, child in ipairs(node) do
         table.insert(sub_nodes, child)
@@ -95,7 +95,7 @@ local function get_sub_nodes(node: parser.Node): {parser.Node}
     return sub_nodes
 end
 
-function ast_traversal.walk_descendants(node: parser.Node, visit: function(parser.Node))
+function ast_traversal.walk_descendants(node: ast.Node, visit: function(ast.Node))
     visit(node)
 
     for _, sub_node in ipairs(get_sub_nodes(node)) do
@@ -103,7 +103,7 @@ function ast_traversal.walk_descendants(node: parser.Node, visit: function(parse
     end
 end
 
-local function collect_block_ranges(nodes: {parser.Node}, result: {source.Range})
+local function collect_block_ranges(nodes: {ast.Node}, result: {source.Range})
     for _, node in ipairs(nodes) do
         if ast_traversal.is_block_node(node) then
             table.insert(result, source.Range.new(node.y, node.yend))
@@ -115,18 +115,18 @@ local function collect_block_ranges(nodes: {parser.Node}, result: {source.Range}
     end
 end
 
-function ast_traversal.collect_block_ranges(ast: parser.Node): {source.Range}
+function ast_traversal.collect_block_ranges(root: ast.Node): {source.Range}
     local result: {source.Range} = {}
-    collect_block_ranges(ast, result)
+    collect_block_ranges(root, result)
     return result
 end
 
-function ast_traversal.has_multiline_descendant(node: parser.Node): boolean
+function ast_traversal.has_multiline_descendant(node: ast.Node): boolean
     local found = false
 
     ast_traversal.walk_descendants(
         node,
-        function(child: parser.Node)
+        function(child: ast.Node)
             if not found and child.yend and child.yend > child.y then
                 found = true
             end

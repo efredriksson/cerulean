@@ -1,5 +1,6 @@
 -- Top-level pipeline: parse -> source analysis -> require sort -> structural render.
 -- See ARCHITECTURE.md for the current module map and flow.
+local ast = require("cerulean.ast")
 local ast_traversal = require("cerulean.ast_traversal")
 local block_doc = require("cerulean.block_doc")
 local options = require("cerulean.options")
@@ -39,43 +40,43 @@ function Rewrite.new(
 end
 
 local record FormatterContext
-    ast: parser.Node
+    root: ast.Node
     source_text: source.Text
     fmt_off_regions: source.Regions
 end
 
 function FormatterContext.new(
-    ast: parser.Node, source_text: source.Text, fmt_off_regions: source.Regions
+    root: ast.Node, source_text: source.Text, fmt_off_regions: source.Regions
 ): FormatterContext
     local self: FormatterContext = setmetatable({}, {__index = FormatterContext})
-    self.ast = ast
+    self.root = root
     self.source_text = source_text
     self.fmt_off_regions = fmt_off_regions
     return self
 end
 
 local function build_formatter_context(
-    source_code: string, ast: parser.Node
+    source_code: string, root: ast.Node
 ): FormatterContext
     local source_text = source.Text.new(source_code)
-    local source_blocks = ast_traversal.collect_block_ranges(ast)
+    local source_blocks = ast_traversal.collect_block_ranges(root)
     local fmt_off_regions = source.collect_fmt_off_regions(source_text, source_blocks)
 
-    return FormatterContext.new(ast, source_text, fmt_off_regions)
+    return FormatterContext.new(root, source_text, fmt_off_regions)
 end
 
 local function render_with_ast(
-    source_: string, ast: parser.Node, opts: FormatterOptions
+    source_: string, root: ast.Node, opts: FormatterOptions
 ): string
-    local context = build_formatter_context(source_, ast)
+    local context = build_formatter_context(source_, root)
     local ctx = block_doc.make_context(
         context.fmt_off_regions, context.source_text.lines
     )
     if opts.sort_requires then
-        require_sort.sort_top_level_requires(context.ast, context.fmt_off_regions)
+        require_sort.sort_top_level_requires(context.root, context.fmt_off_regions)
     end
     return block_doc.render_block(
-        ctx, context.ast, opts.max_line_width, opts.indent_width
+        ctx, context.root, opts.max_line_width, opts.indent_width
     )
 end
 
@@ -102,12 +103,12 @@ end
 function rewriter.rewrite(
     source_: string, filename: string, opts: FormatterOptions
 ): Rewrite
-    local ast, parse_errors, _, source_comments = parser.parse(source_, filename)
+    local root, parse_errors, _, source_comments = parser.parse(source_, filename)
     if #parse_errors > 0 then
         return Rewrite.new(source_, "unchanged", parse_errors)
     end
 
-    local output = render_with_ast(source_, ast, opts)
+    local output = render_with_ast(source_, root, opts)
     if not output then
         return Rewrite.new(
             source_, "failed", {}, "the formatter could not render this file"

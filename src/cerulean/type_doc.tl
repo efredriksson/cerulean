@@ -1,5 +1,5 @@
+local ast = require("cerulean.ast")
 local doc = require("cerulean.doc")
-local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local trivia_doc = require("cerulean.trivia_doc")
 
@@ -20,11 +20,11 @@ function TypeRenderOpts.new(
     return self
 end
 
-local render_return: function(parser.TupleType): doc.Doc
-local render_type: function(parser.Type, TypeRenderOpts): doc.Doc
+local render_return: function(ast.TupleType): doc.Doc
+local render_type: function(ast.Type, TypeRenderOpts): doc.Doc
 -- Renders one element of a separated type list, wrapping it with its inline
 -- trivia: `leading` before it and `before_separator` after it.
-local render_type_element: function(parser.Type, TypeRenderOpts): doc.Doc
+local render_type_element: function(ast.Type, TypeRenderOpts): doc.Doc
 
 local function arg_name_doc(
     arg_name: string, is_optional: boolean, is_variadic: boolean
@@ -48,16 +48,16 @@ local function arg_name_doc(
     end
 end
 
-local function is_optional_arg(type_def: parser.FunctionType, index: integer): boolean
+local function is_optional_arg(type_def: ast.FunctionType, index: integer): boolean
     local is_variadic_tail = type_def.args.is_va and index == #type_def.args.tuple
     return not is_variadic_tail and type_def.args.is_optional[index]
 end
 
 local type_doc = {}
 
-local type_doc_render: function(type_def: parser.Type, ?TypeRenderOpts): doc.Doc
+local type_doc_render: function(type_def: ast.Type, ?TypeRenderOpts): doc.Doc
 
-function type_doc.render_typeargs(typeargs: {parser.TypeArgType}): doc.Doc
+function type_doc.render_typeargs(typeargs: {ast.TypeArgType}): doc.Doc
     local typearg_docs: {doc.Doc} = {}
     for _, typearg in ipairs(typeargs) do
         table.insert(typearg_docs, render_type_element(typearg, TypeRenderOpts.new()))
@@ -72,7 +72,7 @@ function type_doc.render_typeargs(typeargs: {parser.TypeArgType}): doc.Doc
 end
 
 local function function_type_render(
-    type_def: parser.FunctionType, opts: TypeRenderOpts
+    type_def: ast.FunctionType, opts: TypeRenderOpts
 ): doc.Doc
     if type_def.bare then
         return doc.text("function")
@@ -86,14 +86,14 @@ local function function_type_render(
         )
         local rendered_type = render_type(arg_type, TypeRenderOpts.new())
         -- A comment between the binding ':' and the type sits right before it.
-        local after_colon = parser.inline_trivia(arg_type, "head")
+        local after_colon = ast.inline_trivia(arg_type, "head")
         if #after_colon > 0 then
             rendered_type = trivia_doc.wrap_element(rendered_type, after_colon, {})
         end
         local arg_doc = doc.concat({arg_name, rendered_type, type_suffix})
         -- `leading`/`before_separator` wrap the whole argument (name + type).
-        local leading = parser.inline_trivia(arg_type, "leading")
-        local trailing = parser.inline_trivia(arg_type, "before_separator")
+        local leading = ast.inline_trivia(arg_type, "leading")
+        local trailing = ast.inline_trivia(arg_type, "before_separator")
         if #leading > 0 or #trailing > 0 then
             arg_doc = trivia_doc.wrap_element(arg_doc, leading, trailing)
         end
@@ -119,8 +119,8 @@ local function function_type_render(
     )
 end
 
-type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
-    if type_def is parser.NominalType then
+type_doc_render = function(type_def: ast.Type, opts: TypeRenderOpts): doc.Doc
+    if type_def is ast.NominalType then
         local parts: {doc.Doc} = {doc.text(table.concat(type_def.names, "."))}
         if type_def.typevals ~= nil and #type_def.typevals > 0 then
             local typeval_docs: {doc.Doc} = {}
@@ -134,7 +134,7 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
             table.insert(parts, doc.text(">"))
         end
         return doc.concat(parts)
-    elseif type_def is parser.ArrayType then
+    elseif type_def is ast.ArrayType then
         return doc.concat(
             {
                 doc.text("{"),
@@ -142,14 +142,14 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
                 doc.text("}"),
             }
         )
-    elseif type_def is parser.TypeArgType then
+    elseif type_def is ast.TypeArgType then
         local typearg_text = doc.text(type_def.typearg)
         if type_def.constraint ~= nil then
             local constraint_text = render_type(type_def.constraint, opts)
             typearg_text = doc.concat({typearg_text, doc.text(" is "), constraint_text})
         end
         return typearg_text
-    elseif type_def is parser.UnionType then
+    elseif type_def is ast.UnionType then
         local type_docs: {doc.Doc} = {}
         local last = #type_def.types
         for index, t in ipairs(type_def.types) do
@@ -157,7 +157,7 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
             table.insert(type_docs, render_type_element(t, branch_opts))
         end
         return render_builders.build_separated_docs(type_docs, " | ")
-    elseif type_def is parser.TupleType then
+    elseif type_def is ast.TupleType then
         local type_docs: {doc.Doc} = {}
         for _, t in ipairs(type_def.tuple) do
             table.insert(type_docs, render_type_element(t, opts))
@@ -167,7 +167,7 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
             return doc.concat({result, doc.text("...")})
         end
         return result
-    elseif type_def is parser.MapType then
+    elseif type_def is ast.MapType then
         return doc.concat(
             {
                 doc.text("{"),
@@ -177,11 +177,11 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
                 doc.text("}"),
             }
         )
-    elseif type_def is parser.FunctionType then
+    elseif type_def is ast.FunctionType then
         return function_type_render(type_def, opts)
-    elseif type_def is parser.TypeDeclType then
+    elseif type_def is ast.TypeDeclType then
         assert(false, "implementation error, does not support enum/interface/...")
-    elseif type_def is parser.TupleTableType then
+    elseif type_def is ast.TupleTableType then
         local type_docs: {doc.Doc} = {}
         for _, t in ipairs(type_def.types) do
             table.insert(type_docs, render_type_element(t, opts))
@@ -193,18 +193,18 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
                 doc.text("}"),
             }
         )
-    elseif type_def is parser.GenericType then
+    elseif type_def is ast.GenericType then
         local typeargs_doc = type_doc.render_typeargs(type_def.typeargs)
         local inner_opts = TypeRenderOpts.new(typeargs_doc, opts.wrap_multi_return_rets)
         return type_doc_render(type_def.t, inner_opts)
-    elseif parser.simple_types[type_def.typename] then
+    elseif ast.simple_types[type_def.typename] then
         return doc.text(type_def.typename)
     end
 
     assert(false, "unhandled type: " .. tostring(type_def.typename))
 end
 
-render_type = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
+render_type = function(type_def: ast.Type, opts: TypeRenderOpts): doc.Doc
     local inner_opts = opts
     if type_def.paren and opts.wrap_multi_return_rets then
         -- Outer paren already disambiguate trailing ',' so drop flag.
@@ -214,8 +214,8 @@ render_type = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
     if type_def.paren then
         -- An empty paren list (`as(--[[c]])`) has no element to carry its
         -- comments; they live on the container's `after_opener` slot.
-        if type_def is parser.TupleType and #type_def.tuple == 0 then
-            local after_opener = parser.inline_trivia(type_def, "after_opener")
+        if type_def is ast.TupleType and #type_def.tuple == 0 then
+            local after_opener = ast.inline_trivia(type_def, "after_opener")
             if #after_opener > 0 then
                 local parts: {doc.Doc} = {}
                 trivia_doc.append_inline_joined(parts, after_opener)
@@ -227,48 +227,48 @@ render_type = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
     return result
 end
 
-render_type_element = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
+render_type_element = function(type_def: ast.Type, opts: TypeRenderOpts): doc.Doc
     local element = render_type(type_def, opts)
-    local leading = parser.inline_trivia(type_def, "leading")
-    local trailing = parser.inline_trivia(type_def, "before_separator")
+    local leading = ast.inline_trivia(type_def, "leading")
+    local trailing = ast.inline_trivia(type_def, "before_separator")
     if #leading == 0 and #trailing == 0 then
         return element
     end
     return trivia_doc.wrap_element(element, leading, trailing)
 end
 
-function type_doc.render(type_def: parser.Type, generic_doc?: doc.Doc): doc.Doc
+function type_doc.render(type_def: ast.Type, generic_doc?: doc.Doc): doc.Doc
     return render_type_element(type_def, TypeRenderOpts.new(generic_doc))
 end
 
 -- `x as function(): T, next_field` re-parses as `function(): (T, next_field)` —
 -- the `,` is greedily consumed as a return-type separator. Callers that emit a
 -- separator after an as/is cast must use `;` when this returns true.
-function type_doc.cast_absorbs_trailing_comma(casttype: parser.Type): boolean
+function type_doc.cast_absorbs_trailing_comma(casttype: ast.Type): boolean
     if casttype.paren then
         return false
     end
-    if casttype is parser.GenericType then
+    if casttype is ast.GenericType then
         return type_doc.cast_absorbs_trailing_comma(casttype.t)
     end
-    if casttype is parser.FunctionType then
+    if casttype is ast.FunctionType then
         return #casttype.rets.tuple > 0 and not casttype.rets.paren
     end
-    if casttype is parser.UnionType then
+    if casttype is ast.UnionType then
         local types = casttype.types
         return #types > 0 and type_doc.cast_absorbs_trailing_comma(types[#types])
     end
     return false
 end
 
-render_return = function(type_def: parser.TupleType): doc.Doc
+render_return = function(type_def: ast.TupleType): doc.Doc
     if type_def == nil or #type_def.tuple == 0 then
         return doc.text("")
     end
     return doc.concat({doc.text(": "), type_doc.render(type_def)})
 end
 
-function type_doc.render_return(type_def: parser.TupleType): doc.Doc
+function type_doc.render_return(type_def: ast.TupleType): doc.Doc
     return render_return(type_def)
 end
 

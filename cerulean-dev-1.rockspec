@@ -28,6 +28,7 @@ build = {
    type = "builtin",
    modules = {
       ["cerulean"] = "dist/cerulean/init.lua",
+      ["cerulean.ast"] = "dist/cerulean/ast.lua",
       ["cerulean.ast_traversal"] = "dist/cerulean/ast_traversal.lua",
       ["cerulean.cli"] = "dist/cerulean/cli.lua",
       ["cerulean.daemon"] = "dist/cerulean/daemon.lua",

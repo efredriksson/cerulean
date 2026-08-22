@@ -1,9 +1,9 @@
 -- AST expression node → doc.Doc. Leaf nodes and simple operators produce flat text;
 -- logical chains produce breakable groups at any nesting level; tables delegate to table_doc.
+local ast = require("cerulean.ast")
 local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
 local function_doc = require("cerulean.function_doc")
-local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local table_doc = require("cerulean.table_doc")
@@ -15,10 +15,10 @@ local type RenderContext = render_context.RenderContext
 local expr_doc = {}
 
 -- render_expr is mutually recursive with render_op, so it needs a forward declaration.
-local render_expr: function(RenderContext, parser.Node, integer, boolean): doc.Doc
+local render_expr: function(RenderContext, ast.Node, integer, boolean): doc.Doc
 
 local function render_root_expr(
-    ctx: RenderContext, node: parser.Node, same_indent_on_line: boolean
+    ctx: RenderContext, node: ast.Node, same_indent_on_line: boolean
 ): doc.Doc
     return render_expr(ctx, node, 0, same_indent_on_line)
 end
@@ -26,7 +26,7 @@ end
 -- For unary parents only the strict-less-than rule applies; equal-precedence
 -- unary chains (e.g. "not not x") never need parens.
 local function parenthesize_unary_operand(
-    rendered: doc.Doc, child: parser.Node, parent_prec: integer
+    rendered: doc.Doc, child: ast.Node, parent_prec: integer
 ): doc.Doc
     if child.kind ~= "op" or child.op == nil then
         return rendered
@@ -42,7 +42,7 @@ end
 
 -- Two adjacent `-` tokens form a `--` comment start, so a unary minus applied
 -- to another unary minus needs a separating space.
-local function unary_separator(op: string, operand: parser.Node): doc.Doc
+local function unary_separator(op: string, operand: ast.Node): doc.Doc
     if op == "not" then
         return doc.text(" ")
     end
@@ -72,7 +72,7 @@ local function parenthesize_if_lower_prec(
 end
 
 local function trail_comment_on(
-    expression: doc.Doc, comment: parser.Comment | nil
+    expression: doc.Doc, comment: ast.Comment | nil
 ): doc.Doc
     if comment is nil then
         return expression
@@ -92,15 +92,15 @@ local CHAINABLE_OPS: {string: boolean} = {
     [">>"] = true,
 }
 
-local function is_chainable_binary_op(operator: parser.Operator): boolean
+local function is_chainable_binary_op(operator: ast.Operator): boolean
     return CHAINABLE_OPS[operator.op] == true
 end
 
 local function collect_chain_terms(
-    node: parser.Node,
-    operator: parser.Operator,
-    terms: {parser.Node},
-    gap_before_comments: {integer: parser.Comment}
+    node: ast.Node,
+    operator: ast.Operator,
+    terms: {ast.Node},
+    gap_before_comments: {integer: ast.Comment}
 )
     -- Terms are rejoined with the enclosing chain's operator, so only the identical
     -- operator may be flattened into it. `<<` and `>>` share a precedence, and
@@ -109,7 +109,7 @@ local function collect_chain_terms(
         collect_chain_terms(node.e1, operator, terms, gap_before_comments)
         local lhs_line = node.e1.yend or node.e1.y
         local before_op = trivia_doc.partition(
-            parser.inline_trivia(node, "op_leading"), lhs_line
+            ast.inline_trivia(node, "op_leading"), lhs_line
         )
         if before_op then
             gap_before_comments[#terms] = before_op
@@ -121,7 +121,7 @@ local function collect_chain_terms(
 end
 
 local function render_paren_in_chain(
-    ctx: RenderContext, paren_node: parser.Node, same_indent_on_line: boolean
+    ctx: RenderContext, paren_node: ast.Node, same_indent_on_line: boolean
 ): doc.Doc
     return doc.group(
         doc.concat(
@@ -138,14 +138,14 @@ end
 
 local function render_binary_chain(
     ctx: RenderContext,
-    operator: parser.Operator,
-    left: parser.Node,
-    right: parser.Node,
+    operator: ast.Operator,
+    left: ast.Node,
+    right: ast.Node,
     same_indent_on_line: boolean
 ): doc.Doc
     local operator_prec = operator.prec
-    local terms: {parser.Node} = {}
-    local gap_before_comments: {integer: parser.Comment} = {}
+    local terms: {ast.Node} = {}
+    local gap_before_comments: {integer: ast.Comment} = {}
     collect_chain_terms(left, operator, terms, gap_before_comments)
     collect_chain_terms(right, operator, terms, gap_before_comments)
 
@@ -205,7 +205,7 @@ local function render_binary_chain(
     return doc.group(doc.concat(parts))
 end
 
-local function render_string_literal(node: parser.Node): doc.Doc
+local function render_string_literal(node: ast.Node): doc.Doc
     return doc.text(
         render_builders.normalize_string_literal(node.tk, node.is_longstring)
     )
@@ -213,13 +213,13 @@ end
 
 -- Flattened, the separator between two statements reads `; ` and a leading comment
 -- swallows the rest of the line. One bare statement is safe.
-local function block_needs_own_lines(block: parser.Node): boolean
+local function block_needs_own_lines(block: ast.Node): boolean
     return #block ~= 1 or render_builders.any_items_have_comments(block)
 end
 
 -- A macro parameter declared `Statement` puts a block where the argument list
 -- expects an expression, so one reaches the expression dispatcher.
-local function render_statements(ctx: RenderContext, block: parser.Node): doc.Doc
+local function render_statements(ctx: RenderContext, block: ast.Node): doc.Doc
     local rendered = ctx.render_block(block) or doc.text("")
     if block_needs_own_lines(block) then
         return doc.concat({doc.break_parent(), rendered})
@@ -231,7 +231,7 @@ end
 -- paren-less argument forms a call accepts, and they normalise to parens here the
 -- same way `require "m"` does.
 local function call_doc_build_call_expr_doc(
-    ctx: RenderContext, node: parser.Node, callee: parser.Node, args: parser.Node
+    ctx: RenderContext, node: ast.Node, callee: ast.Node, args: ast.Node
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee, true)
     local bang_doc = node.is_macro_invocation and doc.text("!") or doc.text("")
@@ -240,27 +240,27 @@ local function call_doc_build_call_expr_doc(
     return doc.concat({callee_doc, bang_doc, call_args_doc, args_tc})
 end
 
-local function op_has_any_trivia(node: parser.Node): boolean
-    return #parser.inline_trivia(node, "op_leading") > 0
-        or #parser.inline_trivia(node, "op_trailing") > 0
+local function op_has_any_trivia(node: ast.Node): boolean
+    return #ast.inline_trivia(node, "op_leading") > 0
+        or #ast.inline_trivia(node, "op_trailing") > 0
 end
 
 -- Renders `left op right`, keeping any comment attached to the operator: a
 -- comment between the operands is pushed onto its own line instead of dropped.
 local function join_op_with_trivia(
-    node: parser.Node, left_doc: doc.Doc, right_doc: doc.Doc, plain_separator: doc.Doc
+    node: ast.Node, left_doc: doc.Doc, right_doc: doc.Doc, plain_separator: doc.Doc
 ): doc.Doc
     local parts: {doc.Doc} = {left_doc}
     trivia_doc.emit_transition(
         parts,
-        parser.inline_trivia(node, "op_leading"),
+        ast.inline_trivia(node, "op_leading"),
         node.e1.yend or node.e1.y,
         doc.text(node.op.op),
         plain_separator
     )
     trivia_doc.emit_transition(
         parts,
-        parser.inline_trivia(node, "op_trailing"),
+        ast.inline_trivia(node, "op_trailing"),
         node.op.y,
         right_doc,
         plain_separator
@@ -270,7 +270,7 @@ end
 
 local function render_op(
     ctx: RenderContext,
-    node: parser.Node,
+    node: ast.Node,
     parent_prec: integer,
     same_indent_on_line: boolean
 ): doc.Doc
@@ -318,11 +318,7 @@ local function render_op(
         local plain_sep = unary_separator(op, left)
         local parts: {doc.Doc} = {doc.text(op)}
         trivia_doc.emit_transition(
-            parts,
-            parser.inline_trivia(node, "op_trailing"),
-            operator.y,
-            child,
-            plain_sep
+            parts, ast.inline_trivia(node, "op_trailing"), operator.y, child, plain_sep
         )
         return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
     else
@@ -344,7 +340,7 @@ local function render_op(
     end
 end
 
-local EXPRESSION_LEAF: {parser.NodeKind: boolean} = {
+local EXPRESSION_LEAF: {ast.NodeKind: boolean} = {
     ["variable"] = true,
     ["identifier"] = true,
     ["..."] = true,
@@ -356,7 +352,7 @@ local EXPRESSION_LEAF: {parser.NodeKind: boolean} = {
 
 render_expr = function(
     ctx: RenderContext,
-    node: parser.Node,
+    node: ast.Node,
     parent_prec: integer,
     same_indent_on_line: boolean
 ): doc.Doc
@@ -384,7 +380,7 @@ render_expr = function(
 end
 
 function expr_doc.render(
-    ctx: RenderContext, node: parser.Node, same_indent_on_line?: boolean
+    ctx: RenderContext, node: ast.Node, same_indent_on_line?: boolean
 ): doc.Doc
     return render_root_expr(ctx, node, same_indent_on_line)
 end

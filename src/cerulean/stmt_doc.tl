@@ -1,8 +1,8 @@
 -- Single AST statement → doc.Doc. Returns nil for unsupported statement shapes.
+local ast = require("cerulean.ast")
 local doc = require("cerulean.doc")
 local function_doc = require("cerulean.function_doc")
 local inline_stmt_doc = require("cerulean.inline_stmt_doc")
-local parser = require("cerulean.parser")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local signature_doc = require("cerulean.signature_doc")
@@ -22,8 +22,8 @@ end
 
 local function render_type_alias_doc(
     name: string,
-    typeargs: {parser.TypeArgType},
-    def: parser.Type,
+    typeargs: {ast.TypeArgType},
+    def: ast.Type,
     type_keyword?: string,
     generic_doc?: doc.Doc
 ): doc.Doc
@@ -59,7 +59,7 @@ local function block_with_close(
 end
 
 local function render_enum_doc(
-    stmt: parser.Node, def: parser.EnumType, keyword?: string
+    stmt: ast.Node, def: ast.EnumType, keyword?: string
 ): doc.Doc
     local function build_header(): doc.Doc
         local kw = resolve_prefix(keyword)
@@ -93,20 +93,20 @@ end
 local render_type_def_doc: function(
     ctx: RenderContext,
     stmt_name: string,
-    def: parser.Type,
-    stmt: parser.Node,
+    def: ast.Type,
+    stmt: ast.Node,
     keyword?: string,
     generic_doc?: doc.Doc
 ): doc.Doc | nil
 
-local function is_userdata_nominal(iface: parser.Type): boolean
-    if not (iface is parser.NominalType) then
+local function is_userdata_nominal(iface: ast.Type): boolean
+    if not (iface is ast.NominalType) then
         return false
     end
     return #iface.names == 1 and iface.names[1] == "userdata"
 end
 
-local function has_string_key_field(record_def: parser.RecordLikeType): boolean
+local function has_string_key_field(record_def: ast.RecordLikeType): boolean
     for _, entry in ipairs(record_def.field_entries) do
         if entry.is_string_key then
             return true
@@ -119,15 +119,15 @@ end
 -- in the is-clause causes the second-pass parser to greedily consume the ["key"]
 -- field as an index on the where expression, producing broken output. Moving
 -- userdata into the body keeps the where expression boundary unambiguous.
-local function needs_userdata_in_body(record_def: parser.RecordLikeType): boolean
+local function needs_userdata_in_body(record_def: ast.RecordLikeType): boolean
     local has_where = record_def.meta_fields ~= nil
         and record_def.meta_fields["__is"] ~= nil
     return has_where and has_string_key_field(record_def)
 end
 
-local function render_interface_list_parts(record_def: parser.RecordLikeType): {doc.Doc}
+local function render_interface_list_parts(record_def: ast.RecordLikeType): {doc.Doc}
     local parts: {doc.Doc} = {}
-    local filtered: {parser.Type} = {}
+    local filtered: {ast.Type} = {}
     for _, iface in ipairs(record_def.interface_list or {}) do
         if not is_userdata_nominal(iface) or not needs_userdata_in_body(record_def) then
             table.insert(filtered, iface)
@@ -146,7 +146,7 @@ local function render_interface_list_parts(record_def: parser.RecordLikeType): {
     return parts
 end
 
-local function macroexp_signature_doc(macroexp: parser.Node): doc.Doc
+local function macroexp_signature_doc(macroexp: ast.Node): doc.Doc
     local typeargs = macroexp.typeargs and type_doc.render_typeargs(macroexp.typeargs)
         or doc.text("")
     return doc.concat(
@@ -159,12 +159,12 @@ local function macroexp_signature_doc(macroexp: parser.Node): doc.Doc
 end
 
 -- Teal allows a macroexp body only one return expression.
-local function macroexp_body_doc(ctx: RenderContext, macroexp: parser.Node): doc.Doc
+local function macroexp_body_doc(ctx: RenderContext, macroexp: ast.Node): doc.Doc
     return doc.concat({doc.text("return "), ctx.render_expr(macroexp.exp)})
 end
 
 local function render_macroexp_field_doc(
-    ctx: RenderContext, field_decl: doc.Doc, macroexp: parser.Node
+    ctx: RenderContext, field_decl: doc.Doc, macroexp: ast.Node
 ): doc.Doc
     local header_group = doc.group_ref()
     local header = header_group:group(
@@ -186,7 +186,7 @@ local function render_macroexp_field_doc(
 end
 
 local function render_field_entry(
-    ctx: RenderContext, entry: parser.FieldEntry
+    ctx: RenderContext, entry: ast.FieldEntry
 ): doc.Doc | nil
     if entry.node ~= nil and entry.node.newtype ~= nil then
         return render_type_def_doc(
@@ -222,10 +222,10 @@ local function render_field_entry(
     )
 
     local field_type = entry.the_type
-    if field_type is parser.GenericType then
+    if field_type is ast.GenericType then
         field_type = field_type.t
     end
-    if not (field_type is parser.FunctionType) or field_type.macroexp == nil then
+    if not (field_type is ast.FunctionType) or field_type.macroexp == nil then
         return field_decl
     end
 
@@ -238,7 +238,7 @@ local function render_field_entry(
 end
 
 local function render_record_like_body_doc(
-    ctx: RenderContext, stmt: parser.Node, record_def: parser.RecordLikeType
+    ctx: RenderContext, stmt: ast.Node, record_def: ast.RecordLikeType
 ): doc.Doc | nil
     local parts: {doc.Doc} = {}
     local line_before = false
@@ -272,7 +272,7 @@ local function render_record_like_body_doc(
 end
 
 local function render_record_like_header_doc(
-    ctx: RenderContext, def: parser.RecordLikeType
+    ctx: RenderContext, def: ast.RecordLikeType
 ): doc.Doc | nil
     local parts: {doc.Doc} = {}
     for _, part in ipairs(render_interface_list_parts(def)) do
@@ -280,7 +280,7 @@ local function render_record_like_header_doc(
     end
     if def.meta_fields ~= nil and def.meta_fields["__is"] ~= nil then
         local where_function = def.meta_fields["__is"]
-        assert(where_function is parser.FunctionType)
+        assert(where_function is ast.FunctionType)
         local where_macroexp = where_function.macroexp
         table.insert(parts, doc.text(" where "))
         local where_exp = where_macroexp.exp
@@ -295,8 +295,8 @@ end
 
 local function render_record_like_doc(
     ctx: RenderContext,
-    def: parser.RecordType | parser.InterfaceType,
-    stmt: parser.Node,
+    def: ast.RecordType | ast.InterfaceType,
+    stmt: ast.Node,
     keyword?: string,
     generic_doc?: doc.Doc
 ): doc.Doc | nil
@@ -329,18 +329,18 @@ end
 render_type_def_doc = function(
     ctx: RenderContext,
     stmt_name: string,
-    def: parser.Type,
-    stmt: parser.Node,
+    def: ast.Type,
+    stmt: ast.Node,
     keyword?: string,
     generic_doc?: doc.Doc
 ): doc.Doc | nil
-    if def is parser.EnumType then
+    if def is ast.EnumType then
         return render_enum_doc(stmt, def, keyword)
-    elseif def is parser.GenericType then
+    elseif def is ast.GenericType then
         return render_type_def_doc(
             ctx, stmt_name, def.t, stmt, keyword, type_doc.render_typeargs(def.typeargs)
         )
-    elseif def is parser.InterfaceType | parser.RecordType then
+    elseif def is ast.InterfaceType | ast.RecordType then
         return render_record_like_doc(ctx, def, stmt, keyword, generic_doc)
     else
         return render_type_alias_doc(
@@ -350,7 +350,7 @@ render_type_def_doc = function(
 end
 
 local function render_type_doc(
-    ctx: RenderContext, stmt: parser.Node, keyword?: string
+    ctx: RenderContext, stmt: ast.Node, keyword?: string
 ): doc.Doc | nil
     local prefix = resolve_prefix(keyword)
     if stmt.value == nil then
@@ -368,8 +368,8 @@ local function render_type_doc(
     return render_type_def_doc(ctx, stmt.var.tk, stmt.value.newtype.def, stmt, keyword)
 end
 
-local function render_function_name(node: parser.Node): doc.Doc | nil
-    local function render_function_owner(owner: parser.Node): string | nil
+local function render_function_name(node: ast.Node): doc.Doc | nil
+    local function render_function_owner(owner: ast.Node): string | nil
         if
             owner.kind == "identifier"
             or owner.kind == "type_identifier"
@@ -393,7 +393,7 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
         return nil
     end
 
-    local function render_function_typeargs(fn_node: parser.Node): doc.Doc
+    local function render_function_typeargs(fn_node: ast.Node): doc.Doc
         if fn_node.typeargs == nil then
             return doc.text("")
         end
@@ -442,7 +442,7 @@ local function render_function_name(node: parser.Node): doc.Doc | nil
 end
 
 local function render_function_definition_doc(
-    ctx: RenderContext, node: parser.Node
+    ctx: RenderContext, node: ast.Node
 ): doc.Doc | nil
     local name_prefix = render_function_name(node)
     if name_prefix is nil then
@@ -451,7 +451,7 @@ local function render_function_definition_doc(
     return function_doc.render(ctx, node, name_prefix)
 end
 
-local function render_local_macroexp_doc(ctx: RenderContext, node: parser.Node): doc.Doc
+local function render_local_macroexp_doc(ctx: RenderContext, node: ast.Node): doc.Doc
     assert(
         node.name ~= nil and node.macrodef ~= nil and node.macrodef.exp ~= nil,
         "bad local_macroexp node"
@@ -473,7 +473,7 @@ local function render_local_macroexp_doc(ctx: RenderContext, node: parser.Node):
     )
 end
 
-local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
+local function render_if_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
     if node.if_blocks == nil then
         return nil
     end
@@ -493,9 +493,7 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
                 return doc.text("else")
             end
             local keyword = index == 1 and "if" or "elseif"
-            local has_inline_trivia = #parser.inline_trivia(
-                if_block, "after_opener"
-            ) > 0
+            local has_inline_trivia = #ast.inline_trivia(if_block, "after_opener") > 0
             if
                 not has_inline_trivia
                 and render_builders.is_top_level_binary_op(if_block.exp)
@@ -525,7 +523,7 @@ local function render_if_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
     return doc.concat(parts)
 end
 
-local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
+local function render_while_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
     if node.exp == nil or node.body == nil then
         return nil
     end
@@ -535,7 +533,7 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
-    local has_inline_trivia = #parser.inline_trivia(node, "after_opener") > 0
+    local has_inline_trivia = #ast.inline_trivia(node, "after_opener") > 0
     local should_wrap_around = not has_inline_trivia
         and render_builders.is_top_level_binary_op(node.exp)
         and not render_builders.has_chain_internal_trivia(node.exp)
@@ -558,7 +556,7 @@ local function render_while_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
     return block_with_close(header, body_doc, "end")
 end
 
-local function build_fornum_range_doc(node: parser.Node, ctx: RenderContext): doc.Doc
+local function build_fornum_range_doc(node: ast.Node, ctx: RenderContext): doc.Doc
     local range_parts: {doc.Doc} = {
         ctx.render_expr(node.from),
         doc.text(", "),
@@ -571,7 +569,7 @@ local function build_fornum_range_doc(node: parser.Node, ctx: RenderContext): do
     return doc.concat(range_parts)
 end
 
-local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
+local function render_fornum_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
     if node.var == nil or node.from == nil or node.to == nil or node.body == nil then
         return nil
     end
@@ -597,7 +595,7 @@ local function render_fornum_doc(ctx: RenderContext, node: parser.Node): doc.Doc
     )
 end
 
-local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
+local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
     if node.vars == nil or node.exps == nil or node.body == nil then
         return nil
     end
@@ -612,7 +610,7 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
         return nil
     end
 
-    local has_inline_trivia = #parser.inline_trivia(node, "after_opener") > 0
+    local has_inline_trivia = #ast.inline_trivia(node, "after_opener") > 0
     local single_exp_is_chainable = #node.exps == 1
         and render_builders.is_top_level_binary_op(node.exps[1])
         and not render_builders.has_chain_internal_trivia(node.exps[1])
@@ -662,7 +660,7 @@ local function render_forin_doc(ctx: RenderContext, node: parser.Node): doc.Doc 
     return block_with_close(build_header(), body_doc, "end")
 end
 
-local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
+local function render_repeat_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
     if node.body == nil or node.exp == nil then
         return nil
     end
@@ -679,7 +677,7 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
     -- block_with_indent always emits a newline into the body, which produces a
     -- spurious blank line when the body is empty. Skip it in that case.
     local is_empty_body = #node.body == 0 and #(node.body.dangling_comments or {}) == 0
-    local has_inline_trivia = #parser.inline_trivia(node, "after_opener") > 0
+    local has_inline_trivia = #ast.inline_trivia(node, "after_opener") > 0
     local should_wrap_around = not has_inline_trivia
         and render_builders.is_top_level_binary_op(node.exp)
         and not render_builders.has_chain_internal_trivia(node.exp)
@@ -702,7 +700,7 @@ local function render_repeat_doc(ctx: RenderContext, node: parser.Node): doc.Doc
     return block_with_indent(header, body_doc, until_doc)
 end
 
-local function render_do_doc(ctx: RenderContext, node: parser.Node): doc.Doc | nil
+local function render_do_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
     if node.body == nil then
         return nil
     end
@@ -716,7 +714,7 @@ local function render_do_doc(ctx: RenderContext, node: parser.Node): doc.Doc | n
 end
 
 function stmt_doc.render_statement_doc(
-    ctx: RenderContext, node: parser.Node
+    ctx: RenderContext, node: ast.Node
 ): doc.Doc | nil
     if node.kind == "return" then
         return inline_stmt_doc.render_return_doc(ctx, node)

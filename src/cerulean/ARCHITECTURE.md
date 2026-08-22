@@ -14,7 +14,8 @@ If blocked or render fails: keep original source.
 ## Modules
 
 - `rewriter.tl` — pipeline.
-- `parser.tl` — typed Teal AST parser.
+- `ast.tl` — the AST data contract: `Node`, the `Type` hierarchy, `Comment`, `InlineSlot`, `inline_trivia` accessor. Renderers depend on this, not on the parser; any parser producing `ast.Node` trees can drive them.
+- `parser.tl` — typed Teal parser producing `ast.Node` trees.
 - `ast_traversal.tl` — AST walks + block ranges.
 - `source.tl` — `Text`, `Range`, `Region/Regions`, fmt-region collection.
 - `render_context.tl` — `RenderContext` + ctor; holds render callbacks (breaks circular deps).
@@ -25,7 +26,7 @@ If blocked or render fails: keep original source.
 - `render_builders.tl` — shared doc helpers.
 - `require_sort.tl` — top-level require reorder.
 
-Dep direction: `rewriter` → render → doc builders → doc core.
+Dep direction: `rewriter` → render → doc builders → doc core. `rewriter` is the only module requiring `parser`; everything downstream depends on `ast` only.
 
 ## RenderContext
 
@@ -41,7 +42,7 @@ Breaks `block_doc` ↔ `stmt_doc` ↔ `expr_doc` ↔ `table_doc` cycle via callb
 - `append_comment_docs(parts, comments, line_before)` — own-line leading comments with `hardline` separators; returns updated `line_before`.
 - `any_items_have_comments(items)` — any `leading_comments` / `trailing_comments`. Drives force-wrap. Deliberately ignores `"before_separator"` inline trivia (inline block-trivia must not flip flat → wrapped).
 - `item_line_doc(force_wrap)` — `hardline` if force-wrapping, else `softline`.
-- `append_lines_pre_node(node, line_before, line_from_before?)` — separator + extra `hardline` for `blank_line_before`. Accepts `parser.Node` or `parser.FieldEntry`.
+- `append_lines_pre_node(node, line_before, line_from_before?)` — separator + extra `hardline` for `blank_line_before`. Accepts `ast.Node` or `ast.FieldEntry`.
 - `build_grouped_comma_items_doc(item_docs)` — comma list whose commas all give at once: one line, or one item per line. The second stage of every two-stage break (delimited sequences, `=` value lists).
 - `exp_list_can_break(exps)` — more than one item and no threaded comments. Guards both list builders below.
 - `build_exp_list_doc(ctx, exps)` — comma-joined expression list; threads item comments when present, otherwise `build_grouped_comma_items_doc`. Callers frame it: `inline_stmt_doc` wraps it with `wrap_keyword_before` so a long `=` list drops below the `=` before its commas give.
@@ -63,7 +64,7 @@ Hybrid: three node-level slots for structural cases + per-position `{Comment}` t
 - `"head"` — same-line after block-opener (`do`/`then`/`function`/`repeat`/`until`). Holds the opener-line comment regardless of whether the body is empty; storage tracks source position, not body state. Empty-body + own-line comment inside the block is the orthogonal case and goes in `dangling_comments`.
 - `"after_opener"` — same-line after value-introducing opener (`(`, `=`, `until`, `return`, `if`).
 
-Access via `parser.inline_trivia(node, slot)` — returns the list, or an empty constant when absent (treat as read-only). Adding a new between-tokens case = adding an enum value, not a Node field.
+Access via `ast.inline_trivia(node, slot)` — returns the list, or an empty constant when absent (treat as read-only). Adding a new between-tokens case = adding an enum value, not a Node field.
 
 **`trivia_doc.tl` helpers:**
 - `partition(trivia, anchor_line)` → `(same_line_head, own_line_tail)`.

@@ -6,7 +6,7 @@
 --   Leading comments (before a require) travel with their require.
 --   Trailing comments (same-line, parser-attached to the next node) are
 --   redistributed so they remain after their original require in the output.
-local parser = require("cerulean.parser")
+local ast = require("cerulean.ast")
 local source = require("cerulean.source")
 
 local type Regions = source.Regions
@@ -14,18 +14,18 @@ local type Regions = source.Regions
 local require_sort = {}
 
 local record SortableRequire
-    node: parser.Node
+    node: ast.Node
     module_path: string
 end
 
-function SortableRequire.new(node: parser.Node, module_path: string): SortableRequire
+function SortableRequire.new(node: ast.Node, module_path: string): SortableRequire
     local self: SortableRequire = setmetatable({}, {__index = SortableRequire})
     self.node = node
     self.module_path = module_path
     return self
 end
 
-local function extract_require_module_path(node: parser.Node): string | nil
+local function extract_require_module_path(node: ast.Node): string | nil
     if node.kind ~= "local_declaration" then
         return nil
     end
@@ -62,20 +62,20 @@ local function by_module_path(first: SortableRequire, second: SortableRequire): 
     return first.module_path < second.module_path
 end
 
-local function comment_len(comment: parser.Comment): integer
+local function comment_len(comment: ast.Comment): integer
     local _, comment_line_breaks = comment.text:gsub("\n", "\n")
     return comment_line_breaks + 1
 end
 
-local function comment_yend(comment: parser.Comment): integer
+local function comment_yend(comment: ast.Comment): integer
     return comment.y + comment_len(comment) - 1
 end
 
-local function separate_comments(node: parser.Node): {parser.Comment}, {parser.Comment}
+local function separate_comments(node: ast.Node): {ast.Comment}, {ast.Comment}
     local comments = node.leading_comments or {}
     local previous_y = node.y
-    local floating_comments: {parser.Comment} = {}
-    local attached_comments: {parser.Comment} = {}
+    local floating_comments: {ast.Comment} = {}
+    local attached_comments: {ast.Comment} = {}
     local entered_floating_region = false
     for i = #comments, 1, -1 do
         local comment = comments[i]
@@ -92,12 +92,10 @@ local function separate_comments(node: parser.Node): {parser.Comment}, {parser.C
     return attached_comments, floating_comments
 end
 
-function require_sort.sort_top_level_requires(
-    ast: parser.Node, fmt_off_regions: Regions
-)
+function require_sort.sort_top_level_requires(root: ast.Node, fmt_off_regions: Regions)
     local sortable: {SortableRequire} = {}
 
-    for _, node in ipairs(ast) do
+    for _, node in ipairs(root) do
         local node_end = node.yend or node.y
         if fmt_off_regions:includes_range(node.y, node_end) then
             break
@@ -121,7 +119,7 @@ function require_sort.sort_top_level_requires(
     local float_module_documentation = {}
     local attach_module_documentation = {}
 
-    local all_floating_comments: {parser.Comment} = {}
+    local all_floating_comments: {ast.Comment} = {}
     for index, entry in ipairs(sortable) do
         local attached_comments, floating_comments = separate_comments(entry.node)
 
@@ -149,7 +147,7 @@ function require_sort.sort_top_level_requires(
 
     -- TODO: Need to refactor all these for loops so things
     -- can be read in a more declarative way!
-    local total_top_level_comments: {parser.Comment} = {}
+    local total_top_level_comments: {ast.Comment} = {}
     for _, comment in ipairs(float_module_documentation) do
         table.insert(total_top_level_comments, comment)
         current_y = comment_yend(comment) + 2
@@ -187,7 +185,7 @@ function require_sort.sort_top_level_requires(
         local node_len = (entry.node.yend or entry.node.y) - entry.node.y
         entry.node.y = current_y
         entry.node.yend = current_y + node_len
-        ast[index] = entry.node
+        root[index] = entry.node
         current_y = entry.node.yend + 1
     end
 
@@ -202,17 +200,17 @@ function require_sort.sort_top_level_requires(
         current_y = comment.yend + 1
     end
 
-    local next_stmt = ast[count + 1]
+    local next_stmt = root[count + 1]
     if next_stmt then
         for _, comment in ipairs(next_stmt.leading_comments or {}) do
             table.insert(all_floating_comments, comment)
         end
         next_stmt.leading_comments = all_floating_comments
     else
-        for _, comment in ipairs(ast.dangling_comments or {}) do
+        for _, comment in ipairs(root.dangling_comments or {}) do
             table.insert(all_floating_comments, comment)
         end
-        ast.dangling_comments = all_floating_comments
+        root.dangling_comments = all_floating_comments
     end
 end
 
