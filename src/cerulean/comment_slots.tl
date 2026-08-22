@@ -248,12 +248,12 @@ end
 -- (the separator having wrapped to the next line) and one parked on the
 -- separator itself both trail the node, in source order; a block comment there
 -- has no inline home and is left for the per-statement sweep to relocate. A
--- stamped tok_bound (the parent's `=`/`:` right after the node) ends the claim
--- at line comments only and donates nothing. With no stamp the node sits
--- before a closer or plain code and takes its last token's same-line run
--- whole. Selection only: trailing_comments converts the run for emission, while
--- trailing_extent -- called for every node in a geometry walk -- reads just its
--- reach.
+-- stamped tok_bound (the parent's `=`/`:`, or a table's `}`, right after the
+-- node) ends the claim at line comments only and donates nothing. With no stamp
+-- the node sits before a closer or plain code and takes its last token's
+-- same-line run whole. Selection only: trailing_comments converts the run for
+-- emission, while trailing_extent -- called for every node in a geometry walk --
+-- reads just its reach.
 local function trailing_run(
     self: CommentSlots, node: ast.HasTokenSpan
 ): {token_stream.Trivia}

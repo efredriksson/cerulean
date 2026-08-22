@@ -73,7 +73,7 @@ A node addresses its tokens through the index slots the parser stamps: `tok_firs
 | `slot_tok[InlineSlot]` | construct | opener token feeding a positional slot |
 | `tok_op` | expression | operator / `.`/`:` member / `as`/`is` token |
 | `tok_sep` | list item | my following list separator (`,` / table `;` / `|`); it donates its same-line trailing trivia to me |
-| `tok_bound` | pre-boundary node | the parent construct's `=`/`:` right after me; ends my same-line trivia claim, donates nothing |
+| `tok_bound` | pre-boundary node | the token right after me that ends my same-line trivia claim without donating any of its own: the parent construct's `=`/`:`, or a table constructor's `}` (its last item sits in a separator position whether or not the source filled it) |
 
 Discarded statement `;` tokens need no stamp: they render nothing, so the parser **deletes them from the token array at the moment it consumes them**, moving any comments parked on the `;` to the following token (the StyLua model — a removed token donates its trivia to a neighbor). `token_stream.from_tokens` then splits those comments against the surviving neighbors as usual: same-line ones become the previous token's trailing, own-line ones the next token's leading. After the parse the renderer's leading read is just "my first token's leading trivia" and statement gaps hold nothing — no scanning, no boundary arguments. One geometric trace remains: a return's consumed `;` leaves its line in `node.yend`, so an fmt:off region anchored only by the `;` line still freezes the statement (frozen output is raw source lines, which preserves the `;` bytes).
 

@@ -1879,6 +1879,15 @@ describe("formatter comment matrix (single-line)", function()
          local t = {1, 2}
       ]=]))
 
+      -- The formatter writes the comma the source omitted, so this ends up past
+      -- a separator like the cases above.
+      it("relocates a block comment after the last table field to statement leading", helpers.format([=[
+         local t = {1 --[[last?]]}
+      ]=], [=[
+         --[[last?]]
+         local t = {1}
+      ]=]))
+
       it("relocates a block comment after a declaration-rhs comma to statement leading", helpers.format([=[
          local x, y = 1, --[[second]] 2
       ]=], [=[

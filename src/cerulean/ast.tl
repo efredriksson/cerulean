@@ -70,8 +70,9 @@ local record ast
         -- array as it consumes them.)
         --   tok_sep: the list separator (`,` / table `;` / `|`) right after this
         --     item; it donates its same-line trailing trivia to the item.
-        --   tok_bound: the parent construct's `=`/`:` right after this node; it
-        --     ends the node's same-line trivia claim and donates nothing.
+        --   tok_bound: the token right after this node that ends its same-line
+        --     trivia claim without donating any of its own -- the parent
+        --     construct's `=`/`:`, or a table constructor's `}`.
         tok_sep: integer
         tok_bound: integer
     end

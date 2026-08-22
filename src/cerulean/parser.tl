@@ -565,8 +565,15 @@ do
     local function parse_table_literal(ps: ParseState, i: integer): integer, Node
         local node = new_node(ps, i, "literal_table")
         i, node = parse_bracket_list(ps, i, node, "{", "}", "term", parse_table_item)
-        node.trailing_comma = #node > 0
-            and (ps.tokens[i - 2].tk == "," or ps.tokens[i - 2].tk == ";")
+        local last = node[#node]
+        node.trailing_comma = last ~= nil and last.tok_sep ~= nil
+        -- The place after the last item is a separator position whether or not
+        -- the source filled it, so the closer bounds that item's claim just as a
+        -- written separator would. Unbounded, a block comment there renders past
+        -- the separator the formatter adds and the next parse reads across it.
+        if last ~= nil and not node.trailing_comma then
+            last.tok_bound = node.tok_last
+        end
         return i, node
     end
 
