@@ -71,12 +71,21 @@ function render_builders.build_mapped_comma_separated_docs(
     return render_builders.build_comma_separated_docs(mapped_exp_docs(ctx, nodes))
 end
 
+-- A line comment closes the line it sits on, so only the run's blocks and its first
+-- line comment can share the content's line; padding a second onto it would fuse both
+-- texts into one comment. Runs that reach across a list separator -- the item's own
+-- comment, then the separator's -- are the ones that carry two.
 function render_builders.trailing_comment_doc(comments: {ast.Comment}): doc.Doc
     local parts: {doc.Doc} = {}
+    local line_closed = false
     for _, comment in ipairs(comments) do
-        table.insert(
-            parts, doc.concat({doc.text(" "), trivia_doc.comment_doc(comment)})
-        )
+        local rendered = trivia_doc.comment_doc(comment)
+        if line_closed then
+            table.insert(parts, doc.indent_hardline(rendered))
+        else
+            table.insert(parts, doc.concat({doc.text(" "), rendered}))
+        end
+        line_closed = not trivia_doc.is_block_comment(comment.text)
     end
     return doc.concat(parts)
 end
@@ -122,32 +131,77 @@ function render_builders.exp_list_can_break(
     return #exps > 1 and not render_builders.any_items_have_comments(ctx, exps, false)
 end
 
+function render_builders.append_comment_docs(
+    parts: {doc.Doc}, comments: {ast.Comment}, line_before: boolean
+): boolean
+    for _, comment in ipairs(comments) do
+        if line_before then
+            table.insert(parts, doc.hardline())
+        end
+        if comment.blank_line_before then
+            table.insert(parts, doc.hardline())
+        end
+        table.insert(parts, trivia_doc.comment_doc(comment))
+        line_before = true
+    end
+    return line_before
+end
+
+-- The first item's own-line comments lead the whole statement, so the enclosing block
+-- emits those; only a continuation item reads its own.
+local function continuation_leading_comments(
+    ctx: RenderContext, items: {ast.Node}, index: integer
+): {ast.Comment}
+    if index == 1 then
+        return {}
+    end
+    return ctx.slots:item_leading_comments(items[index], items[index - 1], false)
+end
+
+local function with_own_line_comments(
+    comments: {ast.Comment}, item_doc: doc.Doc
+): doc.Doc
+    local parts: {doc.Doc} = {}
+    render_builders.append_comment_docs(parts, comments, false)
+    table.insert(parts, doc.hardline())
+    table.insert(parts, item_doc)
+    return doc.concat(parts)
+end
+
 -- Join pre-rendered list items with ", ", but when a non-last item carries a
 -- trailing comment (a line comment after it or its separator) emit the comma, the
--- comment, and a hardline so the next item starts on its own line. Callers that can
--- render their items through ctx.render_expr use build_exp_list_doc; this one takes
--- pre-rendered docs for lists whose items carry syntax render_expr does not (a
--- variable list's `<const>` attributes), so the caller owns item rendering and this
--- owns the separators + per-item trailing.
+-- comment, and a hardline so the next item starts on its own line. An item's own-line
+-- leading comments open that line too, which is where the trailing run parks the
+-- comments that could not stay on the separator's line. Callers that can render their
+-- items through ctx.render_expr use build_exp_list_doc; this one takes pre-rendered
+-- docs for lists whose items carry syntax render_expr does not (a variable list's
+-- `<const>` attributes), so the caller owns item rendering and this owns the
+-- separators + per-item leading and trailing.
 function render_builders.build_comma_separated_with_trailing(
     ctx: RenderContext, items: {ast.Node}, item_docs: {doc.Doc}
 ): doc.Doc
     local parts: {doc.Doc} = {}
     local force_next_indent = false
     for index, item_doc in ipairs(item_docs) do
+        local leading = continuation_leading_comments(ctx, items, index)
         local rendered = item_doc
-        if force_next_indent then
-            rendered = doc.indent_hardline(rendered)
-            force_next_indent = false
+        if #leading > 0 then
+            rendered = with_own_line_comments(leading, rendered)
         end
+        if force_next_indent or #leading > 0 then
+            rendered = doc.indent_hardline(rendered)
+        end
+        force_next_indent = false
         if index < #item_docs then
             local trailing = ctx.slots:trailing_comments(items[index])
             if #trailing > 0 then
-                local trailing_parts: {doc.Doc} = {rendered, doc.text(",")}
-                for _, comment in ipairs(trailing) do
-                    table.insert(trailing_parts, doc.text(" " .. comment.text))
-                end
-                rendered = doc.concat(trailing_parts)
+                rendered = doc.concat(
+                    {
+                        rendered,
+                        doc.text(","),
+                        render_builders.trailing_comment_doc(trailing),
+                    }
+                )
                 force_next_indent = true
             else
                 rendered = doc.concat({rendered, doc.text(", ")})
@@ -315,22 +369,6 @@ function render_builders.with_leading_inline_trivia(
     trivia_doc.append_inline_joined(parts, after_opener)
     table.insert(parts, doc.indent_hardline(content))
     return doc.concat(parts)
-end
-
-function render_builders.append_comment_docs(
-    parts: {doc.Doc}, comments: {ast.Comment}, line_before: boolean
-): boolean
-    for _, comment in ipairs(comments) do
-        if line_before then
-            table.insert(parts, doc.hardline())
-        end
-        if comment.blank_line_before then
-            table.insert(parts, doc.hardline())
-        end
-        table.insert(parts, trivia_doc.comment_doc(comment))
-        line_before = true
-    end
-    return line_before
 end
 
 function render_builders.key_starts_with_long_string(node: ast.Node): boolean

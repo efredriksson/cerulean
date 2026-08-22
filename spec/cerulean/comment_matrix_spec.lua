@@ -1649,6 +1649,26 @@ describe("formatter comment matrix (single-line)", function()
                  b
          end
       ]]))
+
+      it("keeps a comment trailing the exp separate from one trailing the comma", helpers.format([[
+         return a -- one
+             , -- two
+             b
+      ]], [[
+         return a, -- one
+             -- two
+             b
+      ]]))
+
+      it("indents an own-line comment between a comma and the next exp", helpers.format([[
+         return a,
+         -- note
+         b
+      ]], [[
+         return a,
+             -- note
+             b
+      ]]))
    end)
 
    describe("trailing comment in comma-separated variable list", function()
