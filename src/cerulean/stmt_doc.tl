@@ -188,10 +188,8 @@ end
 local function render_field_entry(
     ctx: RenderContext, entry: ast.FieldEntry
 ): doc.Doc | nil
-    if entry.node ~= nil and entry.node.newtype ~= nil then
-        return render_type_def_doc(
-            ctx, entry.name, entry.node.newtype.def, entry.node, nil
-        )
+    if entry.node ~= nil and entry.node.def ~= nil then
+        return render_type_def_doc(ctx, entry.name, entry.node.def, entry.node, nil)
     end
 
     local function prefix(): string
@@ -365,7 +363,7 @@ local function render_type_doc(
         )
     end
 
-    return render_type_def_doc(ctx, stmt.var.tk, stmt.value.newtype.def, stmt, keyword)
+    return render_type_def_doc(ctx, stmt.var.tk, stmt.value.def, stmt, keyword)
 end
 
 local function render_function_name(node: ast.Node): doc.Doc | nil

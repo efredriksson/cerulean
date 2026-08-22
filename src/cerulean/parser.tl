@@ -24,7 +24,6 @@ local type Where = ast.Where
 local type TypeName = ast.TypeName
 local type Type = ast.Type
 local type GenericType = ast.GenericType
-local type TypeDeclType = ast.TypeDeclType
 local type TupleType = ast.TupleType
 local type TypeArgType = ast.TypeArgType
 local type NominalType = ast.NominalType
@@ -261,12 +260,6 @@ do
         gt.typeargs = typeargs
         gt.t = typ
         return gt
-    end
-
-    local function new_typedecl(ps: ParseState, i: integer, def: Type): TypeDeclType
-        local t = new_type(ps, i, "typedecl") as TypeDeclType
-        t.def = def
-        return t
     end
 
     local function new_tuple(
@@ -2492,12 +2485,12 @@ do
 
         set_declname(ndef, v.tk)
 
-        nt.newtype = new_typedecl(ps, istart, ndef)
+        nt.def = ndef
 
         store_field_in_record(
             ps,
             v.tk,
-            nt.newtype,
+            ndef,
             def,
             nt,
             i,
@@ -2725,11 +2718,11 @@ do
                 local nt = lt.value
                 nt.typeargs = lt.typeargs
                 nt.is_type_declaration = lt.is_type_declaration
-                if not nt or not nt.newtype then
+                if not nt or not nt.def then
                     return fail(ps, i, "expected a type definition")
                 end
 
-                store_field_in_record(ps, v.tk, nt.newtype, def, nt, i, comments)
+                store_field_in_record(ps, v.tk, nt.def, def, nt, i, comments)
             elseif parse_type_body_fns[tn] and ps.tokens[i + 1].tk ~= ":" then
                 if def.typename == "interface" and tn == "record" then
                     i = fail(ps, i, "interfaces cannot contain record definitions")
@@ -2886,7 +2879,7 @@ do
             return fail(ps, i, "expected a type")
         end
 
-        node.newtype = new_typedecl(ps, istart, def)
+        node.def = def
 
         return i, node
     end
@@ -3113,24 +3106,22 @@ do
             return i
         end
 
-        local nt = asgn.value.newtype
-        if nt is TypeDeclType then
-            if typeargs then
-                local def = nt.def
-                if def is GenericType then
-                    fail(
-                        ps,
-                        itypeargs,
-                        "cannot declare type arguments twice in type declaration"
-                    )
-                else
-                    nt.def = new_generic(ps, istart, typeargs, def)
-                    asgn.typeargs = typeargs
-                end
+        local nt = asgn.value
+        if typeargs then
+            local def = nt.def
+            if def is GenericType then
+                fail(
+                    ps,
+                    itypeargs,
+                    "cannot declare type arguments twice in type declaration"
+                )
+            else
+                nt.def = new_generic(ps, istart, typeargs, def)
+                asgn.typeargs = typeargs
             end
-
-            set_declname(nt.def, asgn.var.tk)
         end
+
+        set_declname(nt.def, asgn.var.tk)
 
         return i, asgn
     end
@@ -3161,7 +3152,7 @@ do
 
         set_declname(def, asgn.var.tk)
 
-        nt.newtype = new_typedecl(ps, istart, def)
+        nt.def = def
 
         return i, asgn
     end

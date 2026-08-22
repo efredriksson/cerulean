@@ -6,7 +6,6 @@ local tl = require("tl")
 local record ast
     enum TypeName
         "generic"
-        "typedecl"
         "typearg"
         "function"
         "array"
@@ -56,13 +55,6 @@ local record ast
 
         typeargs: {TypeArgType}
         t: Type
-    end
-
-    record TypeDeclType
-        is Type
-        where self.typename == "typedecl"
-
-        def: Type
     end
 
     interface HasDeclName
@@ -303,7 +295,7 @@ local record ast
         step:                           Node
         vars:                           Node
         exps:                           Node
-        newtype:                        TypeDeclType
+        def:                            Type
         op:                             Operator
         e1:                             Node
         e2:                             Node

@@ -179,8 +179,6 @@ type_doc_render = function(type_def: ast.Type, opts: TypeRenderOpts): doc.Doc
         )
     elseif type_def is ast.FunctionType then
         return function_type_render(type_def, opts)
-    elseif type_def is ast.TypeDeclType then
-        assert(false, "implementation error, does not support enum/interface/...")
     elseif type_def is ast.TupleTableType then
         local type_docs: {doc.Doc} = {}
         for _, t in ipairs(type_def.types) do
