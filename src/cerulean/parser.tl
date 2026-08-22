@@ -12,7 +12,6 @@ local record parser
    enum TypeName
       "generic"
       "typedecl"
-      "typevar"
       "typearg"
       "function"
       "array"
@@ -30,20 +29,10 @@ local record parser
       "integer"
       "union"
       "nominal"
-      "emptytable"
-      "literal_table_item"
-      "unresolved_emptytable_value"
-      "unresolved_typearg"
-      "unresolvable_typearg"
-      "circular_require"
       "tuple"
       "poly"
       "any"
       "table"
-      "unknown"
-      "invalid"
-      "none"
-      "*"
    end
 
    record Operator
@@ -66,9 +55,6 @@ local record parser
 
    interface Type is Where, HasInlineTrivia where self.typename
       typename: TypeName    -- discriminator
-      typeid: integer       -- unique identifier
-      inferred_at: Where    -- for error messages
-      needs_compat: boolean -- for Lua compatibilty
       paren: boolean
    end
 
@@ -88,21 +74,6 @@ local record parser
       is FirstOrderType
    end
 
-   record StringType is StructuralType where self.typename == "string"
-      literal: string
-   end
-
-   -- interface NumericType is StructuralType where is_numeric_type(self)
-   -- end
-
-   -- record IntegerType is NumericType where self.typename == "integer"
-   -- end
-
-   record BooleanType
-      is StructuralType
-      where self.typename == "boolean"
-   end
-
    record TypeDeclType
       is Type
       where self.typename == "typedecl"
@@ -111,16 +82,6 @@ local record parser
       closed: boolean
       is_alias: boolean
       is_nested_alias: boolean
-   end
-
-   record LiteralTableItemType
-      is Type
-      where self.typename == "literal_table_item"
-
-      -- table items
-      kname: string
-      ktype: FirstClassType
-      vtype: FirstClassType
    end
 
    interface HasDeclName
@@ -218,20 +179,6 @@ local record parser
       where self.typename == "interface"
    end
 
-   -- producing a new value of this type (not propagating)
-   -- must always produce a type error
-   record InvalidType
-      is Type
-      where self.typename == "invalid"
-   end
-
-   -- To be used in lax mode only:
-   -- this represents non-annotated types in .lua files.
-   record UnknownType
-      is Type
-      where self.typename == "unknown"
-   end
-
    record TupleType
       is FirstOrderType
       where self.typename == "tuple"
@@ -250,26 +197,6 @@ local record parser
       constraint: Type
    end
 
-   record UnresolvedTypeArgType
-      is TypeArgType
-      where self.typename == "unresolved_typearg"
-   end
-
-   record UnresolvableTypeArgType
-      is Type
-      where self.typename == "unresolvable_typearg"
-
-      typearg: string
-   end
-
-   record TypeVarType
-      is FirstOrderType
-      where self.typename == "typevar"
-
-      typevar: string
-      constraint: Type
-   end
-
    record MapType
       is StructuralType
       where self.typename == "map"
@@ -281,22 +208,6 @@ local record parser
    record NilType
       is StructuralType
       where self.typename == "nil"
-   end
-
-   record EmptyTableType
-      is Type
-      where self.typename == "emptytable"
-
-      declared_at: Node
-      assigned_to: string
-      keys: Type
-   end
-
-   record UnresolvedEmptyTableValueType
-      is Type
-      where self.typename == "unresolved_emptytable_value"
-
-      emptytable_type: EmptyTableType
    end
 
    record FunctionType
@@ -352,58 +263,6 @@ local record parser
       "const"
       "close"
       "total"
-   end
-
-   enum Narrow
-      "narrow"
-      "narrowed_declaration"
-      "localizing"
-   end
-
-   record Variable
-      t: Type
-      attribute: Attribute
-      needs_compat: boolean
-      narrowed_from: Type
-      is_narrowed: Narrow
-      declared_at: Node
-      is_func_arg: boolean
-      used_as_type: boolean
-      aliasing: Variable
-      implemented: {string:boolean}
-      has_been_read_from: boolean
-      has_been_written_to: boolean
-   end
-
-   record Errors
-      filename: string
-      errors: {tl.Error}
-      warnings: {tl.Error}
-      unknown_dots: {string:boolean}
-   end
-
-   type errors = Errors
-
-   typecodes: {string:integer}
-
-   record TypeInfo
-      t: integer
-
-      str: string
-      file: string
-      x: integer
-      y: integer
-      ref: integer -- NOMINAL
-      fields: {string: integer} -- RECORD
-      enums: {string} -- ENUM
-      args: {{integer, string}} -- FUNCTION
-      rets: {{integer, string}} -- FUNCTION
-      vararg: boolean -- FUNCTION
-      varret: boolean -- FUNCTION
-      types: {integer} -- UNION, POLY, TUPLE
-      keys: integer -- MAP
-      values: integer -- MAP
-      elements: integer -- ARRAY
    end
 
    enum NodeKind
@@ -465,24 +324,15 @@ local record parser
         is {Node}, Where, HasInlineTrivia
         where self.kind ~= nil
 
-        record ExpectedContext
-            kind: NodeKind
-            name: string
-        end
-
         -- fmt: off
         tk:                             string
         kind:                           NodeKind
         leading_comments:               {Comment}
-        symbol_list_slot:               integer
         semicolon:                      boolean
         hashbang:                       string
         is_longstring:                  boolean
         yend:                           integer
         close_x:                        integer
-        known:                          Fact
-        expected:                       Type
-        expected_context:               Node.ExpectedContext
         key:                            Node
         value:                          Node
         key_parsed:                     KeyParsed
@@ -492,7 +342,6 @@ local record parser
         rets:                           TupleType
         body:                           Node
         implicit_global_function:       boolean
-        is_predeclared_local_function:  boolean
         is_macro_invocation:            boolean
         name:                           Node
         is_repeat:                      boolean
@@ -503,8 +352,6 @@ local record parser
         if_parent:                      Node
         if_block_n:                     integer
         if_blocks:                      {Node}
-        if_widens:                      {string: boolean}
-        block_returns:                  boolean
         var:                            Node
         from:                           Node
         to:                             Node
@@ -512,20 +359,13 @@ local record parser
         vars:                           Node
         exps:                           Node
         newtype:                        TypeDeclType
-        elide_type:                     boolean
         op:                             Operator
         e1:                             Node
         e2:                             Node
         constnum:                       number
         conststr:                       string
         failstore:                      boolean
-        discarded_tuple:                boolean
-        receiver:                       Type
-        array_len:                      integer
-        is_total:                       boolean
-        missing:                        {string}
         label:                          string
-        used_label:                     boolean
         casttype:                       Type
         is_lvalue:                      boolean
         macrodef:                       Node
@@ -540,7 +380,6 @@ local record parser
         dangling_comments:              {Comment}
         trailing_comments:              {Comment}
         blank_line_before:              boolean
-        debug_type:                     Type
         is_self:                        boolean
         is_type_declaration:            boolean
         f:                              string
@@ -636,21 +475,6 @@ function parser.FieldEntry.new(
     return self
 end
 
-local enum FactType
-    "is"
-    "=="
-    "not"
-    "and"
-    "or"
-    "truthy"
-end
-
-local interface Fact where self.fact
-    fact: FactType
-    w: Where
-    no_infer: boolean
-end
-
 local enum KeyParsed
     "short"
     "long"
@@ -658,19 +482,11 @@ local enum KeyParsed
 end
 
 -- ── pre-parser functions ─────────────────────────────────────────────────────
-local last_typeid = 0
-
-local function new_typeid(): integer
-    last_typeid = last_typeid + 1
-    return last_typeid
-end
-
 local type_mt: metatable<Type> = {
     __tostring = function(_t: Type): string return "?" end,
 }
 
 local function a_type<T is Type>(w: Where, typename: TypeName, t: T): T
-    t.typeid = new_typeid()
     t.f = w.f
     t.x = w.x
     t.y = w.y
@@ -947,7 +763,6 @@ do
     local function new_type(ps: ParseState, i: integer, typename: TypeName): Type
         local token = ps.tokens[i]
         local t: Type = setmetatable({}, type_mt)
-        t.typeid = new_typeid()
         t.f = ps.filename
         t.x = token.x
         t.y = token.y

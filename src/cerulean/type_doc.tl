@@ -177,8 +177,6 @@ type_doc_render = function(type_def: parser.Type, opts: TypeRenderOpts): doc.Doc
                 doc.text("}"),
             }
         )
-    elseif type_def is parser.TypeVarType then
-        return doc.text(type_def.typevar)
     elseif type_def is parser.FunctionType then
         return function_type_render(type_def, opts)
     elseif type_def is parser.TypeDeclType then
