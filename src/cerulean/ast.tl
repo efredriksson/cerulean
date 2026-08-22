@@ -46,7 +46,15 @@ local record ast
         inline_trivia: {InlineSlot: {Comment}}
     end
 
-    interface Type is Where, HasInlineTrivia where self.typename
+    -- Token-index span into the parser's token array. Parser-internal:
+    -- consumed by the comment attachment pass, meaningless to renderers
+    -- (the token array does not outlive parsing).
+    interface HasTokenSpan
+        tok_first: integer
+        tok_last: integer
+    end
+
+    interface Type is Where, HasInlineTrivia, HasTokenSpan where self.typename
         typename: TypeName    -- discriminator
         paren: boolean
     end
@@ -102,6 +110,7 @@ local record ast
     end
 
     record FieldEntry
+        is HasTokenSpan
         where self.the_type ~= nil
         name: string
         the_type: Type
@@ -266,7 +275,7 @@ local record ast
     simple_types: {TypeName: boolean}
 
     record Node
-        is {Node}, Where, HasInlineTrivia
+        is {Node}, Where, HasInlineTrivia, HasTokenSpan
         where self.kind ~= nil
 
         -- fmt: off

@@ -181,8 +181,9 @@ do
         error(parse_abort)
     end
 
-    local function end_at(node: Node, tk: Token)
-        node.yend = tk.y
+    local function end_at(node: Node, ps: ParseState, i: integer)
+        node.yend = ps.tokens[i].y
+        node.tok_last = i
     end
 
     local function verify_tk(ps: ParseState, i: integer, tk: string): integer
@@ -197,9 +198,10 @@ do
     ): integer
         if ps.tokens[i].tk == "end" then
             node.yend = ps.tokens[i].y
+            node.tok_last = i
             return i + 1
         end
-        end_at(node, ps.tokens[i])
+        end_at(node, ps, i)
         local location = ps.filename
             .. ":"
             .. ps.tokens[istart].y
@@ -228,6 +230,7 @@ do
                 x = t.x,
                 tk = t.tk,
                 kind = kind or (t.kind as NodeKind),
+                tok_first = i,
             },
             node_mt
         )
@@ -240,6 +243,7 @@ do
         t.x = token.x
         t.y = token.y
         t.typename = typename
+        t.tok_first = i
         return t
     end
 
@@ -414,6 +418,7 @@ do
             i = verify_tk(ps, i, "=")
             i, node.value = parse_table_value(ps, i)
             node.yend = token_yend(ps.tokens[i - 1])
+            node.tok_last = i - 1
             return i, node, n
         elseif ps.tokens[i].kind == "identifier" then
             if ps.tokens[i + 1].tk == "=" then
@@ -429,6 +434,7 @@ do
                 )
                 i, node.value = parse_table_value(ps, i)
                 node.yend = token_yend(ps.tokens[i - 1])
+                node.tok_last = i - 1
                 return i, node, n
             elseif ps.tokens[i + 1].tk == ":" then
                 node.key_parsed = "short"
@@ -458,6 +464,7 @@ do
                 if trial_i then
                     i = trial_i
                     node.yend = token_yend(ps.tokens[i - 1])
+                    node.tok_last = i - 1
                     return i, node, n
                 end
                 -- backtrack: not a `key: type = value` item after all
@@ -473,6 +480,7 @@ do
             return fail(ps, i, "expected an expression")
         end
         node.yend = token_yend(ps.tokens[i - 1])
+        node.tok_last = i - 1
         return i, node, n + 1
     end
 
@@ -518,7 +526,7 @@ do
         local pending_leading: {Comment} = {}
         while ps.tokens[i].kind ~= "$EOF$" do
             if close[ps.tokens[i].tk] then
-                end_at(list as Node, ps.tokens[i])
+                end_at(list as Node, ps, i)
                 break
             end
             local item: T
@@ -868,6 +876,7 @@ do
             typ.is_method = false
         end
         typ.yend = ps.tokens[i - 1].y
+        typ.tok_last = i - 1
 
         if typeargs then
             return i, new_generic(ps, istart, typeargs, typ)
@@ -926,7 +935,7 @@ do
                     take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
                 )
                 decl.elements = t
-                end_at(decl as Node, ps.tokens[i])
+                end_at(decl as Node, ps, i)
                 i = verify_tk(ps, i, "}")
                 return i, decl
             elseif ps.tokens[i].tk == "," then
@@ -934,7 +943,7 @@ do
                 decl.types = {t}
                 i = thread_list(ps, i, decl.types, parse_type, ",")
                 set_last_before_separator(ps, i, decl.types)
-                end_at(decl as Node, ps.tokens[i])
+                end_at(decl as Node, ps, i)
                 i = verify_tk(ps, i, "}")
                 return i, decl
             elseif ps.tokens[i].tk == ":" then
@@ -959,7 +968,7 @@ do
                     "before_separator",
                     take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
                 )
-                end_at(decl as Node, ps.tokens[i])
+                end_at(decl as Node, ps, i)
                 i = verify_tk(ps, i, "}")
                 return i, decl
             end
@@ -1076,7 +1085,7 @@ do
             node, "head", take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
         )
         i, node.body = parse_statements(ps, i)
-        end_at(node, ps.tokens[i])
+        end_at(node, ps, i)
         i = verify_end(ps, i, istart, node)
         return i, node
     end
@@ -1106,6 +1115,7 @@ do
             local node = new_node(ps, i, "string")
             node.conststr, node.is_longstring = unquote(tk)
             node.yend = token_yend(ps.tokens[i])
+            node.tok_last = i
             return i + 1, node
         elseif kind == "`" then
             -- A macro quote lexes as one token, delimiters and newlines included,
@@ -1324,6 +1334,7 @@ do
             end
             local e1: Node
             local t1 = ps.tokens[i]
+            local i_t1 = i
             if precedences[1][t1.tk] ~= nil then
                 local op: Operator = new_operator(t1, 1, t1.tk)
                 i = i + 1
@@ -1342,6 +1353,8 @@ do
                     op = op,
                     e1 = e1,
                     yend = e1.yend or e1.y,
+                    tok_first = i_t1,
+                    tok_last = e1.tok_last,
                 }
                 set_inline_trivia(e1, "op_trailing", op_trailing_trivia)
             elseif ps.tokens[i].tk == "(" then
@@ -1359,6 +1372,8 @@ do
                     kind = "paren",
                     e1 = e1,
                     yend = ps.tokens[i - 1].y,
+                    tok_first = i_t1,
+                    tok_last = i - 1,
                 }
             else
                 i, e1 = parse_literal(ps, i)
@@ -1372,6 +1387,7 @@ do
             -- op nodes already carry yend; renderers then never need a
             -- `yend or y` fallback for expression nodes.
             e1.yend = e1.yend or token_yend(ps.tokens[i - 1])
+            e1.tok_last = e1.tok_last or i - 1
 
             while true do
                 local tkop = ps.tokens[i]
@@ -1427,6 +1443,8 @@ do
                         e1 = e1,
                         e2 = key,
                         yend = key.yend or key.y,
+                        tok_first = e1.tok_first,
+                        tok_last = key.tok_last or key.tok_first,
                     }
                     set_inline_trivia(e1, "op_leading", op_leading_trivia)
                     set_inline_trivia(e1, "op_trailing", op_trailing_trivia)
@@ -1525,6 +1543,8 @@ do
                         e1 = e1,
                         e2 = args,
                         is_macro_invocation = is_macro_invocation,
+                        tok_first = e1.tok_first,
+                        tok_last = i - 1,
                     }
                     fmt_logger.debug(
                         "[expr] @funcall op node: base y=%s args_y=%s -> node y=%s",
@@ -1551,6 +1571,8 @@ do
                         e1 = e1,
                         e2 = idx,
                         yend = ps.tokens[i - 1].y,
+                        tok_first = e1.tok_first,
+                        tok_last = i - 1,
                     }
                 elseif tkop.kind == "string" or tkop.kind == "{" then
                     local prev_i = i
@@ -1583,6 +1605,8 @@ do
                         e1 = e1,
                         e2 = args,
                         is_macro_invocation = is_macro_invocation,
+                        tok_first = e1.tok_first,
+                        tok_last = i - 1,
                     }
                 elseif tkop.tk == "as" or tkop.tk == "is" then
                     local op_leading_trivia = take_all_token_comments(tkop)
@@ -1607,6 +1631,8 @@ do
                         e1 = e1,
                         casttype = casttype,
                         yend = ps.tokens[i - 1].y,
+                        tok_first = e1.tok_first,
+                        tok_last = i - 1,
                     }
                     set_inline_trivia(e1, "op_leading", op_leading_trivia)
                 else
@@ -1663,6 +1689,8 @@ do
                     e1 = lhs,
                     e2 = rhs,
                     yend = rhs.yend or rhs.y,
+                    tok_first = lhs.tok_first,
+                    tok_last = rhs.tok_last or rhs.tok_first,
                 }
                 set_inline_trivia(lhs, "op_leading", op_leading_trivia)
                 set_inline_trivia(lhs, "op_trailing", op_trailing_trivia)
@@ -1952,6 +1980,8 @@ do
                     kind = "field",
                     e1 = owner,
                     e2 = names[i2],
+                    tok_first = owner.tok_first,
+                    tok_last = names[i2].tok_first,
                 }
             end
             fn.fn_owner = owner
@@ -1997,6 +2027,7 @@ do
             return i
         end
         block.yend = block.body.yend
+        block.tok_last = block.body.tok_last
         table.insert(node.if_blocks, block)
         return i, node
     end
@@ -2139,7 +2170,7 @@ do
             take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
         )
         i, node.exp = parse_expression(ps, i)
-        end_at(node, ps.tokens[i - 1])
+        end_at(node, ps, i - 1)
         if node then
             node.leading_comments = comments
         end
@@ -2246,6 +2277,8 @@ do
             field_name, newt, node, comments or {}, meta ~= nil, entry_line
         )
         entry.yend = ps.tokens[end_i - 1].y
+        entry.tok_first = node ~= nil and node.tok_first or newt.tok_first
+        entry.tok_last = end_i - 1
         entry.trailing_comments = take_same_line_comments(ps.tokens[end_i], entry.yend)
         table.insert(def.field_entries, entry)
 
@@ -2472,6 +2505,7 @@ do
                     ps.tokens[i - 1], ps.tokens[i - 2]
                 )
                 item.yend = token_yend(ps.tokens[i - 1])
+                item.tok_last = i - 1
                 item.trailing_comments = take_same_line_comments(
                     ps.tokens[i], item.yend
                 )
@@ -2541,7 +2575,7 @@ do
         i, node.rets = parse_return_types(ps, i)
         i = verify_tk(ps, i, "return")
         i, node.exp = parse_expression(ps, i)
-        end_at(node, ps.tokens[i])
+        end_at(node, ps, i)
         i = verify_end(ps, i, istart, node)
         return i, node
     end
@@ -2557,7 +2591,7 @@ do
         node.rets = new_tuple(ps, i)
         node.rets.tuple[1] = new_type(ps, i, "boolean")
         i, node.exp = parse_expression(ps, i)
-        end_at(node, ps.tokens[i - 1])
+        end_at(node, ps, i - 1)
         return i, node
     end
 
@@ -3134,12 +3168,13 @@ do
         local node = new_node(ps, i, "local_macroexp")
         i, node.name = parse_identifier(ps, i)
         i, node.macrodef = parse_macroexp(ps, istart, i)
-        end_at(node, ps.tokens[i - 1])
+        end_at(node, ps, i - 1)
         return i, node
     end
 
     local function parse_local(ps: ParseState, i: integer): integer, Node
         local keyword = ps.tokens[i]
+        local keyword_i = i
         local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
         local ntk = ps.tokens[i + 1].tk
         local tn = ntk as TypeName
@@ -3175,6 +3210,7 @@ do
             -- name, so source positions are consistent across declaration
             -- kinds. The name stays available on node.var / node.vars.
             node.y, node.x = keyword.y, keyword.x
+            node.tok_first = keyword_i
             node.leading_comments = comments
         end
         return i, node
@@ -3182,6 +3218,7 @@ do
 
     local function parse_global(ps: ParseState, i: integer): integer, Node
         local keyword = ps.tokens[i]
+        local keyword_i = i
         local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
         local ntk = ps.tokens[i + 1].tk
         local tn = ntk as TypeName
@@ -3210,6 +3247,7 @@ do
             -- name, so source positions are consistent across declaration
             -- kinds. The name stays available on node.var / node.vars.
             node.y, node.x = keyword.y, keyword.x
+            node.tok_first = keyword_i
             node.leading_comments = comments
         end
         return i, node
@@ -3327,6 +3365,7 @@ do
                 -- Set yend from last consumed token. For block stmts (function, if, etc.)
                 -- this matches what end_at already wrote; for simple stmts it was nil.
                 item.yend = token_yend(ps.tokens[i - 1])
+                item.tok_last = i - 1
                 -- Extract any same-line trailing comments (e.g. `local x = 1 -- note`).
                 -- take_same_line_comments drains them from ps.tokens[i].comments so they
                 -- won't be re-attached as leading comments of the next statement.
@@ -3366,7 +3405,7 @@ do
         end
 
         node.dangling_comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
-        end_at(node, ps.tokens[i])
+        end_at(node, ps, i)
         -- `end_at` set the closing keyword's line; record its start column too, so a
         -- frozen run sharing that line can stop before the closer. EOF (the top-level
         -- block) is not a closer, so close_x stays nil there.
