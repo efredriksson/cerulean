@@ -834,7 +834,7 @@ do
         local name = ps.tokens[i].tk
         local constraint: Type
         local t = new_type(ps, i, "typearg") as TypeArgType
-        i = verify_kind(ps, i, "identifier")
+        i = verify_kind(ps, i, "identifier", "name")
         if ps.tokens[i].tk == "is" then
             i = i + 1
             i, constraint = parse_interface_name(ps, i)
@@ -1114,7 +1114,7 @@ do
         local tk = ps.tokens[i].tk
         local kind = ps.tokens[i].kind
         if kind == "identifier" then
-            return verify_kind(ps, i, "identifier", "variable")
+            return verify_kind(ps, i, "identifier", "name")
         elseif kind == "string" then
             local node = new_node(ps, i, "string")
             node.conststr, node.is_longstring = unquote(tk)
@@ -1230,8 +1230,7 @@ do
                         or prevnode.op.op == "."
                         or prevnode.op.op == ":"
                     )
-                ) or prevnode.kind == "identifier"
-                or prevnode.kind == "variable"
+                ) or prevnode.kind == "name"
         end
 
         -- A top-level comma belongs to the statement itself unless another argument
@@ -1420,7 +1419,7 @@ do
                 -- which is what `f!(...)` got before and what Teal rejects outright.
                 local macro_params: Node = nil
                 if is_macro_invocation then
-                    if e1.kind == "variable" then
+                    if e1.kind == "name" then
                         macro_params = ps.macro_params[e1.tk]
                     end
                     i = i + 1
@@ -1438,7 +1437,7 @@ do
                     local key: Node
                     i = i + 1
                     local op_trailing_trivia = take_all_token_comments(ps.tokens[i])
-                    i, key = verify_kind(ps, i, "identifier")
+                    i, key = verify_kind(ps, i, "identifier", "name")
 
                     if op.op == ":" then
                         if not args_starters[ps.tokens[i].kind] then
@@ -1754,14 +1753,14 @@ do
         ps: ParseState, i: integer
     ): integer, Node, integer
         local node: Node
-        i, node = verify_kind(ps, i, "identifier")
+        i, node = verify_kind(ps, i, "identifier", "name")
         if not node then
             return i
         end
         if ps.tokens[i].tk == "<" then
             i = i + 1
             local annotation: Node
-            i, annotation = verify_kind(ps, i, "identifier")
+            i, annotation = verify_kind(ps, i, "identifier", "name")
             if annotation then
                 node.attribute = annotation.tk
             else
@@ -1940,7 +1939,7 @@ do
 
     local function parse_identifier(ps: ParseState, i: integer): integer, Node, integer
         if ps.tokens[i].kind == "identifier" then
-            return i + 1, new_node(ps, i, "identifier")
+            return i + 1, new_node(ps, i, "name")
         end
         return fail(ps, i, "syntax error, expected identifier")
     end
@@ -1987,10 +1986,10 @@ do
         if #names > 1 then
             fn.kind = "record_function"
             local owner = names[1]
-            owner.kind = "type_identifier"
+            owner.kind = "name"
             for i2 = 2, #names - 1 do
                 local dot = an_operator(names[i2], 2, ".")
-                names[i2].kind = "identifier"
+                names[i2].kind = "name"
                 owner = {
                     f = ps.filename,
                     y = names[i2].y,
@@ -2016,7 +2015,7 @@ do
                     x = selfx,
                     y = selfy,
                     tk = "self",
-                    kind = "identifier",
+                    kind = "name",
                 } as Node
             )
         end
@@ -2237,7 +2236,7 @@ do
             ps.tokens[i], ps.tokens[i - 1].y
         )
         node.label = ps.tokens[i].tk
-        i = verify_kind(ps, i, "identifier")
+        i = verify_kind(ps, i, "identifier", "name")
         return i, node
     end
 
@@ -2245,7 +2244,7 @@ do
         local node = new_node(ps, i, "label")
         i = verify_tk(ps, i, "::")
         node.label = ps.tokens[i].tk
-        i = verify_kind(ps, i, "identifier")
+        i = verify_kind(ps, i, "identifier", "name")
         i = verify_tk(ps, i, "::")
         return i, node
     end
@@ -2492,7 +2491,7 @@ do
         i = i + 1
 
         local v: Node
-        i, v = verify_kind(ps, i, "identifier", "type_identifier")
+        i, v = verify_kind(ps, i, "identifier", "name")
         if not v then
             return fail(ps, i, "expected a variable name")
         end
@@ -2769,7 +2768,7 @@ do
                     end
                     i = verify_tk(ps, i, "]")
                 else
-                    i, v = verify_kind(ps, i, "identifier", "variable")
+                    i, v = verify_kind(ps, i, "identifier", "name")
                 end
                 if not v then
                     return fail(ps, i, "expected a variable name")
@@ -2933,7 +2932,7 @@ do
     local parse_call_or_assignment: function(ps: ParseState, i: integer): integer, Node
     do
         local function is_lvalue(node: Node): boolean
-            return node.kind == "variable"
+            return node.kind == "name"
                 or (node.kind == "op" and (node.op.op == "@index" or node.op.op == "."))
         end
 
@@ -3097,7 +3096,7 @@ do
         local asgn: Node = new_node(ps, i, node_name)
         local var: Node
 
-        i, var = verify_kind(ps, i, "identifier")
+        i, var = verify_kind(ps, i, "identifier", "name")
         if not var then
             return fail(ps, i, "expected a type name")
         end
@@ -3164,7 +3163,7 @@ do
         -- the bare `record Foo` that only a macro argument may hold puts one.
         i = i + (node_name == "bare_type" and 1 or 2)
 
-        i, asgn.var = verify_kind(ps, i, "identifier")
+        i, asgn.var = verify_kind(ps, i, "identifier", "name")
         if not asgn.var then
             return fail(ps, i, "expected a type name")
         end

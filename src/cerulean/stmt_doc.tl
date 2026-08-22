@@ -370,11 +370,7 @@ end
 
 local function render_function_name(node: ast.Node): doc.Doc | nil
     local function render_function_owner(owner: ast.Node): string | nil
-        if
-            owner.kind == "identifier"
-            or owner.kind == "type_identifier"
-            or owner.kind == "variable"
-        then
+        if owner.kind == "name" then
             return owner.tk
         elseif
             owner.kind == "op"

@@ -341,8 +341,7 @@ local function render_op(
 end
 
 local EXPRESSION_LEAF: {ast.NodeKind: boolean} = {
-    ["variable"] = true,
-    ["identifier"] = true,
+    ["name"] = true,
     ["..."] = true,
     ["number"] = true,
     ["integer"] = true,
