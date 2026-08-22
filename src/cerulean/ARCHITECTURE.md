@@ -84,6 +84,19 @@ Only module mutating AST comment fields post-parse. Two kinds:
 
 First require's comments: if none floating, attached are treated as module docs and also pinned.
 
-## AST gotcha
+## Parser contract
 
-`node.yend` is guaranteed post-parse on statements (set in `parse_statements`) and on expression nodes (set in the expression parser before operands are wrapped into op nodes). Renderers read it directly — no `yend or y` fallback. Other node kinds (e.g. an `if_block` whose body is empty) may still lack `yend`; keep a fallback only there.
+What any parser (incl. future replacement) must supply. Renderers depend only on `ast.tl`; `rewriter.tl` sole consumer of `parser.tl`.
+
+**API.** `parser.parse(input, filename) → ast.Node, {tl.Error}, integer`.
+- Fail-fast: stop at first syntax error; error list ≤1 entry (`filename`, `y`, `x`, `msg`). On error rewriter leaves source unchanged.
+- Grammar only: anything grammatical parses, incl. Teal-invalid code (unknown attributes, redeclared fields, optional-arg order). Semantics belong to `tl check`.
+- Integer = lex-level comment count of input: every comment, attached to AST or not. Rewriter compares source vs output counts as comment-preservation safety net (`rewriter.tl`); catches attachment bugs only because count independent of attachment.
+
+**Positions.** `y`/`x` 1-indexed (`Where` interface). `node.yend` guaranteed on statements (set in `parse_statements`) + expression nodes (set before operands wrapped into op nodes); renderers read directly, no `yend or y` fallback. Other kinds (e.g. `if_block` with empty body) may lack `yend`; fallback only there. `close_x` = closing keyword's start column on block statements; nil at top level (EOF not closer).
+
+**Token fidelity.** `node.tk` = verbatim source text. String nodes carry `tk` (with quotes), `conststr` (unquoted value), `is_longstring`. Op nodes carry `op.op`, `op.prec`, `op.y`: expression rendering + trivia placement need all three.
+
+**Trivia.** `Comment.text` includes delimiters (`--`, `--[[ ]]`). Attachment rules (three node slots + `inline_trivia` map): see Comment Model section above.
+
+**Conformance.** `make ab-snapshot` pins per-file status + output over `fuzz/corpus/`; `make ab-diff` reruns, reports drift. Snapshot before parser change, diff after; review every drift, then retake snapshot.

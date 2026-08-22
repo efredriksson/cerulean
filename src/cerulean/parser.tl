@@ -2406,7 +2406,7 @@ do
     -- a block-opening keyword so trailing inline trivia does not leak into
     -- the first body statement's leading comments.
     take_same_line_comments = function(token: Token, line: integer): {Comment}
-        -- Error recovery can leave a token index past $EOF$.
+        -- Lookahead such as tokens[i + 1] can land one past $EOF$.
         if token == nil then
             return {}
         end
