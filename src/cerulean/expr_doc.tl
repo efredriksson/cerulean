@@ -107,7 +107,7 @@ local function collect_chain_terms(
     -- matching on precedence alone rewrote one into the other.
     if node.kind == "op" and node.op.arity == 2 and node.op.op == operator.op then
         collect_chain_terms(node.e1, operator, terms, gap_before_comments)
-        local lhs_line = node.e1.yend or node.e1.y
+        local lhs_line = node.e1.yend
         local before_op = trivia_doc.partition(
             ast.inline_trivia(node, "op_leading"), lhs_line
         )
@@ -254,7 +254,7 @@ local function join_op_with_trivia(
     trivia_doc.emit_transition(
         parts,
         ast.inline_trivia(node, "op_leading"),
-        node.e1.yend or node.e1.y,
+        node.e1.yend,
         doc.text(node.op.op),
         plain_separator
     )

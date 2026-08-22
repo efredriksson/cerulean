@@ -96,7 +96,7 @@ function require_sort.sort_top_level_requires(root: ast.Node, fmt_off_regions: R
     local sortable: {SortableRequire} = {}
 
     for _, node in ipairs(root) do
-        local node_end = node.yend or node.y
+        local node_end = node.yend
         if fmt_off_regions:includes_range(node.y, node_end) then
             break
         end
@@ -182,7 +182,7 @@ function require_sort.sort_top_level_requires(root: ast.Node, fmt_off_regions: R
             entry.node.blank_line_before = false
         end
 
-        local node_len = (entry.node.yend or entry.node.y) - entry.node.y
+        local node_len = entry.node.yend - entry.node.y
         entry.node.y = current_y
         entry.node.yend = current_y + node_len
         root[index] = entry.node

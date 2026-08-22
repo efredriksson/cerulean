@@ -1565,6 +1565,11 @@ do
                 return i
             end
 
+            -- Set before the member/call loop below so operands wrapped into
+            -- op nodes already carry yend; renderers then never need a
+            -- `yend or y` fallback for expression nodes.
+            e1.yend = e1.yend or token_yend(ps.tokens[i - 1])
+
             while true do
                 local tkop = ps.tokens[i]
                 if tkop.kind == "," or tkop.kind == ")" then

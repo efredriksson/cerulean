@@ -86,4 +86,4 @@ First require's comments: if none floating, attached are treated as module docs 
 
 ## AST gotcha
 
-`node.yend` is missing on some single-line statement kinds (`local_declaration`, `return`, `assignment`, `op`). Always use `node.yend or node.y` (or a helper that accounts for nested call-arg end lines).
+`node.yend` is guaranteed post-parse on statements (set in `parse_statements`) and on expression nodes (set in the expression parser before operands are wrapped into op nodes). Renderers read it directly — no `yend or y` fallback. Other node kinds (e.g. an `if_block` whose body is empty) may still lack `yend`; keep a fallback only there.
