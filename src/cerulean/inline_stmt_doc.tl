@@ -34,16 +34,14 @@ end
 -- no break point -- the trivia_doc.emit_transition inline-block model); a line
 -- comment there runs to end of line, so the `= ` breaks out below it.
 local function build_eq_prefix(
-    ctx: RenderContext, lhs_doc: doc.Doc, stmt: ast.Node, last_var: ast.Node
+    lhs_doc: doc.Doc, inline_blocks: {ast.Comment}, last_var_trailing: {ast.Comment}
 ): doc.Doc
-    local inline_blocks = ctx.slots:pre_opener_block_comments(stmt, "after_opener")
     if #inline_blocks > 0 then
         local parts: {doc.Doc} = {lhs_doc}
         trivia_doc.append_inline(parts, inline_blocks)
         table.insert(parts, doc.text(" = "))
         return doc.concat(parts)
     end
-    local last_var_trailing = ctx.slots:trailing_comments(last_var)
     if #last_var_trailing > 0 then
         return doc.concat(
             {
@@ -56,21 +54,36 @@ local function build_eq_prefix(
     return doc.concat({lhs_doc, doc.text(" = ")})
 end
 
+-- The last var is left out: its trailing run belongs to the `=` slot, read above.
+local function earlier_var_has_trailing_comment(
+    ctx: RenderContext, vars: {ast.Node}
+): boolean
+    for k = 1, #vars - 1 do
+        if #ctx.slots:trailing_comments(vars[k]) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
 -- The value list breaks in the two stages a delimited list uses: it drops below the
 -- `=` first, and only then do its commas give.
 local function build_init_doc(
     ctx: RenderContext, stmt: ast.Node, prefix_doc: doc.Doc, value_doc: doc.Doc
 ): doc.Doc
     local after_opener = ctx.slots:opener_comments(stmt, "after_opener")
+    local inline_blocks = ctx.slots:pre_opener_block_comments(stmt, "after_opener")
+    local last_var_trailing = ctx.slots:pre_opener_trailing_comments(
+        stmt, "after_opener", stmt.vars[#stmt.vars]
+    )
     -- Any comment around the `=` already pins it to a line of its own, and the
-    -- two-stage wrap would then break the value list along with it.
+    -- two-stage wrap would then break the value list along with it. These reads
+    -- consume and the branch below discards its doc, but safely: a non-empty run
+    -- is what steers the render off that branch.
     local eq_carries_comments = #after_opener > 0
-        or #ctx.slots:pre_opener_block_comments(stmt, "after_opener") > 0
-    for _, var in ipairs(stmt.vars) do
-        if #ctx.slots:trailing_comments(var) > 0 then
-            eq_carries_comments = true
-        end
-    end
+        or #inline_blocks > 0
+        or #last_var_trailing > 0
+        or earlier_var_has_trailing_comment(ctx, stmt.vars)
     if
         not eq_carries_comments and render_builders.exp_list_can_break(ctx, stmt.exps)
     then
@@ -79,7 +92,7 @@ local function build_init_doc(
             doc.concat({prefix_doc, doc.text(" =")}), value_doc
         )
     end
-    local eq_prefix = build_eq_prefix(ctx, prefix_doc, stmt, stmt.vars[#stmt.vars])
+    local eq_prefix = build_eq_prefix(prefix_doc, inline_blocks, last_var_trailing)
     return render_builders.with_leading_inline_trivia(
         after_opener, eq_prefix, value_doc
     )

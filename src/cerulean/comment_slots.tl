@@ -316,6 +316,21 @@ function CommentSlots:pre_opener_block_comments(
     return consume(self, comments_from_trivia(self, run, nil))
 end
 
+-- The caller emits this run after the whole lhs, so a claim bounded by anything but
+-- the opener lands the comment where the source never had it: the lexer parks
+-- `local x -- c` on `x` even when `: T` follows, and a comment moved past that `:`
+-- re-parses onto a different token, so the next pass formats the file differently.
+-- Declined, the run falls to the sweep.
+function CommentSlots:pre_opener_trailing_comments(
+    node: ast.HasOpenerSlots, slot: ast.InlineSlot, item: ast.HasTokenSpan
+): {ast.Comment}
+    local tok_index = node.slot_tok and node.slot_tok[slot]
+    if tok_index == nil or item.tok_bound ~= tok_index then
+        return EMPTY_COMMENTS
+    end
+    return self:trailing_comments(item)
+end
+
 -- The furthest source line a node's trailing comments reach, for source-extent
 -- geometry (frozen-run partitioning, fmt-off overlap). A geometry read, not an
 -- emission: it must NOT consume, or it would mark a comment taken that no slot

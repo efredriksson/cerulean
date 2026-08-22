@@ -423,6 +423,16 @@ describe("formatter comment matrix (single-line)", function()
          local type T = integer | string | boolean
       ]]))
 
+      -- Parking this one after the type instead would move it past the `:`, where
+      -- the next pass reads it off a different token and sweeps it anyway.
+      it("[local_decl|name_line|sweeps_to_leading]", helpers.format([[
+         local x -- c
+         : integer = 1
+      ]], [[
+         -- c
+         local x: integer = 1
+      ]]))
+
       -- Control: item-trailing comments already have a slot, so the sweep must not
       -- relocate them too (a dup would trip the audit and the file would safe-skip).
       it("[table|item_trailing|no_sweep_dup]", helpers.check([[

@@ -88,6 +88,7 @@ Two enforcement points keep this closed:
 - `item_leading_comments(item, prev, absorb_opener?)` — own-line comments leading a list/table/enum/field item: its leading run plus a comment stranded on the separator in the sibling gap. `prev` is the previous item, passed by the iterating caller (nil for the first item) — the gap between siblings is the caller's knowledge, never scanned for; with `absorb_opener`, the first item also takes the opener's same-line comment.
 - `opener_comments(node, slot)` — the opener's same-line trivia for an opener-anchored slot (`"head"`, `"after_opener"`), via `slot_tok[slot]`.
 - `pre_opener_block_comments(node, slot)` — positional twin of `opener_comments`: the same-line trivia just *before* the slot's opener token (the `=` of an assignment/declaration), kept inline in place, but only when the whole run is single-line block comments; otherwise returns empty without consuming and the run falls to `trailing_comments`/the sweep.
+- `pre_opener_trailing_comments(node, slot, item)` — the line-comment counterpart: `item`'s own `trailing_comments` run, but only when `item.tok_bound` *is* the slot's opener token. The run is emitted after the whole lhs, so an item bounded by anything else (a declaration's `:`) would have its comment land at a token the next parse reads differently; declining leaves it to the sweep.
 - `op_leading_comments(node)` / `op_trailing_comments(node)` — the one-token gap around a binary/cast operator. Own-line forces a chain break; same-line stays inline.
 - `unconsumed_comments_in_span(node)` — the sweep (layer 3): unpacks the node's token span and delegates to `Stream:take_unconsumed`, which returns every trivium in the window not yet consumed and not frozen by fmt-off, marking each consumed. (`rewriter`'s unconsumed-comment log is the same stream call over the whole array.)
 - `Stream:consume_slice(first_line, start_col, last_line, cut_col?)` — on the stream, not the context, and not a read: marks the comments a frozen (fmt-off) run just emitted raw as consumed, so an enclosing statement's sweep does not relocate a duplicate copy.
@@ -108,6 +109,7 @@ Two enforcement points keep this closed:
 | `item_leading_comments` | stmt_doc, delimited_list_doc |
 | `opener_comments` | stmt_doc, function_doc, type_doc, table_doc, delimited_list_doc, inline_stmt_doc |
 | `pre_opener_block_comments` | inline_stmt_doc |
+| `pre_opener_trailing_comments` | inline_stmt_doc |
 | `op_leading_comments` / `op_trailing_comments` | expr_doc |
 
 Coverage is enforced, not just documented: `comment_matrix_spec.lua` pins per-construct comment placement (each case runs through `rewriter` and so through the audit), and `comment_audit` (Design note) fails any change where a renderer stops emitting a slot, naming the dropped comment.
