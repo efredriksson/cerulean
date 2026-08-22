@@ -1947,7 +1947,8 @@ do
     local function parse_local_function(ps: ParseState, i: integer): integer, Node
         i = verify_tk(ps, i, "local")
         i = verify_tk(ps, i, "function")
-        local node = new_node(ps, i - 2, "local_function")
+        local node = new_node(ps, i - 2, "function_declaration")
+        node.is_local = true
         i, node.name = parse_identifier(ps, i)
         return parse_function_args_rets_body(ps, i, node)
     end
@@ -1970,7 +1971,7 @@ do
     ): integer, Node
         local orig_i = i
         i = verify_tk(ps, i, "function")
-        local fn = new_node(ps, i - 1, "global_function")
+        local fn = new_node(ps, i - 1, "function_declaration")
         local names: {Node} = {}
         i, names[1] = parse_identifier(ps, i)
         while ps.tokens[i].tk == "." do
@@ -1984,7 +1985,6 @@ do
         end
 
         if #names > 1 then
-            fn.kind = "record_function"
             local owner = names[1]
             owner.kind = "name"
             for i2 = 2, #names - 1 do
@@ -2024,9 +2024,9 @@ do
             return orig_i + 1
         end
 
-        if fn.kind == "record_function" and fk == "global" then
+        if fn.fn_owner ~= nil and fk == "global" then
             fail(ps, orig_i, "record functions cannot be annotated as 'global'")
-        elseif fn.kind == "global_function" and fk == "record" then
+        elseif fn.fn_owner == nil and fk == "record" then
             fn.implicit_global_function = true
         end
 

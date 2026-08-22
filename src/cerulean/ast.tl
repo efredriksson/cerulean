@@ -250,11 +250,9 @@ local record ast
         "statements"
         "assignment"
         "argument_list"
-        "local_function"
-        "global_function"
+        "function_declaration"
         "local_type"
         "global_type"
-        "record_function"
         "local_declaration"
         "global_declaration"
         "cast"
@@ -296,6 +294,7 @@ local record ast
         attribute:                      string
         fn_owner:                       Node
         is_method:                      boolean
+        is_local:                       boolean
         exp:                            Node
         if_blocks:                      {Node}
         var:                            Node

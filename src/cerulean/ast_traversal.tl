@@ -6,26 +6,22 @@ local ast_traversal = {}
 
 -- fmt: off
 local BLOCK_NODE_KINDS: {ast.NodeKind: boolean} = {
-    ["function"]        = true,
-    ["local_function"]  = true,
-    ["local_macro"]     = true,
-    ["global_function"] = true,
-    ["record_function"] = true,
-    ["if"]              = true,
-    ["while"]           = true,
-    ["fornum"]          = true,
-    ["forin"]           = true,
-    ["repeat"]          = true,
-    ["do"]              = true,
-    ["newtype"]         = true,
+    ["function"]             = true,
+    ["function_declaration"] = true,
+    ["local_macro"]          = true,
+    ["if"]                   = true,
+    ["while"]                = true,
+    ["fornum"]               = true,
+    ["forin"]                = true,
+    ["repeat"]               = true,
+    ["do"]                   = true,
+    ["newtype"]              = true,
 }
 
 local FUNCTION_DEF_KINDS: {ast.NodeKind: boolean} = {
-    ["local_function"]  = true,
-    ["local_macro"]     = true,
-    ["global_function"] = true,
-    ["record_function"] = true,
-    ["function"]        = true,
+    ["function_declaration"] = true,
+    ["local_macro"]          = true,
+    ["function"]             = true,
 }
 
 -- fmt: on

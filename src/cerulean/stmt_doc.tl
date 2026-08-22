@@ -396,31 +396,20 @@ local function render_function_name(node: ast.Node): doc.Doc | nil
         return type_doc.render_typeargs(fn_node.typeargs)
     end
 
-    if node.kind == "local_function" and node.name ~= nil then
-        return doc.concat(
-            {
-                doc.text("local function " .. node.name.tk),
-                render_function_typeargs(node),
-            }
-        )
-    elseif node.kind == "local_macro" and node.name ~= nil then
+    if node.name == nil then
+        return nil
+    end
+
+    if node.kind == "local_macro" then
         return doc.concat(
             {
                 doc.text("local macro " .. node.name.tk .. "!"),
                 render_function_typeargs(node),
             }
         )
-    elseif
-        node.kind == "global_function" and node.name ~= nil and not node.is_method
-    then
-        local prefix = node.implicit_global_function and "function "
-            or "global function "
-        return doc.concat(
-            {doc.text(prefix .. node.name.tk), render_function_typeargs(node)}
-        )
-    elseif
-        node.kind == "record_function" and node.fn_owner ~= nil and node.name ~= nil
-    then
+    end
+
+    if node.fn_owner ~= nil then
         local owner = render_function_owner(node.fn_owner)
         if owner == nil then
             return nil
@@ -432,9 +421,19 @@ local function render_function_name(node: ast.Node): doc.Doc | nil
                 render_function_typeargs(node),
             }
         )
+    elseif node.is_local then
+        return doc.concat(
+            {
+                doc.text("local function " .. node.name.tk),
+                render_function_typeargs(node),
+            }
+        )
     end
 
-    return nil
+    local prefix = node.implicit_global_function and "function " or "global function "
+    return doc.concat(
+        {doc.text(prefix .. node.name.tk), render_function_typeargs(node)}
+    )
 end
 
 local function render_function_definition_doc(
@@ -726,12 +725,7 @@ function stmt_doc.render_statement_doc(
         return render_type_doc(ctx, node, "global")
     elseif node.kind == "bare_type" then
         return render_type_doc(ctx, node)
-    elseif
-        node.kind == "local_function"
-        or node.kind == "local_macro"
-        or node.kind == "global_function"
-        or node.kind == "record_function"
-    then
+    elseif node.kind == "function_declaration" or node.kind == "local_macro" then
         return render_function_definition_doc(ctx, node)
     elseif node.kind == "local_macroexp" then
         return render_local_macroexp_doc(ctx, node)
