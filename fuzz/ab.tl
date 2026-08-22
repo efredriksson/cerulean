@@ -108,7 +108,8 @@ local function corpus_paths(): {string}
     local paths = list_files(CORPUS_DIR, "*.tl")
     if #paths == 0 then
         io.stderr:write(
-            "ab: no corpus in " .. CORPUS_DIR
+            "ab: no corpus in "
+                .. CORPUS_DIR
                 .. "; generate one first (make fuzz / make fuzz-corpus)\n"
         )
         os.exit(2)
@@ -123,7 +124,11 @@ end
 local function print_status_counts(counts: {AbStatus: integer}, total: integer)
     io.stdout:write(string.format("Corpus files: %d\n", total))
     local status_order: {AbStatus} = {
-        "reformatted", "unchanged", "failed", "errored", "crashed",
+        "reformatted",
+        "unchanged",
+        "failed",
+        "errored",
+        "crashed",
     }
     for _, status in ipairs(status_order) do
         io.stdout:write(string.format("    %-13s %d\n", status .. ":", counts[status]))
@@ -186,8 +191,11 @@ local function run_diff()
                 elseif pinned.status ~= outcome.status then
                     table.insert(
                         drift,
-                        base_name(path) .. ": " .. pinned.status
-                            .. " -> " .. outcome.status
+                        base_name(path)
+                            .. ": "
+                            .. pinned.status
+                            .. " -> "
+                            .. outcome.status
                     )
                 elseif pinned.output ~= outcome.output then
                     table.insert(drift, base_name(path) .. ": output differs")

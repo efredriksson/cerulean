@@ -54,6 +54,13 @@ local record DocIndent is Doc where self.kind == "indent"
     child: Doc
 end
 
+-- Render-transparent; fits() measures the subtree at flat width. Wraps content
+-- whose internal break opportunities must not excuse an overflow earlier on the
+-- line (a return annotation cannot absorb a too-wide parameter list).
+local record DocMeasureFlat is Doc where self.kind == "measure_flat"
+    child: Doc
+end
+
 local record DocIfBreak is Doc where self.kind == "if_break"
     flat_child: Doc
     break_child: Doc
@@ -191,6 +198,8 @@ local function propagate_breaks(node: Doc): boolean
         return any_part_breaks
     elseif node is DocIndent then
         return propagate_breaks(node.child)
+    elseif node is DocMeasureFlat then
+        return propagate_breaks(node.child)
     elseif node is DocIfBreak then
         -- Same constraint: evaluate both sides before combining.
         local break_propagates = propagate_breaks(node.break_child)
@@ -225,7 +234,7 @@ local function has_line_break_opportunity(node: Doc): boolean
         return true
     end
 
-    if node is DocIndent or node is DocGroup then
+    if node is DocIndent or node is DocGroup or node is DocMeasureFlat then
         if node.child == nil then
             return false
         end
@@ -343,6 +352,11 @@ local function fits(
                 RenderCommand.new(
                     node.child, command.indent + indent_width, flat, current_group_id
                 )
+            )
+        elseif node is DocMeasureFlat then
+            table.insert(
+                commands,
+                RenderCommand.new(node.child, command.indent, true, current_group_id)
             )
         elseif node is DocGroup then
             if flat and node.should_break then
@@ -482,6 +496,11 @@ local function render_doc(root: Doc, state: RenderState)
                     node.child, indent + state.indent_width, node_flat, current_group_id
                 )
             )
+        elseif node is DocMeasureFlat then
+            table.insert(
+                commands,
+                RenderCommand.new(node.child, indent, node_flat, current_group_id)
+            )
         elseif node is DocGroup then
             local group_id = node.group_id or current_group_id
             if node_flat then
@@ -593,6 +612,8 @@ local function to_string_node(node: Doc, indent: string): string
         local indent_step = "  "
         local child = to_string_node(node.child, indent .. indent_step)
         return wrap_container("indent", {child})
+    elseif node is DocMeasureFlat then
+        return wrap_container("measure_flat", {to_string_node(node.child, indent)})
     elseif node is DocIfBreak then
         local flat_child = to_string_node(node.flat_child, indent)
         local break_child = to_string_node(node.break_child, indent)
@@ -754,6 +775,12 @@ end
 
 function doc.indent(child: Doc): Doc
     local result = new_doc("indent") as DocIndent
+    result.child = child
+    return result
+end
+
+function doc.measure_flat(child: Doc): Doc
+    local result = new_doc("measure_flat") as DocMeasureFlat
     result.child = child
     return result
 end

@@ -372,8 +372,11 @@ describe("formatter table constructor wrapping", function()
       }
    ]]))
 
-   it("keeps a block comment between value and separator inline", helpers.check([=[
+   it("relocates a block comment between value and separator to statement leading", helpers.format([=[
       return {1 --[[b]], 2}
+   ]=], [=[
+      --[[b]]
+      return {1, 2}
    ]=]))
 
 end)

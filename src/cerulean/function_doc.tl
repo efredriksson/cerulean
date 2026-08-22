@@ -4,7 +4,6 @@ local ast = require("cerulean.ast")
 local doc = require("cerulean.doc")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
-local signature_doc = require("cerulean.signature_doc")
 local type_doc = require("cerulean.type_doc")
 
 local type RenderContext = render_context.RenderContext
@@ -16,33 +15,31 @@ function function_doc.render(
 ): doc.Doc
     assert(node.args ~= nil and node.body ~= nil, "bad function node")
 
+    -- measure_flat: a return annotation's break opportunities must not absorb a
+    -- too-wide parameter list; the params break first, the annotation only after.
     local sig_doc = doc.group(
         doc.concat(
             {
-                signature_doc.render_signature_doc(node.args),
-                type_doc.render_return(node.rets),
+                type_doc.render_parameter_list(ctx, node.args),
+                doc.measure_flat(type_doc.render_return(ctx, node.rets)),
             }
         )
     )
     local header = doc.concat(
         {
             doc.group(doc.concat({header_prefix, sig_doc})),
-            render_builders.head_trivia_doc(node),
+            render_builders.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
         }
     )
     local body_doc = ctx.render_block(node.body)
     assert(body_doc ~= nil, "bad body not caught early")
-    local func_doc = doc.concat(
+    return doc.concat(
         {
             header,
             doc.indent_line(doc.trim_lines(body_doc)),
             doc.close("end"),
         }
     )
-    if #ast.inline_trivia(node, "head") > 0 then
-        func_doc = doc.concat({func_doc, doc.break_parent()})
-    end
-    return func_doc
 end
 
 function function_doc.render_anonymous(
@@ -50,15 +47,19 @@ function function_doc.render_anonymous(
 ): doc.Doc
     if node.typeargs ~= nil and #node.typeargs > 0 then
         header_prefix = doc.concat(
-            {header_prefix, type_doc.render_typeargs(node.typeargs)}
+            {header_prefix, type_doc.render_typeargs(ctx, node.typeargs)}
         )
     end
 
     local rendered = function_doc.render(ctx, node, header_prefix)
+    -- comment_doc only breaks the group for a comment at a statement boundary (a body
+    -- statement's leading/trailing). A header or argument comment, or any block
+    -- comment, does not self-break and would fold the body onto the header line. Force
+    -- the group open whenever the function carries any comment so those expand too.
     if
-        render_builders.block_has_any_comments(node.body)
-        or #ast.inline_trivia(node, "head") > 0
-        or render_builders.any_items_have_comments(node.args)
+        render_builders.block_has_any_comments(ctx, node.body)
+        or #ctx.slots:opener_comments(node, "head") > 0
+        or render_builders.any_items_have_comments(ctx, node.args, false)
     then
         return doc.concat({rendered, doc.break_parent()})
     end

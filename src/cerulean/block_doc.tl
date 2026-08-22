@@ -1,5 +1,5 @@
 local ast = require("cerulean.ast")
-local ast_traversal = require("cerulean.ast_traversal")
+local comment_slots = require("cerulean.comment_slots")
 local doc = require("cerulean.doc")
 local expr_doc = require("cerulean.expr_doc")
 local fmt_logger = require("cerulean.fmt_logger")
@@ -7,46 +7,40 @@ local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local source = require("cerulean.source")
 local stmt_doc = require("cerulean.stmt_doc")
+local token_stream = require("cerulean.token_stream")
 
 local type RenderContext = render_context.RenderContext
 
 local block_doc = {}
 
-local function node_end_line(node: ast.Node): integer
-    -- Last source line the node's own text reaches, or 0 if none.
-    -- The parser sets `yend` only when it closes a node on a real token. An unclosed
-    -- node has no `yend`, and its `y` is the next token's line, which can fall far
-    -- past the node, even to EOF after error recovery. A value-less `return` is one
-    -- case: its empty expression list is anchored on the token after `return`. So a
-    -- bare `y` is a start position, not an extent; only `yend` and trailing comments
-    -- count toward the reach.
-    local last = node.yend or 0
-    for _, c in ipairs(node.trailing_comments or {}) do
-        if c.yend > last then
-            last = c.yend
-        end
+-- Last source line the node's text reaches. Token end lines never decrease with
+-- token index -- token k+1 starts at or after the line token k ends on -- so the
+-- span's furthest line is read off its last token; no descendant walk. A
+-- statement's own `yend` can reach one line further: the parser deletes a
+-- consumed trailing `;` from the token array but keeps its line in yend, and
+-- fmt:off geometry must still reach it (a region anchored only by the `;`
+-- line must freeze the statement). Trailing comments past the last token are
+-- the node's own trailing read; a statements block carries no trailing of its
+-- own (its inner comments are its statements' or its dangling, the latter
+-- sitting before the closer and so within the span), so that read is skipped.
+local function max_source_line(ctx: RenderContext, node: ast.Node): integer
+    if node.tok_last == nil or #ctx.tokens == 0 then
+        return node.yend or 0
+    end
+    local last = ctx.tokens[node.tok_last].yend
+    last = math.max(last, node.yend)
+    if node.kind ~= "statements" then
+        last = math.max(last, ctx.slots:trailing_extent(node))
     end
     return last
 end
 
-local function max_source_line(node: ast.Node): integer
-    local max_line = node_end_line(node)
-
-    local function set_max_line(child: ast.Node)
-        local child_end = node_end_line(child)
-        if child_end > max_line then
-            max_line = child_end
-        end
-    end
-
-    ast_traversal.walk_descendants(node, set_max_line)
-    return max_line
-end
-
-local function verbatim_extent(stmt: ast.Node, block_dangling: {ast.Comment}): integer
+local function verbatim_extent(
+    ctx: RenderContext, stmt: ast.Node, block_dangling: {ast.Comment}
+): integer
     -- verbatime needs to include any dangling comments
     -- for enclosing block that overlap with statement
-    local last = max_source_line(stmt)
+    local last = max_source_line(ctx, stmt)
     for _, comment in ipairs(block_dangling) do
         if comment.y <= last then
             last = math.max(last, comment.yend)
@@ -55,24 +49,29 @@ local function verbatim_extent(stmt: ast.Node, block_dangling: {ast.Comment}): i
     return last
 end
 
-local function block_min_source_line(block: ast.Node): integer
+-- First source line the block's text reaches, counting leading comments.
+-- Comments attach to tokens in source order: only a leading comment can sit
+-- above the block's own first line, and the earliest one leads the block's first
+-- statement -- deeper descendants live on later tokens. A statements block has
+-- no leading of its own (reading it would resolve to the closer token and pull
+-- the dangling in), so an empty block is just its own line.
+local function block_min_source_line(ctx: RenderContext, block: ast.Node): integer
     local min_line = block.y
-
-    local function consider_comments(candidate: ast.Node)
-        for _, comment in ipairs(candidate.leading_comments or {}) do
+    local first = block[1]
+    if first ~= nil and first.kind ~= "statements" then
+        for _, comment in ipairs(ctx.slots:leading_comments(first)) do
             if comment.y < min_line then
                 min_line = comment.y
             end
         end
     end
-
-    consider_comments(block)
-    ast_traversal.walk_descendants(block, consider_comments)
     return min_line
 end
 
-local function block_surface_range(block: ast.Node): source.Range
-    return source.Range.new(block_min_source_line(block), max_source_line(block))
+local function block_surface_range(ctx: RenderContext, block: ast.Node): source.Range
+    return source.Range.new(
+        block_min_source_line(ctx, block), max_source_line(ctx, block)
+    )
 end
 
 local function stmt_child_blocks(stmt: ast.Node): {ast.Node}
@@ -86,23 +85,28 @@ local function stmt_child_blocks(stmt: ast.Node): {ast.Node}
     return result
 end
 
-local function stmt_child_surface_ranges(stmt: ast.Node): {source.Range}
+local function stmt_child_surface_ranges(
+    ctx: RenderContext, stmt: ast.Node
+): {source.Range}
     local result: {source.Range} = {}
     for _, child_block in ipairs(stmt_child_blocks(stmt)) do
-        table.insert(result, block_surface_range(child_block))
+        table.insert(result, block_surface_range(ctx, child_block))
     end
     return result
 end
 
-local function stmt_overlaps_fmt_off(
-    stmt: ast.Node, fmt_off_regions: source.Regions
-): boolean
-    local stmt_range = source.Range.new(stmt.y, max_source_line(stmt))
+local function stmt_overlaps_fmt_off(ctx: RenderContext, stmt: ast.Node): boolean
+    -- The geometry below is the expensive part of a block render; a file with no
+    -- fmt:off regions never needs it.
+    if ctx.fmt_off_regions:is_empty() then
+        return false
+    end
+    local stmt_range = source.Range.new(stmt.y, max_source_line(ctx, stmt))
     local own_ranges = source.subtract_many(
-        {stmt_range}, stmt_child_surface_ranges(stmt)
+        {stmt_range}, stmt_child_surface_ranges(ctx, stmt)
     )
     for _, range in ipairs(own_ranges) do
-        if fmt_off_regions:includes_range(range.first_line, range.last_line) then
+        if ctx.fmt_off_regions:includes_range(range.first_line, range.last_line) then
             return true
         end
     end
@@ -113,12 +117,12 @@ local function stmt_overlaps_fmt_off(
     -- collides when a frozen child's verbatim text reaches that same line: the
     -- `end` would be emitted both verbatim and structurally. Freeze the whole
     -- statement so its source is emitted once.
-    local last_line = max_source_line(stmt)
+    local last_line = max_source_line(ctx, stmt)
     for _, child_block in ipairs(stmt_child_blocks(stmt)) do
         for _, child in ipairs(child_block) do
             if
-                max_source_line(child) == last_line
-                and stmt_overlaps_fmt_off(child, fmt_off_regions)
+                max_source_line(ctx, child) == last_line
+                and stmt_overlaps_fmt_off(ctx, child)
             then
                 return true
             end
@@ -172,12 +176,13 @@ end
 -- back to cover any leading comment that falls inside a frozen region after the
 -- previous emission boundary.
 local function back_extended_first_line(
-    stmt: ast.Node, previous_boundary: integer, fmt_off_regions: source.Regions
+    ctx: RenderContext, stmt: ast.Node, previous_boundary: integer
 ): integer
     local first_line = stmt.y
-    for _, comment in ipairs(stmt.leading_comments or {}) do
+    for _, comment in ipairs(ctx.slots:leading_comments(stmt)) do
         if
-            comment.y > previous_boundary and fmt_off_regions:includes_line(comment.y)
+            comment.y > previous_boundary
+            and ctx.fmt_off_regions:includes_line(comment.y)
         then
             first_line = math.min(first_line, comment.y)
         end
@@ -203,31 +208,27 @@ end
 -- and resolve its source line span. Returns the run and the index of its last
 -- statement so the caller can resume after it.
 local function build_run(
+    ctx: RenderContext,
     block: ast.Node,
     start_idx: integer,
     previous_boundary: integer,
-    fmt_off_regions: source.Regions,
     block_dangling: {ast.Comment}
 ): Run, integer
     local first_stmt = block[start_idx]
-    local first_line = back_extended_first_line(
-        first_stmt, previous_boundary, fmt_off_regions
-    )
+    local first_line = back_extended_first_line(ctx, first_stmt, previous_boundary)
     local end_idx = start_idx
-    local last_line = verbatim_extent(first_stmt, block_dangling)
+    local last_line = verbatim_extent(ctx, first_stmt, block_dangling)
     for candidate_idx = start_idx + 1, #block do
         local candidate = block[candidate_idx]
-        if not stmt_overlaps_fmt_off(candidate, fmt_off_regions) then
+        if not stmt_overlaps_fmt_off(ctx, candidate) then
             break
         end
-        local next_first = back_extended_first_line(
-            candidate, last_line, fmt_off_regions
-        )
-        if not gap_fully_frozen(fmt_off_regions, last_line, next_first) then
+        local next_first = back_extended_first_line(ctx, candidate, last_line)
+        if not gap_fully_frozen(ctx.fmt_off_regions, last_line, next_first) then
             break
         end
         end_idx = candidate_idx
-        last_line = verbatim_extent(candidate, block_dangling)
+        last_line = verbatim_extent(ctx, candidate, block_dangling)
     end
     return Run.new(first_line, last_line, first_stmt, block[end_idx]), end_idx
 end
@@ -263,20 +264,9 @@ local function last_line_structural_col(
 end
 
 local function collect_run_lines(
-    source_lines: {string},
-    run: Run,
-    code_precedes_run: boolean,
-    last_line_cut_col?: integer
+    source_lines: {string}, run: Run, start_col: integer, last_line_cut_col?: integer
 ): {string}
     local result: {string} = {}
-    -- Structural code may precede the freeze column on the run's first line
-    -- (e.g. `local function f() -- fmt:off`); keep only the frozen suffix so the
-    -- already-rendered prefix is not duplicated.
-    local start_col = 1
-    if code_precedes_run then
-        start_col = run.first_stmt.x
-    end
-
     -- A single-line run can carry a structural prefix and/or a following
     -- structural token on the same line; slice the frozen middle out of it.
     if run.first_line == run.last_line then
@@ -315,11 +305,9 @@ local function collect_run_lines(
     return result
 end
 
-local function blank_before_fmt_off_start(
-    stmt: ast.Node, fmt_off_regions: source.Regions
-): boolean
-    for _, comment in ipairs(stmt.leading_comments or {}) do
-        if fmt_off_regions:includes_line(comment.y) then
+local function blank_before_fmt_off_start(ctx: RenderContext, stmt: ast.Node): boolean
+    for _, comment in ipairs(ctx.slots:leading_comments(stmt)) do
+        if ctx.fmt_off_regions:includes_line(comment.y) then
             return comment.blank_line_before
         end
     end
@@ -329,16 +317,16 @@ end
 -- Partition a block into its frozen runs and structural statements. All
 -- run-boundary arithmetic lives here, so the renderer walks a flat list.
 local function group_segments(
-    block: ast.Node, fmt_off_regions: source.Regions, block_dangling: {ast.Comment}
+    ctx: RenderContext, block: ast.Node, block_dangling: {ast.Comment}
 ): {Segment}
     local segments: {Segment} = {}
     local previous_boundary = 0
     local consumed = 0
     for idx, stmt in ipairs(block) do
         if idx > consumed then
-            if stmt_overlaps_fmt_off(stmt, fmt_off_regions) then
+            if stmt_overlaps_fmt_off(ctx, stmt) then
                 local run, run_end_idx = build_run(
-                    block, idx, previous_boundary, fmt_off_regions, block_dangling
+                    ctx, block, idx, previous_boundary, block_dangling
                 )
                 consumed = run_end_idx
                 previous_boundary = run.last_line
@@ -357,29 +345,39 @@ local function render_block_doc(ctx: RenderContext, block: ast.Node): doc.Doc | 
     local verbatim_boundary: integer = 0
     local line_before = false
 
-    local segments = group_segments(
-        block, ctx.fmt_off_regions, block.dangling_comments or {}
-    )
+    local block_dangling = ctx.slots:dangling_comments(block)
+    local segments = group_segments(ctx, block, block_dangling)
     for idx, segment in ipairs(segments) do
         if segment.run ~= nil then
             local run = segment.run
             local pre_fmt_off: {ast.Comment} = {}
-            for _, comment in ipairs(run.first_stmt.leading_comments or {}) do
+            for _, comment in ipairs(ctx.slots:leading_comments(run.first_stmt)) do
                 if not ctx.fmt_off_regions:includes_line(comment.y) then
                     table.insert(pre_fmt_off, comment)
                 end
             end
-            local code_precedes_run = run.first_line == run.first_stmt.y
+            -- Structural code may precede the freeze column on the run's first
+            -- line (e.g. `local function f() -- fmt:off`); keep only the frozen
+            -- suffix so the already-rendered prefix is not duplicated.
+            local start_col = 1
+            if
+                run.first_line == run.first_stmt.y
                 and code_precedes_on_line(
                     ctx.source_lines, run.first_line, run.first_stmt.x
                 )
+            then
+                start_col = run.first_stmt.x
+            end
+            local last_line_cut_col = last_line_structural_col(
+                block, run, next_structural_stmt(segments, idx)
+            )
             local verbatim_lines = collect_run_lines(
-                ctx.source_lines,
-                run,
-                code_precedes_run,
-                last_line_structural_col(
-                    block, run, next_structural_stmt(segments, idx)
-                )
+                ctx.source_lines, run, start_col, last_line_cut_col
+            )
+            -- The raw lines carry their comments already; mark them consumed so
+            -- the enclosing statement's sweep does not relocate a copy.
+            ctx.tokens:consume_slice(
+                run.first_line, start_col, run.last_line, last_line_cut_col
             )
             if #pre_fmt_off > 0 or #verbatim_lines > 0 then
                 line_before = render_builders.append_comment_docs(
@@ -388,7 +386,9 @@ local function render_block_doc(ctx: RenderContext, block: ast.Node): doc.Doc | 
                 if line_before then
                     table.insert(parts, doc.hardline())
                 end
-                if blank_before_fmt_off_start(run.first_stmt, ctx.fmt_off_regions) then
+                if blank_before_fmt_off_start(
+                    ctx, run.first_stmt
+                ) then
                     table.insert(parts, doc.hardline())
                 end
                 if #verbatim_lines > 0 then
@@ -398,16 +398,11 @@ local function render_block_doc(ctx: RenderContext, block: ast.Node): doc.Doc | 
             verbatim_boundary = run.last_line
         else
             local stmt = segment.stmt
-            line_before = render_builders.append_comment_docs(
-                parts, stmt.leading_comments or {}, line_before
-            )
-
-            table.insert(
-                parts,
-                render_builders.append_lines_pre_node(
-                    stmt, line_before, doc.stmt_sep_line()
-                )
-            )
+            -- Render first so the slot accessors mark their comments consumed; the
+            -- sweep below then sees only the strays no slot took. leading and
+            -- statement_trailing are read here too (each marks consumed) so the
+            -- sweep runs strictly after every consuming read.
+            local leading = ctx.slots:leading_comments(stmt)
             local node_doc = stmt_doc.render_statement_doc(ctx, stmt)
             if node_doc is nil then
                 fmt_logger.info(
@@ -417,8 +412,35 @@ local function render_block_doc(ctx: RenderContext, block: ast.Node): doc.Doc | 
                 )
                 return nil
             end
+            local trailing = ctx.slots:statement_trailing_comments(stmt)
+            -- Relocate comments stranded deep in the statement -- several at once,
+            -- past what the slots and Stages A/B reached -- to its own-line leading,
+            -- the only idempotent home for a multi-comment strand (the trailing slot
+            -- joins comments on one line, which re-lexes as one). They join the
+            -- leading run ahead of the pre-node separator, so each lands on its own
+            -- line before the statement. Logging each preserves the make-fuzz signal
+            -- the default-drop safe-skip would otherwise carry.
+            local swept = ctx.slots:unconsumed_comments_in_span(stmt)
+            for _, comment in ipairs(swept) do
+                fmt_logger.info(
+                    "[sweep] relocated stranded comment at line %s: %s",
+                    tostring(comment.y),
+                    comment.text
+                )
+            end
+
+            line_before = render_builders.append_comment_docs(
+                parts, leading, line_before
+            )
+            line_before = render_builders.append_comment_docs(parts, swept, line_before)
+            table.insert(
+                parts,
+                render_builders.append_lines_pre_node(
+                    stmt, line_before, doc.stmt_sep_line()
+                )
+            )
             table.insert(parts, node_doc)
-            table.insert(parts, render_builders.trailing_comment_doc(stmt))
+            table.insert(parts, render_builders.trailing_comment_doc(trailing))
         end
 
         line_before = true
@@ -429,7 +451,7 @@ local function render_block_doc(ctx: RenderContext, block: ast.Node): doc.Doc | 
     -- the last verbatim boundary are always included, even if they share a line
     -- with the last structural statement's yend.
     local dangling: {ast.Comment} = {}
-    for _, comment in ipairs(block.dangling_comments or {}) do
+    for _, comment in ipairs(block_dangling) do
         if comment.y > verbatim_boundary then
             table.insert(dangling, comment)
         end
@@ -440,15 +462,29 @@ local function render_block_doc(ctx: RenderContext, block: ast.Node): doc.Doc | 
 end
 
 function block_doc.make_context(
-    fmt_off_regions: source.Regions, source_lines: {string}
+    fmt_off_regions: source.Regions,
+    source_lines: {string},
+    tokens: token_stream.Stream,
+    leading_overrides: {ast.Node: {ast.Comment}}
 ): RenderContext
     return render_context.RenderContext.new(
-        render_block_doc, expr_doc.render, fmt_off_regions, source_lines
+        render_block_doc,
+        expr_doc.render,
+        fmt_off_regions,
+        source_lines,
+        tokens,
+        comment_slots.CommentSlots.new(
+            tokens, source_lines, fmt_off_regions, leading_overrides
+        )
     )
 end
 
 function block_doc.render_block(
-    ctx: RenderContext, block: ast.Node, max_width: integer, indent_width: integer
+    ctx: RenderContext,
+    block: ast.Node,
+    max_width: integer,
+    indent_width: integer,
+    require_sort_tail: {ast.Comment}
 ): string | nil
     local block_doc_node = render_block_doc(ctx, block)
     if block_doc_node is nil then
@@ -463,7 +499,13 @@ function block_doc.render_block(
         end
     end
 
-    local full_doc = doc.concat({get_prelude(), block_doc_node, doc.hardline()})
+    -- require_sort relocates own-line comments that float between sorted requires
+    -- to the end of the block; they arrive here as a render-time tail since the
+    -- block's own dangling comments now come from the token stream.
+    local parts: {doc.Doc} = {get_prelude(), block_doc_node}
+    render_builders.append_comment_docs(parts, require_sort_tail, true)
+    table.insert(parts, doc.hardline())
+    local full_doc = doc.concat(parts)
     fmt_logger.debug("doc IR:\n%s", full_doc)
     local rendered = full_doc:render(max_width, indent_width)
     fmt_logger.debug("render output:\n%s", rendered)

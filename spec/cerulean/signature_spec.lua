@@ -12,6 +12,26 @@ describe("formatter signature wrapping", function()
       end
    ]]))
 
+   it("breaks the parameter list, not an empty function-type return annotation", helpers.format([[
+      function str.split_find(s: string, del: string, no_patt: boolean): function(): integer, integer
+      end
+   ]],[[
+      function str.split_find(
+          s: string, del: string, no_patt: boolean
+      ): function(): integer, integer
+      end
+   ]]))
+
+   it("breaks the parameter list before a function-type return annotation with arguments", helpers.format([[
+      function make_iterator(source_list: {string}, prefix: string): function(index: integer): string, boolean
+      end
+   ]],[[
+      function make_iterator(
+          source_list: {string}, prefix: string
+      ): function(index: integer): string, boolean
+      end
+   ]]))
+
    it("joins an already-wrapped signature that fits on one line", helpers.format([[
       function f(
          param_one: TypeA,
@@ -48,6 +68,55 @@ describe("formatter signature wrapping", function()
           third_parameter_with_a_very_long_name: ExtremelyVerboseTypeNameGamma
       ): ReturnType
       end
+   ]]))
+
+   it("splits the parameters and keeps the return tuple on the closing line when both are too wide", helpers.format([[
+      function f(first_parameter_with_long_name: ExtremelyVerboseTypeNameAlpha, second_parameter_with_long_name: ExtremelyVerboseTypeNameBeta): FirstVerboseReturnTypeName, SecondVerboseReturnTypeName, ThirdVerboseReturnTypeName
+      end
+   ]],[[
+      function f(
+          first_parameter_with_long_name: ExtremelyVerboseTypeNameAlpha,
+          second_parameter_with_long_name: ExtremelyVerboseTypeNameBeta
+      ): FirstVerboseReturnTypeName, SecondVerboseReturnTypeName, ThirdVerboseReturnTypeName
+      end
+   ]]))
+
+   it("breaks the return tuple rather than overflow the closing line", helpers.format([[
+      function f(alpha_parameter: ExtremelyVerboseTypeNameAlpha, beta_parameter: ExtremelyVerboseTypeNameBeta): FirstVerboseReturnTypeName, SecondVerboseReturnTypeName, ThirdVerboseReturnTypeName, FourthVerboseReturnTypeName
+      end
+   ]],[[
+      function f(
+          alpha_parameter: ExtremelyVerboseTypeNameAlpha,
+          beta_parameter: ExtremelyVerboseTypeNameBeta
+      ): FirstVerboseReturnTypeName,
+          SecondVerboseReturnTypeName,
+          ThirdVerboseReturnTypeName,
+          FourthVerboseReturnTypeName
+      end
+   ]]))
+
+   it("breaks a function type's return tuple when its closing line is too wide", helpers.format([[
+      local record graphics
+         make_thing: function(first_parameter_with_long_name: ExtremelyVerboseTypeNameAlpha, second_parameter_with_long_name: ExtremelyVerboseTypeNameBeta): FirstVerboseReturnTypeName, SecondVerboseReturnTypeName, ThirdVerboseReturnTypeName
+      end
+   ]],[[
+      local record graphics
+          make_thing: function(
+              first_parameter_with_long_name: ExtremelyVerboseTypeNameAlpha,
+              second_parameter_with_long_name: ExtremelyVerboseTypeNameBeta
+          ): FirstVerboseReturnTypeName,
+              SecondVerboseReturnTypeName,
+              ThirdVerboseReturnTypeName
+      end
+   ]]))
+
+   it("keeps an empty function-type parameter list flat and breaks its return tuple", helpers.format([[
+      local f: function(): FirstVerboseReturnTypeName, SecondVerboseReturnTypeName, ThirdVerboseReturnTypeName, FourthVerboseReturnTypeName
+   ]],[[
+      local f: function(): FirstVerboseReturnTypeName,
+          SecondVerboseReturnTypeName,
+          ThirdVerboseReturnTypeName,
+          FourthVerboseReturnTypeName
    ]]))
 
    it("preserves optional and vararg parameters when wrapping a signature", helpers.format([[
@@ -324,6 +393,34 @@ describe("formatter signature wrapping", function()
              -- note
          )
       ]]))
+
+      -- Function types share the definition's parameter renderer, so a trailing
+      -- comment on the last argument wraps the same way the definition above does.
+      it("preserves a same-line trailing comment after the last function-type parameter", helpers.format([[
+         local f: function(a: integer -- note
+         )
+      ]], [[
+         local f: function(
+             a: integer -- note
+         )
+      ]]))
+
+      it("formats a function-type parameter list identically to a definition's", helpers.check([[
+         local f: function(a: integer, b: string)
+      ]]))
+
+      -- A block comment after a parameter's type once duplicated (the list loop
+      -- and the type both emitted the trailing slot); the type now renders
+      -- leading-only, so it survives once -- definitions and function types alike.
+      it("preserves a block comment after the last parameter's type", helpers.format([=[
+         local function f(p: integer --[[t]])
+         end
+      ]=], [=[
+         local function f(
+             p: integer --[[t]]
+         )
+         end
+      ]=]))
 
    end)
 end)

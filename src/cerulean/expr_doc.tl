@@ -107,6 +107,7 @@ local function is_chainable_binary_op(operator: ast.Operator): boolean
 end
 
 local function collect_chain_terms(
+    ctx: RenderContext,
     node: ast.Node,
     operator: ast.Operator,
     terms: {ast.Node},
@@ -116,15 +117,15 @@ local function collect_chain_terms(
     -- operator may be flattened into it. `<<` and `>>` share a precedence, and
     -- matching on precedence alone rewrote one into the other.
     if node.kind == "op" and node.op.arity == 2 and node.op.op == operator.op then
-        collect_chain_terms(node.e1, operator, terms, gap_before_comments)
+        collect_chain_terms(ctx, node.e1, operator, terms, gap_before_comments)
         local lhs_line = node.e1.yend
         local before_op = trivia_doc.partition(
-            ast.inline_trivia(node, "op_leading"), lhs_line
+            ctx.slots:op_leading_comments(node), lhs_line
         )
         if before_op then
             gap_before_comments[#terms] = before_op
         end
-        collect_chain_terms(node.e2, operator, terms, gap_before_comments)
+        collect_chain_terms(ctx, node.e2, operator, terms, gap_before_comments)
         return
     end
     table.insert(terms, node)
@@ -156,8 +157,8 @@ local function render_binary_chain(
     local operator_prec = operator.prec
     local terms: {ast.Node} = {}
     local gap_before_comments: {integer: ast.Comment} = {}
-    collect_chain_terms(left, operator, terms, gap_before_comments)
-    collect_chain_terms(right, operator, terms, gap_before_comments)
+    collect_chain_terms(ctx, left, operator, terms, gap_before_comments)
+    collect_chain_terms(ctx, right, operator, terms, gap_before_comments)
 
     local forced_breaks = false
     for _, gap_comment in pairs(gap_before_comments) do
@@ -223,15 +224,15 @@ end
 
 -- Flattened, the separator between two statements reads `; ` and a leading comment
 -- swallows the rest of the line. One bare statement is safe.
-local function block_needs_own_lines(block: ast.Node): boolean
-    return #block ~= 1 or render_builders.any_items_have_comments(block)
+local function block_needs_own_lines(ctx: RenderContext, block: ast.Node): boolean
+    return #block ~= 1 or render_builders.any_items_have_comments(ctx, block, false)
 end
 
 -- A macro parameter declared `Statement` puts a block where the argument list
 -- expects an expression, so one reaches the expression dispatcher.
 local function render_statements(ctx: RenderContext, block: ast.Node): doc.Doc
     local rendered = ctx.render_block(block) or doc.text("")
-    if block_needs_own_lines(block) then
+    if block_needs_own_lines(ctx, block) then
         return doc.concat({doc.break_parent(), rendered})
     end
     return rendered
@@ -245,9 +246,10 @@ local function call_doc_build_call_expr_doc(
 ): doc.Doc
     local callee_doc = ctx.render_expr(callee, true)
     local bang_doc = node.is_macro_invocation and doc.text("!") or doc.text("")
-    local call_args_doc = delimited_list_doc.render_parens(args, args, ctx.render_expr)
-    local args_tc = render_builders.trailing_comment_doc(args)
-    return doc.concat({callee_doc, bang_doc, call_args_doc, args_tc})
+    local call_args_doc = delimited_list_doc.render_parens(
+        ctx, args, args, ctx.render_expr
+    )
+    return doc.concat({callee_doc, bang_doc, call_args_doc})
 end
 
 -- Suffixes (field/method/index/call) bind tighter than any operator, so their
@@ -267,14 +269,14 @@ local function render_member(
     }
     trivia_doc.emit_transition(
         parts,
-        ast.inline_trivia(node, "op_leading"),
+        ctx.slots:op_leading_comments(node),
         node.e1.yend,
         doc.text(separator),
         doc.text("")
     )
     trivia_doc.emit_transition(
         parts,
-        ast.inline_trivia(node, "op_trailing"),
+        ctx.slots:op_trailing_comments(node),
         node.op_y,
         doc.text(node.e2.tk),
         doc.text("")
@@ -311,26 +313,17 @@ local function render_cast(
     local operand_doc = render_expr(
         ctx, node.e1, render_builders.cast_prec(node), same_indent_on_line
     )
-    local casttype_doc = type_doc.render(node.casttype)
+    local casttype_doc = type_doc.render(ctx, node.casttype)
+    local op_leading = ctx.slots:op_leading_comments(node)
+    local op_trailing = ctx.slots:op_trailing_comments(node)
 
-    if
-        #ast.inline_trivia(node, "op_leading") > 0
-        or #ast.inline_trivia(node, "op_trailing") > 0
-    then
+    if #op_leading > 0 or #op_trailing > 0 then
         local parts: {doc.Doc} = {operand_doc}
         trivia_doc.emit_transition(
-            parts,
-            ast.inline_trivia(node, "op_leading"),
-            node.e1.yend,
-            doc.text(keyword),
-            doc.text(" ")
+            parts, op_leading, node.e1.yend, doc.text(keyword), doc.text(" "), true
         )
         trivia_doc.emit_transition(
-            parts,
-            ast.inline_trivia(node, "op_trailing"),
-            node.op_y,
-            casttype_doc,
-            doc.text(" ")
+            parts, op_trailing, node.op_y, casttype_doc, doc.text(" "), true
         )
         return doc.concat(parts)
     end
@@ -344,27 +337,31 @@ local function render_cast(
     return doc.concat({operand_doc, doc.group(cast_doc)})
 end
 
-local function op_has_any_trivia(node: ast.Node): boolean
-    return #ast.inline_trivia(node, "op_leading") > 0
-        or #ast.inline_trivia(node, "op_trailing") > 0
+local function op_has_any_trivia(ctx: RenderContext, node: ast.Node): boolean
+    return #ctx.slots:op_leading_comments(node) > 0
+        or #ctx.slots:op_trailing_comments(node) > 0
 end
 
 -- Renders `left op right`, keeping any comment attached to the operator: a
 -- comment between the operands is pushed onto its own line instead of dropped.
 local function join_op_with_trivia(
-    node: ast.Node, left_doc: doc.Doc, right_doc: doc.Doc, plain_separator: doc.Doc
+    ctx: RenderContext,
+    node: ast.Node,
+    left_doc: doc.Doc,
+    right_doc: doc.Doc,
+    plain_separator: doc.Doc
 ): doc.Doc
     local parts: {doc.Doc} = {left_doc}
     trivia_doc.emit_transition(
         parts,
-        ast.inline_trivia(node, "op_leading"),
+        ctx.slots:op_leading_comments(node),
         node.e1.yend,
         doc.text(node.op.op),
         plain_separator
     )
     trivia_doc.emit_transition(
         parts,
-        ast.inline_trivia(node, "op_trailing"),
+        ctx.slots:op_trailing_comments(node),
         node.op.y,
         right_doc,
         plain_separator
@@ -390,12 +387,12 @@ local function render_op(
         local plain_sep = unary_separator(op, left)
         local parts: {doc.Doc} = {doc.text(op)}
         trivia_doc.emit_transition(
-            parts, ast.inline_trivia(node, "op_trailing"), operator.y, child, plain_sep
+            parts, ctx.slots:op_trailing_comments(node), operator.y, child, plain_sep
         )
         return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
     else
         local op_prec = operator.prec
-        if is_chainable_binary_op(operator) and not op_has_any_trivia(node) then
+        if is_chainable_binary_op(operator) and not op_has_any_trivia(ctx, node) then
             return parenthesize_if_lower_prec(
                 render_binary_chain(ctx, operator, left, right, same_indent_on_line),
                 op_prec,
@@ -403,6 +400,7 @@ local function render_op(
             )
         end
         local joined = join_op_with_trivia(
+            ctx,
             node,
             render_expr(ctx, left, op_prec, same_indent_on_line),
             render_expr(ctx, right, op_prec, same_indent_on_line),

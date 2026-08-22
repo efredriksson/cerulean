@@ -1,4 +1,4 @@
--- Table constructor → doc.Doc (build_table_doc) or {string} (render_table).
+-- Table constructor → doc.Doc (build_table_doc).
 local ast = require("cerulean.ast")
 local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
@@ -67,14 +67,16 @@ local function build_table_item_text(ctx: RenderContext, item: ast.Node): doc.Do
             return doc.concat(
                 {
                     doc.text(key_text .. ": "),
-                    type_doc.render(item.itemtype),
+                    type_doc.render(ctx, item.itemtype),
                     doc.text(" = "),
                     ctx.render_expr(item.value),
                 }
             )
         end
         return render_builders.with_leading_inline_trivia(
-            item, doc.text(key_text .. " = "), ctx.render_expr(item.value)
+            ctx.slots:opener_comments(item, "after_opener"),
+            doc.text(key_text .. " = "),
+            ctx.render_expr(item.value)
         )
     end
 
@@ -93,9 +95,11 @@ end
 -- A cast value needs `;`, or the trailing `,` gets read as a return-type separator.
 -- The last item's separator is `if_wrapped` so the trailing comma only shows once
 -- the list breaks across lines.
-local function table_separator(item: ast.Node, is_last: boolean): doc.Doc
+local function table_separator(
+    ctx: RenderContext, item: ast.Node, is_last: boolean
+): doc.Doc
     local effective_sep = (item_value_needs_semicolon(item.value) and ";") or ","
-    local has_trailing = #(item.trailing_comments or {}) > 0
+    local has_trailing = #ctx.slots:trailing_comments(item) > 0
     local sep = has_trailing and effective_sep or effective_sep .. " "
     if is_last then
         return doc.if_wrapped(sep)
@@ -109,19 +113,23 @@ local function table_item_render_spec(
     local function render_item(item: ast.Node): doc.Doc
         return build_table_item_text(ctx, item)
     end
+    local function make_separator(item: ast.Node, is_last: boolean): doc.Doc
+        return table_separator(ctx, item, is_last)
+    end
     return delimited_list_doc.ItemRenderSpec.new(
-        force_wrap, render_item, table_separator
+        force_wrap, render_item, make_separator, true
     )
 end
 
 function table_doc.build_table_doc(ctx: RenderContext, items: ast.Node): doc.Doc
-    local force_wrap = render_builders.any_items_have_comments(items)
+    local dangling = ctx.slots:container_dangling_comments(items, #items == 0)
+    local force_wrap = render_builders.any_items_have_comments(ctx, items, true)
         or items.trailing_comma
-        or #(items.dangling_comments or {}) > 0
+        or #dangling > 0
     local line_doc = render_builders.item_line_doc(force_wrap)
 
     local items_doc = delimited_list_doc.render_items(
-        items, items.dangling_comments or {}, table_item_render_spec(ctx, force_wrap)
+        ctx, items, dangling, table_item_render_spec(ctx, force_wrap)
     )
 
     local table_body_doc = doc.concat(

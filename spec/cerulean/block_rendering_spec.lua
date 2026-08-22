@@ -1605,29 +1605,32 @@ describe("formatter structural block rendering", function()
          ::done::
       ]]))
 
-      it("keeps a comment between goto and its label", helpers.format([[
+      it("relocates a comment between goto and its label to leading", helpers.format([[
          goto -- jump
          done
       ]], [[
-         goto done -- jump
+         -- jump
+         goto done
       ]]))
    end)
 
    describe("global declarations", function()
-      it("keeps a comment between global and its declaration keyword", helpers.format([[
+      it("relocates a comment between global and its declaration keyword to leading", helpers.format([[
          global -- x
          type A
       ]], [[
-         global type A -- x
+         -- x
+         global type A
       ]]))
    end)
 
    describe("local declarations", function()
-      it("keeps a comment between local and the variable name", helpers.format([[
+      it("relocates a comment between local and the variable name to leading", helpers.format([[
          local --
          Z
       ]], [[
-         local Z --
+         --
+         local Z
       ]]))
    end)
 

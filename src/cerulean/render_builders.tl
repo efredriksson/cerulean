@@ -5,25 +5,7 @@ local trivia_doc = require("cerulean.trivia_doc")
 
 local type RenderContext = render_context.RenderContext
 
-local record DelimitedSequenceOptions
-    open_delim: string
-    close_delim: string
-end
-
-local render_builders = {
-    DelimitedSequenceOptions = DelimitedSequenceOptions,
-}
-
-function DelimitedSequenceOptions.new(
-    open_delim: string, close_delim: string
-): DelimitedSequenceOptions
-    local self: DelimitedSequenceOptions = setmetatable(
-        {}, {__index = DelimitedSequenceOptions}
-    )
-    self.open_delim = open_delim
-    self.close_delim = close_delim
-    return self
-end
+local render_builders = {}
 
 function render_builders.normalize_string_literal(
     tk: string, is_longstring: boolean
@@ -89,61 +71,17 @@ function render_builders.build_mapped_comma_separated_docs(
     return render_builders.build_comma_separated_docs(mapped_exp_docs(ctx, nodes))
 end
 
-function render_builders.build_delimited_body_doc(
-    items_doc: doc.Doc, opts: DelimitedSequenceOptions, line_doc: doc.Doc
-): doc.Doc
-    return doc.concat(
-        {
-            doc.text(opts.open_delim),
-            doc.indent(doc.concat({line_doc, items_doc})),
-            line_doc,
-            doc.text(opts.close_delim),
-        }
-    )
-end
-
-function render_builders.build_broken_delimited_sequence_doc_from_items(
-    items_doc: doc.Doc, opts: DelimitedSequenceOptions
-): doc.Doc
-    return render_builders.build_delimited_body_doc(items_doc, opts, doc.softline())
-end
-
-function render_builders.build_broken_delimited_sequence_doc(
-    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
-): doc.Doc
-    if #item_docs == 0 then
-        return doc.text(opts.open_delim .. opts.close_delim)
-    end
-
-    return render_builders.build_broken_delimited_sequence_doc_from_items(
-        render_builders.build_grouped_comma_items_doc(item_docs), opts
-    )
-end
-
-function render_builders.build_grouped_delimited_sequence_doc(
-    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
-): doc.Doc
-    return doc.group(
-        render_builders.build_broken_delimited_sequence_doc(item_docs, opts)
-    )
-end
-
-function render_builders.build_delimited_sequence_doc(
-    item_docs: {doc.Doc}, opts: DelimitedSequenceOptions
-): doc.Doc
-    return render_builders.build_grouped_delimited_sequence_doc(item_docs, opts)
-end
-
-function render_builders.trailing_comment_doc(node: ast.Node): doc.Doc
+function render_builders.trailing_comment_doc(comments: {ast.Comment}): doc.Doc
     local parts: {doc.Doc} = {}
-    for _, comment in ipairs(node.trailing_comments or {}) do
-        table.insert(parts, doc.text(" " .. comment.text))
+    for _, comment in ipairs(comments) do
+        table.insert(
+            parts, doc.concat({doc.text(" "), trivia_doc.comment_doc(comment)})
+        )
     end
     return doc.concat(parts)
 end
 
-function render_builders.head_trivia_doc(node: ast.Node): doc.Doc
-    local head = ast.inline_trivia(node, "head")
+function render_builders.head_trivia_doc(head: {ast.Comment}): doc.Doc
     if #head == 0 then
         return doc.text("")
     end
@@ -152,22 +90,23 @@ function render_builders.head_trivia_doc(node: ast.Node): doc.Doc
     return doc.concat(parts)
 end
 
-function render_builders.any_items_have_comments(items: ast.Node): boolean
-    for _, item in ipairs(items) do
+-- `exclude_last_trailing` skips the trailing-comment check on the final item: for
+-- a sugar call (`t{}`, `t"s"`) the sole argument has no closing token of its own,
+-- so its last token is also the call's, and the comment after it is the call's
+-- own trailing, read and rendered outside this list (see render_parens).
+function render_builders.any_items_have_comments(
+    ctx: RenderContext,
+    items: ast.Node,
+    absorb_first_opener: boolean,
+    exclude_last_trailing?: boolean
+): boolean
+    for index, item in ipairs(items) do
+        local leading = ctx.slots:item_leading_comments(
+            item, items[index - 1], index == 1 and absorb_first_opener
+        )
+        local checks_trailing = not (exclude_last_trailing and index == #items)
         if
-            #(item.leading_comments or {}) > 0 or #(item.trailing_comments or {}) > 0
-        then
-            return true
-        end
-    end
-    return false
-end
-
-local function any_items_have_inline_trivia(items: {ast.Node}): boolean
-    for _, item in ipairs(items) do
-        if
-            #ast.inline_trivia(item, "before_separator") > 0
-            or #ast.inline_trivia(item, "leading") > 0
+            #leading > 0 or (checks_trailing and #ctx.slots:trailing_comments(item) > 0)
         then
             return true
         end
@@ -177,49 +116,59 @@ end
 
 -- A threaded comment pins its item to a line of its own, so the commas stop being
 -- free break points and the list has to render through the comment path.
-function render_builders.exp_list_can_break(exps: {ast.Node}): boolean
-    return #exps > 1
-        and not render_builders.any_items_have_comments(exps)
-        and not any_items_have_inline_trivia(exps)
+function render_builders.exp_list_can_break(
+    ctx: RenderContext, exps: {ast.Node}
+): boolean
+    return #exps > 1 and not render_builders.any_items_have_comments(ctx, exps, false)
+end
+
+-- Join pre-rendered list items with ", ", but when a non-last item carries a
+-- trailing comment (a line comment after it or its separator) emit the comma, the
+-- comment, and a hardline so the next item starts on its own line. Callers that can
+-- render their items through ctx.render_expr use build_exp_list_doc; this one takes
+-- pre-rendered docs for lists whose items carry syntax render_expr does not (a
+-- variable list's `<const>` attributes), so the caller owns item rendering and this
+-- owns the separators + per-item trailing.
+function render_builders.build_comma_separated_with_trailing(
+    ctx: RenderContext, items: {ast.Node}, item_docs: {doc.Doc}
+): doc.Doc
+    local parts: {doc.Doc} = {}
+    local force_next_indent = false
+    for index, item_doc in ipairs(item_docs) do
+        local rendered = item_doc
+        if force_next_indent then
+            rendered = doc.indent_hardline(rendered)
+            force_next_indent = false
+        end
+        if index < #item_docs then
+            local trailing = ctx.slots:trailing_comments(items[index])
+            if #trailing > 0 then
+                local trailing_parts: {doc.Doc} = {rendered, doc.text(",")}
+                for _, comment in ipairs(trailing) do
+                    table.insert(trailing_parts, doc.text(" " .. comment.text))
+                end
+                rendered = doc.concat(trailing_parts)
+                force_next_indent = true
+            else
+                rendered = doc.concat({rendered, doc.text(", ")})
+            end
+        end
+        table.insert(parts, rendered)
+    end
+    return doc.concat(parts)
 end
 
 function render_builders.build_exp_list_doc(
     ctx: RenderContext, exps: {ast.Node}
 ): doc.Doc
-    if
-        not render_builders.any_items_have_comments(exps)
-        and not any_items_have_inline_trivia(exps)
-    then
+    if not render_builders.any_items_have_comments(ctx, exps, false) then
         return render_builders.build_grouped_comma_items_doc(mapped_exp_docs(ctx, exps))
     end
-    local parts: {doc.Doc} = {}
-    local force_next_indent = false
-    for index, exp in ipairs(exps) do
-        local is_last = index == #exps
-        local item_parts: {doc.Doc} = {}
-        trivia_doc.append_leading(item_parts, ast.inline_trivia(exp, "leading"))
-        table.insert(item_parts, ctx.render_expr(exp))
-        trivia_doc.append_inline(item_parts, ast.inline_trivia(exp, "before_separator"))
-        local exp_doc = doc.concat(item_parts)
-        if force_next_indent then
-            exp_doc = doc.indent_hardline(exp_doc)
-            force_next_indent = false
-        end
-        if not is_last then
-            if #(exp.trailing_comments or {}) > 0 then
-                local trailing_parts: {doc.Doc} = {exp_doc, doc.text(",")}
-                for _, comment in ipairs(exp.trailing_comments) do
-                    table.insert(trailing_parts, doc.text(" " .. comment.text))
-                end
-                exp_doc = doc.concat(trailing_parts)
-                force_next_indent = true
-            else
-                exp_doc = doc.concat({exp_doc, doc.text(", ")})
-            end
-        end
-        table.insert(parts, exp_doc)
+    local item_docs: {doc.Doc} = {}
+    for _, exp in ipairs(exps) do
+        table.insert(item_docs, ctx.render_expr(exp))
     end
-    return doc.concat(parts)
+    return render_builders.build_comma_separated_with_trailing(ctx, exps, item_docs)
 end
 
 -- The first value stays on the `return` line: unlike an `=` list there is no
@@ -227,7 +176,7 @@ end
 function render_builders.build_return_exp_list_doc(
     ctx: RenderContext, exps: {ast.Node}
 ): doc.Doc
-    if not render_builders.exp_list_can_break(exps) then
+    if not render_builders.exp_list_can_break(ctx, exps) then
         return render_builders.build_exp_list_doc(ctx, exps)
     end
     local item_docs = mapped_exp_docs(ctx, exps)
@@ -243,9 +192,18 @@ function render_builders.build_return_exp_list_doc(
     return doc.concat({first_doc, doc.group(doc.indent(continuations))})
 end
 
-function render_builders.block_has_any_comments(block: ast.Node): boolean
-    return render_builders.any_items_have_comments(block)
-        or #(block.dangling_comments or {}) > 0
+function render_builders.block_has_any_comments(
+    ctx: RenderContext, block: ast.Node
+): boolean
+    for _, stmt in ipairs(block) do
+        if
+            #ctx.slots:leading_comments(stmt) > 0
+            or #ctx.slots:statement_trailing_comments(stmt) > 0
+        then
+            return true
+        end
+    end
+    return #ctx.slots:dangling_comments(block) > 0
 end
 
 function render_builders.item_line_doc(should_force_wrap: boolean): doc.Doc
@@ -312,20 +270,22 @@ local CHAIN_NODE_KINDS: {ast.NodeKind: boolean} = {
     ["call"] = true,
 }
 
-function render_builders.has_chain_internal_trivia(node: ast.Node): boolean
+function render_builders.has_chain_internal_trivia(
+    ctx: RenderContext, node: ast.Node
+): boolean
     if not CHAIN_NODE_KINDS[node.kind] then
         return false
     end
-    if #ast.inline_trivia(node, "op_leading") > 0 then
+    if #ctx.slots:op_leading_comments(node) > 0 then
         return true
     end
-    if #ast.inline_trivia(node, "op_trailing") > 0 then
+    if #ctx.slots:op_trailing_comments(node) > 0 then
         return true
     end
-    if node.e1 ~= nil and render_builders.has_chain_internal_trivia(node.e1) then
+    if node.e1 ~= nil and render_builders.has_chain_internal_trivia(ctx, node.e1) then
         return true
     end
-    if node.e2 ~= nil and render_builders.has_chain_internal_trivia(node.e2) then
+    if node.e2 ~= nil and render_builders.has_chain_internal_trivia(ctx, node.e2) then
         return true
     end
     return false
@@ -346,9 +306,8 @@ function render_builders.wrap_keyword_before(
 end
 
 function render_builders.with_leading_inline_trivia(
-    node: ast.Node, prefix: doc.Doc, content: doc.Doc
+    after_opener: {ast.Comment}, prefix: doc.Doc, content: doc.Doc
 ): doc.Doc
-    local after_opener = ast.inline_trivia(node, "after_opener")
     if #after_opener == 0 then
         return doc.concat({prefix, content})
     end
@@ -368,7 +327,7 @@ function render_builders.append_comment_docs(
         if comment.blank_line_before then
             table.insert(parts, doc.hardline())
         end
-        table.insert(parts, doc.text(comment.text))
+        table.insert(parts, trivia_doc.comment_doc(comment))
         line_before = true
     end
     return line_before

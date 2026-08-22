@@ -10,9 +10,16 @@ BINDIR ?= /usr/local/bin
 
 FORMATTER := tl run src/cerulean/init.tl --
 
+RENDER_LAYER := src/cerulean/*_doc.tl src/cerulean/comment_slots.tl src/cerulean/blank_lines.tl
+
 lint:
 	tl check ${SRCS_LINT}
 	${FORMATTER} --check src/cerulean
+	@if grep -n "\.text [=~]=" ${RENDER_LAYER}; then \
+		echo "render layer must not classify token text; the parser owns grammar"; \
+		echo "(see ARCHITECTURE.md, Comment Model)"; \
+		exit 1; \
+	fi
 
 format:
 	${FORMATTER} src/cerulean

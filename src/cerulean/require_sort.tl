@@ -59,24 +59,26 @@ local function by_module_path(first: SortableRequire, second: SortableRequire): 
     return first.module_path < second.module_path
 end
 
-local function comment_len(comment: ast.Comment): integer
-    local _, comment_line_breaks = comment.text:gsub("\n", "\n")
-    return comment_line_breaks + 1
+-- Move a comment to line `y`, keeping the height it had, and answer the line
+-- after it. Sorting relocates comments, so their source lines have to be
+-- rewritten before the renderer measures blank lines against them.
+local function move_comment_to(comment: ast.Comment, y: integer): integer
+    local height = comment.yend - comment.y
+    comment.y = y
+    comment.yend = y + height
+    return comment.yend + 1
 end
 
-local function comment_yend(comment: ast.Comment): integer
-    return comment.y + comment_len(comment) - 1
-end
-
-local function separate_comments(node: ast.Node): {ast.Comment}, {ast.Comment}
-    local comments = node.leading_comments or {}
+local function separate_comments(
+    node: ast.Node, comments: {ast.Comment}
+): {ast.Comment}, {ast.Comment}
     local previous_y = node.y
     local floating_comments: {ast.Comment} = {}
     local attached_comments: {ast.Comment} = {}
     local entered_floating_region = false
     for i = #comments, 1, -1 do
         local comment = comments[i]
-        if entered_floating_region or comment_yend(comment) < previous_y - 1 then
+        if entered_floating_region or comment.yend < previous_y - 1 then
             entered_floating_region = true
             table.insert(floating_comments, 1, comment)
         else
@@ -89,7 +91,22 @@ local function separate_comments(node: ast.Node): {ast.Comment}, {ast.Comment}
     return attached_comments, floating_comments
 end
 
-function require_sort.sort_top_level_requires(root: ast.Node, fmt_off_regions: Regions)
+-- Reorders the contiguous top-level requires in place and returns its comment
+-- placement as a render-time signal rather than mutating the comment slots the
+-- renderer no longer reads. The first return is a per-node leading override (the
+-- nodes require_sort relocated comments onto, read by the renderer in place of
+-- the token stream): module documentation hoisted onto the sorted-first require,
+-- each require's own attached comments travelling with it. The second is the
+-- floating tail -- own-line comments a blank line apart from any require -- which
+-- the renderer appends after the sorted block, or leads the following statement
+-- when one exists (folded into that statement's override, tail then empty).
+-- The pass-filled leading slots are still read as input here; only the placement
+-- is redirected off them.
+function require_sort.sort_top_level_requires(
+    root: ast.Node,
+    fmt_off_regions: Regions,
+    leading_of: function(ast.Node): {ast.Comment}
+): {ast.Node: {ast.Comment}}, {ast.Comment}
     local sortable: {SortableRequire} = {}
 
     for _, node in ipairs(root) do
@@ -106,7 +123,7 @@ function require_sort.sort_top_level_requires(root: ast.Node, fmt_off_regions: R
 
     local count = #sortable
     if count <= 1 then
-        return
+        return {}, {}
     end
 
     local current_y = 1
@@ -116,22 +133,25 @@ function require_sort.sort_top_level_requires(root: ast.Node, fmt_off_regions: R
     local float_module_documentation = {}
     local attach_module_documentation = {}
 
+    local overrides: {ast.Node: {ast.Comment}} = {}
+    local own_attached: {ast.Node: {ast.Comment}} = {}
     local all_floating_comments: {ast.Comment} = {}
     for index, entry in ipairs(sortable) do
-        local attached_comments, floating_comments = separate_comments(entry.node)
+        local attached_comments, floating_comments = separate_comments(
+            entry.node, leading_of(entry.node)
+        )
+        own_attached[entry.node] = attached_comments
 
         if index == 1 then
             if #floating_comments == 0 then
                 -- If there are no floating comments then assume the attched comment
                 -- is intended as the module comment
                 attach_module_documentation = attached_comments
-                entry.node.leading_comments = {}
+                own_attached[entry.node] = {}
             else
                 float_module_documentation = floating_comments
-                entry.node.leading_comments = attached_comments
             end
         else
-            entry.node.leading_comments = attached_comments
             for _, floating_comment in ipairs(floating_comments) do
                 table.insert(all_floating_comments, floating_comment)
             end
@@ -147,35 +167,33 @@ function require_sort.sort_top_level_requires(root: ast.Node, fmt_off_regions: R
     local total_top_level_comments: {ast.Comment} = {}
     for _, comment in ipairs(float_module_documentation) do
         table.insert(total_top_level_comments, comment)
-        current_y = comment_yend(comment) + 2
+        current_y = comment.yend + 2
     end
     for _, comment in ipairs(attach_module_documentation) do
-        table.insert(total_top_level_comments, comment)
-        current_y = comment_yend(comment) + 1
-        first_require_stmt.blank_line_before = false
-    end
-    for index, comment in ipairs(first_require_stmt.leading_comments) do
-        if index == 1 and #attach_module_documentation == 0 then
-            comment.blank_line_before = true
-        end
-        comment.y = current_y
-        comment.yend = comment_yend(comment)
         table.insert(total_top_level_comments, comment)
         current_y = comment.yend + 1
         first_require_stmt.blank_line_before = false
     end
-    first_require_stmt.leading_comments = total_top_level_comments
-    if #first_require_stmt.leading_comments == 0 then
+    for index, comment in ipairs(own_attached[first_require_stmt] or {}) do
+        if index == 1 and #attach_module_documentation == 0 then
+            comment.blank_line_before = true
+        end
+        current_y = move_comment_to(comment, current_y)
+        table.insert(total_top_level_comments, comment)
+        first_require_stmt.blank_line_before = false
+    end
+    overrides[first_require_stmt] = total_top_level_comments
+    if #total_top_level_comments == 0 then
         first_require_stmt.blank_line_before = false
     end
 
     for index, entry in ipairs(sortable) do
         if index ~= 1 then
-            for _, comment in ipairs(entry.node.leading_comments or {}) do
-                comment.y = current_y
-                comment.yend = comment_yend(comment)
-                current_y = comment.yend + 1
+            local entry_leading = own_attached[entry.node] or {}
+            for _, comment in ipairs(entry_leading) do
+                current_y = move_comment_to(comment, current_y)
             end
+            overrides[entry.node] = entry_leading
             entry.node.blank_line_before = false
         end
 
@@ -192,23 +210,18 @@ function require_sort.sort_top_level_requires(root: ast.Node, fmt_off_regions: R
             current_y = current_y + 1
         end
 
-        comment.y = current_y
-        comment.yend = comment_yend(comment)
-        current_y = comment.yend + 1
+        current_y = move_comment_to(comment, current_y)
     end
 
     local next_stmt = root[count + 1]
     if next_stmt then
-        for _, comment in ipairs(next_stmt.leading_comments or {}) do
+        for _, comment in ipairs(leading_of(next_stmt)) do
             table.insert(all_floating_comments, comment)
         end
-        next_stmt.leading_comments = all_floating_comments
-    else
-        for _, comment in ipairs(root.dangling_comments or {}) do
-            table.insert(all_floating_comments, comment)
-        end
-        root.dangling_comments = all_floating_comments
+        overrides[next_stmt] = all_floating_comments
+        return overrides, {}
     end
+    return overrides, all_floating_comments
 end
 
 return require_sort

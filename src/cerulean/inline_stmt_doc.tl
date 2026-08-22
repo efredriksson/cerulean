@@ -11,67 +11,92 @@ local inline_stmt_doc = {}
 
 function inline_stmt_doc.render_return_doc(ctx: RenderContext, stmt: ast.Node): doc.Doc
     if stmt.exps == nil or #stmt.exps == 0 then
-        local parts: {doc.Doc} = {doc.text("return")}
-        trivia_doc.append_inline(parts, ast.inline_trivia(stmt, "after_opener"))
-        return doc.concat(parts)
+        -- With no expression the after-`return` comment trails the whole statement,
+        -- so emit it through the statement-trailing path: a line comment there must
+        -- break the enclosing (possibly flat) function group or it swallows `end`.
+        local after_return = ctx.slots:opener_comments(stmt, "after_opener")
+        return doc.concat(
+            {doc.text("return"), render_builders.trailing_comment_doc(after_return)}
+        )
     end
 
     local return_exp_doc = render_builders.build_return_exp_list_doc(ctx, stmt.exps)
-    local last_exp = stmt.exps[#stmt.exps]
-    local last_tc = render_builders.trailing_comment_doc(last_exp)
     local stmt_doc = render_builders.with_leading_inline_trivia(
-        stmt, doc.text("return "), return_exp_doc
+        ctx.slots:opener_comments(stmt, "after_opener"),
+        doc.text("return "),
+        return_exp_doc
     )
-    return doc.concat({stmt_doc, last_tc})
+    return doc.concat({stmt_doc})
+end
+
+-- The `<lhs> = ` prefix of an assignment or declaration. A single-line block
+-- comment before the `=` may sit flush, so it stays inline in place (plain text,
+-- no break point -- the trivia_doc.emit_transition inline-block model); a line
+-- comment there runs to end of line, so the `= ` breaks out below it.
+local function build_eq_prefix(
+    ctx: RenderContext, lhs_doc: doc.Doc, stmt: ast.Node, last_var: ast.Node
+): doc.Doc
+    local inline_blocks = ctx.slots:pre_opener_block_comments(stmt, "after_opener")
+    if #inline_blocks > 0 then
+        local parts: {doc.Doc} = {lhs_doc}
+        trivia_doc.append_inline(parts, inline_blocks)
+        table.insert(parts, doc.text(" = "))
+        return doc.concat(parts)
+    end
+    local last_var_trailing = ctx.slots:trailing_comments(last_var)
+    if #last_var_trailing > 0 then
+        return doc.concat(
+            {
+                lhs_doc,
+                render_builders.trailing_comment_doc(last_var_trailing),
+                doc.indent_hardline(doc.text("= ")),
+            }
+        )
+    end
+    return doc.concat({lhs_doc, doc.text(" = ")})
 end
 
 -- The value list breaks in the two stages a delimited list uses: it drops below the
 -- `=` first, and only then do its commas give.
 local function build_init_doc(
-    stmt: ast.Node, prefix_doc: doc.Doc, value_doc: doc.Doc
+    ctx: RenderContext, stmt: ast.Node, prefix_doc: doc.Doc, value_doc: doc.Doc
 ): doc.Doc
-    local last_var = stmt.vars[#stmt.vars]
-    if #(last_var.trailing_comments or {}) > 0 then
-        local eq_prefix = doc.concat(
-            {
-                prefix_doc,
-                render_builders.trailing_comment_doc(last_var),
-                doc.indent_hardline(doc.text("= ")),
-            }
-        )
-        return render_builders.with_leading_inline_trivia(stmt, eq_prefix, value_doc)
+    local after_opener = ctx.slots:opener_comments(stmt, "after_opener")
+    -- Any comment around the `=` already pins it to a line of its own, and the
+    -- two-stage wrap would then break the value list along with it.
+    local eq_carries_comments = #after_opener > 0
+        or #ctx.slots:pre_opener_block_comments(stmt, "after_opener") > 0
+    for _, var in ipairs(stmt.vars) do
+        if #ctx.slots:trailing_comments(var) > 0 then
+            eq_carries_comments = true
+        end
     end
     if
-        #ast.inline_trivia(stmt, "after_opener") == 0
-        and render_builders.exp_list_can_break(stmt.exps)
+        not eq_carries_comments and render_builders.exp_list_can_break(ctx, stmt.exps)
     then
         -- The `=` sheds its trailing space; the wrap's line puts it back when flat.
         return render_builders.wrap_keyword_before(
             doc.concat({prefix_doc, doc.text(" =")}), value_doc
         )
     end
+    local eq_prefix = build_eq_prefix(ctx, prefix_doc, stmt, stmt.vars[#stmt.vars])
     return render_builders.with_leading_inline_trivia(
-        stmt, doc.concat({prefix_doc, doc.text(" = ")}), value_doc
+        after_opener, eq_prefix, value_doc
     )
 end
 
 function inline_stmt_doc.render_assignment_doc(
     ctx: RenderContext, stmt: ast.Node
 ): doc.Doc
-    local function build_var_doc(var: ast.Node): doc.Doc
-        local parts: {doc.Doc} = {}
-        trivia_doc.append_leading(parts, ast.inline_trivia(var, "leading"))
-        table.insert(parts, ctx.render_expr(var))
-        trivia_doc.append_inline(parts, ast.inline_trivia(var, "before_separator"))
-        return doc.concat(parts)
-    end
     local var_docs: {doc.Doc} = {}
     for _, var in ipairs(stmt.vars) do
-        table.insert(var_docs, build_var_doc(var))
+        table.insert(var_docs, ctx.render_expr(var))
     end
-    local vars_doc = render_builders.build_comma_separated_docs(var_docs)
+    local vars_doc = render_builders.build_comma_separated_with_trailing(
+        ctx, stmt.vars, var_docs
+    )
     return build_init_doc(
-        stmt, vars_doc, render_builders.build_exp_list_doc(ctx, stmt.exps)
+        ctx, stmt, vars_doc, render_builders.build_exp_list_doc(ctx, stmt.exps)
     )
 end
 
@@ -83,48 +108,49 @@ local function build_var_text(var_node: ast.Node): string
     return var_text
 end
 
-local function build_vars_doc(stmt: ast.Node, keyword: string): doc.Doc
-    local parts: {doc.Doc} = {doc.text(keyword .. " ")}
-    for index, var_node in ipairs(stmt.vars) do
-        trivia_doc.append_leading(parts, ast.inline_trivia(var_node, "leading"))
-        table.insert(parts, doc.text(build_var_text(var_node)))
-        trivia_doc.append_inline(parts, ast.inline_trivia(var_node, "before_separator"))
-        if index < #stmt.vars then
-            table.insert(parts, doc.text(", "))
-        end
+local function build_vars_doc(
+    ctx: RenderContext, stmt: ast.Node, keyword: string
+): doc.Doc
+    local item_docs: {doc.Doc} = {}
+    for _, var_node in ipairs(stmt.vars) do
+        table.insert(item_docs, doc.text(build_var_text(var_node)))
     end
-    return doc.concat(parts)
+    return doc.concat(
+        {
+            doc.text(keyword .. " "),
+            render_builders.build_comma_separated_with_trailing(
+                ctx, stmt.vars, item_docs
+            ),
+        }
+    )
 end
 
 function inline_stmt_doc.render_declaration_doc(
     ctx: RenderContext, stmt: ast.Node, keyword: string
 ): doc.Doc
-    local vars_doc = build_vars_doc(stmt, keyword)
-    local last_var = stmt.vars[#stmt.vars]
+    local vars_doc = build_vars_doc(ctx, stmt, keyword)
     local prefix_doc: doc.Doc
     if stmt.decltuple == nil or #stmt.decltuple.tuple == 0 then
         prefix_doc = vars_doc
     else
         prefix_doc = doc.concat(
-            {vars_doc, doc.text(": "), type_doc.render(stmt.decltuple)}
+            {vars_doc, doc.text(": "), type_doc.render(ctx, stmt.decltuple)}
         )
     end
 
     if stmt.exps == nil or #stmt.exps == 0 then
-        if #(last_var.trailing_comments or {}) > 0 then
-            return doc.concat(
-                {prefix_doc, render_builders.trailing_comment_doc(last_var)}
-            )
-        end
+        -- With no initializer nothing follows the vars on the line, so their
+        -- trailing comments are the statement's own (block walker) or the sweep's;
+        -- reading them here would consume without emitting and drop them.
         return prefix_doc
     end
 
     if #stmt.exps == 1 then
-        return build_init_doc(stmt, prefix_doc, ctx.render_expr(stmt.exps[1]))
+        return build_init_doc(ctx, stmt, prefix_doc, ctx.render_expr(stmt.exps[1]))
     end
 
     return build_init_doc(
-        stmt, prefix_doc, render_builders.build_exp_list_doc(ctx, stmt.exps)
+        ctx, stmt, prefix_doc, render_builders.build_exp_list_doc(ctx, stmt.exps)
     )
 end
 

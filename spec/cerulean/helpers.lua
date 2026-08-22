@@ -17,7 +17,11 @@ end
 apply_env_log_level()
 
 local function default_opts()
-    return options_module.default()
+    local opts = options_module.default()
+    -- In tests a comment-audit failure raises instead of safe-skipping, so a
+    -- dropped/duplicated comment cannot hide behind a status assertion.
+    opts.strict_comments = true
+    return opts
 end
 
 local helpers = {}

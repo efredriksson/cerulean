@@ -5,7 +5,6 @@ local function_doc = require("cerulean.function_doc")
 local inline_stmt_doc = require("cerulean.inline_stmt_doc")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
-local signature_doc = require("cerulean.signature_doc")
 local table_doc = require("cerulean.table_doc")
 local type_doc = require("cerulean.type_doc")
 
@@ -13,27 +12,34 @@ local type RenderContext = render_context.RenderContext
 
 local stmt_doc = {}
 
-local function resolve_prefix(keyword?: string): string
-    if keyword then
-        return keyword .. " "
+-- A statement header's keyword/name tokens space-joined: the optional
+-- `local`/`global` prefix followed by the rest (`type`/`record`/`function`, the
+-- name). A nested type def (a record field) has no prefix, so `rest` stands alone.
+local function header_text(keyword: string | nil, rest: {string}): doc.Doc
+    local segments: {string} = {}
+    if keyword ~= nil then
+        table.insert(segments, keyword)
     end
-    return ""
+    for _, part in ipairs(rest) do
+        table.insert(segments, part)
+    end
+    return doc.text(table.concat(segments, " "))
 end
 
 local function render_type_alias_doc(
+    ctx: RenderContext,
     name: string,
     typeargs: {ast.TypeArgType},
     def: ast.Type,
     type_keyword?: string,
     generic_doc?: doc.Doc
 ): doc.Doc
-    local declaration = resolve_prefix(type_keyword) .. "type " .. name
     return doc.concat(
         {
-            doc.text(declaration),
-            typeargs and type_doc.render_typeargs(typeargs) or doc.text(""),
+            header_text(type_keyword, {"type", name}),
+            typeargs and type_doc.render_typeargs(ctx, typeargs) or doc.text(""),
             doc.text(" = "),
-            type_doc.render(def, generic_doc),
+            type_doc.render(ctx, def, generic_doc),
         }
     )
 end
@@ -59,32 +65,41 @@ local function block_with_close(
 end
 
 local function render_enum_doc(
-    stmt: ast.Node, def: ast.EnumType, keyword?: string
+    ctx: RenderContext, stmt: ast.Node, def: ast.EnumType, keyword?: string
 ): doc.Doc
     local function build_header(): doc.Doc
-        local kw = resolve_prefix(keyword)
         if stmt.is_type_declaration then
-            return doc.text(kw .. "type " .. def.declname .. " = enum")
-        else
-            return doc.text(kw .. "enum " .. def.declname)
+            return doc.concat(
+                {header_text(keyword, {"type", def.declname}), doc.text(" = enum")}
+            )
         end
+        return header_text(keyword, {"enum", def.declname})
     end
     local header = build_header()
 
     local parts: {doc.Doc} = {}
     local line_before = false
-    for _, item_node in ipairs(def.enum_items) do
+    for index, item_node in ipairs(def.enum_items) do
         line_before = render_builders.append_comment_docs(
-            parts, item_node.leading_comments or {}, line_before
+            parts,
+            ctx.slots:item_leading_comments(
+                item_node, def.enum_items[index - 1], index == 1
+            ),
+            line_before
         )
         table.insert(
             parts, render_builders.append_lines_pre_node(item_node, line_before)
         )
         table.insert(parts, doc.text(item_node.tk))
-        table.insert(parts, render_builders.trailing_comment_doc(item_node))
+        table.insert(
+            parts,
+            render_builders.trailing_comment_doc(ctx.slots:trailing_comments(item_node))
+        )
         line_before = true
     end
-    local end_comments = def.dangling_comments or stmt.dangling_comments or {}
+    local end_comments = ctx.slots:container_dangling_comments(
+        def, #def.enum_items == 0
+    )
     render_builders.append_comment_docs(parts, end_comments, line_before)
 
     return block_with_close(header, doc.concat(parts), "end")
@@ -125,7 +140,9 @@ local function needs_userdata_in_body(record_def: ast.RecordLikeType): boolean
     return has_where and has_string_key_field(record_def)
 end
 
-local function render_interface_list_parts(record_def: ast.RecordLikeType): {doc.Doc}
+local function render_interface_list_parts(
+    ctx: RenderContext, record_def: ast.RecordLikeType
+): {doc.Doc}
     local parts: {doc.Doc} = {}
     local filtered: {ast.Type} = {}
     for _, iface in ipairs(record_def.interface_list or {}) do
@@ -138,7 +155,7 @@ local function render_interface_list_parts(record_def: ast.RecordLikeType): {doc
     end
     table.insert(parts, doc.text(" is "))
     for index, iface in ipairs(filtered) do
-        table.insert(parts, type_doc.render(iface))
+        table.insert(parts, type_doc.render(ctx, iface))
         if index < #filtered then
             table.insert(parts, doc.text(", "))
         end
@@ -146,14 +163,14 @@ local function render_interface_list_parts(record_def: ast.RecordLikeType): {doc
     return parts
 end
 
-local function macroexp_signature_doc(macroexp: ast.Node): doc.Doc
-    local typeargs = macroexp.typeargs and type_doc.render_typeargs(macroexp.typeargs)
-        or doc.text("")
+local function macroexp_signature_doc(ctx: RenderContext, macroexp: ast.Node): doc.Doc
+    local typeargs = macroexp.typeargs
+        and type_doc.render_typeargs(ctx, macroexp.typeargs) or doc.text("")
     return doc.concat(
         {
             typeargs,
-            signature_doc.render_signature_doc(macroexp.args),
-            type_doc.render_return(macroexp.rets),
+            type_doc.render_parameter_list(ctx, macroexp.args),
+            doc.measure_flat(type_doc.render_return(ctx, macroexp.rets)),
         }
     )
 end
@@ -175,7 +192,7 @@ local function render_macroexp_field_doc(
                     doc.indent_line(doc.text("= ")), doc.text(" = ")
                 ),
                 doc.text("macroexp"),
-                macroexp_signature_doc(macroexp),
+                macroexp_signature_doc(ctx, macroexp),
             }
         )
     )
@@ -216,7 +233,7 @@ local function render_field_entry(
     end
 
     local field_decl = doc.concat(
-        {doc.text(field_name_prefix()), type_doc.render(entry.the_type)}
+        {doc.text(field_name_prefix()), type_doc.render(ctx, entry.the_type)}
     )
 
     local field_type = entry.the_type
@@ -236,7 +253,7 @@ local function render_field_entry(
 end
 
 local function render_record_like_body_doc(
-    ctx: RenderContext, stmt: ast.Node, record_def: ast.RecordLikeType
+    ctx: RenderContext, record_def: ast.RecordLikeType
 ): doc.Doc | nil
     local parts: {doc.Doc} = {}
     local line_before = false
@@ -248,21 +265,27 @@ local function render_record_like_body_doc(
             end
         end
     end
-    for _, entry in ipairs(record_def.field_entries) do
+    for index, entry in ipairs(record_def.field_entries) do
         line_before = render_builders.append_comment_docs(
-            parts, entry.leading_comments or {}, line_before
+            parts,
+            ctx.slots:item_leading_comments(
+                entry, record_def.field_entries[index - 1], index == 1
+            ),
+            line_before
         )
         table.insert(
             parts, render_builders.append_lines_pre_node(entry, line_before, doc.line())
         )
         table.insert(parts, render_field_entry(ctx, entry))
 
-        for _, comment in ipairs(entry.trailing_comments or {}) do
+        for _, comment in ipairs(ctx.slots:trailing_comments(entry)) do
             table.insert(parts, doc.text(" " .. comment.text))
         end
         line_before = true
     end
-    local end_comments = record_def.dangling_comments or stmt.dangling_comments or {}
+    local end_comments = ctx.slots:container_dangling_comments(
+        record_def, #record_def.field_entries == 0
+    )
     render_builders.append_comment_docs(parts, end_comments, line_before)
 
     -- Hardline for the same reason with_indented_body uses one.
@@ -273,7 +296,7 @@ local function render_record_like_header_doc(
     ctx: RenderContext, def: ast.RecordLikeType
 ): doc.Doc | nil
     local parts: {doc.Doc} = {}
-    for _, part in ipairs(render_interface_list_parts(def)) do
+    for _, part in ipairs(render_interface_list_parts(ctx, def)) do
         table.insert(parts, part)
     end
     if def.meta_fields ~= nil and def.meta_fields["__is"] ~= nil then
@@ -301,15 +324,13 @@ local function render_record_like_doc(
     local function build_header_parts(): {doc.Doc}
         if stmt.is_type_declaration then
             return {
-                doc.text(resolve_prefix(keyword) .. "type" .. " " .. def.declname),
+                header_text(keyword, {"type", def.declname}),
                 generic_doc or doc.text(""),
                 doc.text(" = " .. def.typename),
             }
         else
             return {
-                doc.text(
-                    resolve_prefix(keyword) .. def.typename .. " " .. def.declname
-                ),
+                header_text(keyword, {def.typename, def.declname}),
                 generic_doc or doc.text(""),
             }
         end
@@ -319,7 +340,7 @@ local function render_record_like_doc(
         {
             doc.concat(build_header_parts()),
             render_record_like_header_doc(ctx, def),
-            render_record_like_body_doc(ctx, stmt, def),
+            render_record_like_body_doc(ctx, def),
         }
     )
 end
@@ -333,16 +354,21 @@ render_type_def_doc = function(
     generic_doc?: doc.Doc
 ): doc.Doc | nil
     if def is ast.EnumType then
-        return render_enum_doc(stmt, def, keyword)
+        return render_enum_doc(ctx, stmt, def, keyword)
     elseif def is ast.GenericType then
         return render_type_def_doc(
-            ctx, stmt_name, def.t, stmt, keyword, type_doc.render_typeargs(def.typeargs)
+            ctx,
+            stmt_name,
+            def.t,
+            stmt,
+            keyword,
+            type_doc.render_typeargs(ctx, def.typeargs)
         )
     elseif def is ast.InterfaceType | ast.RecordType then
         return render_record_like_doc(ctx, def, stmt, keyword, generic_doc)
     else
         return render_type_alias_doc(
-            stmt_name, stmt.typeargs, def, keyword, generic_doc
+            ctx, stmt_name, stmt.typeargs, def, keyword, generic_doc
         )
     end
 end
@@ -350,23 +376,17 @@ end
 local function render_type_doc(
     ctx: RenderContext, stmt: ast.Node, keyword?: string
 ): doc.Doc | nil
-    local prefix = resolve_prefix(keyword)
+    if stmt.value ~= nil and stmt.value.kind == "newtype" then
+        return render_type_def_doc(ctx, stmt.var.tk, stmt.value.def, stmt, keyword)
+    end
+    local header = header_text(keyword, {"type", stmt.var.tk})
     if stmt.value == nil then
-        return doc.text(prefix .. "type " .. stmt.var.tk)
+        return header
     end
-    if stmt.value.kind ~= "newtype" then
-        return doc.concat(
-            {
-                doc.text(prefix .. "type " .. stmt.var.tk .. " = "),
-                ctx.render_expr(stmt.value),
-            }
-        )
-    end
-
-    return render_type_def_doc(ctx, stmt.var.tk, stmt.value.def, stmt, keyword)
+    return doc.concat({header, doc.text(" = "), ctx.render_expr(stmt.value)})
 end
 
-local function render_function_name(node: ast.Node): doc.Doc | nil
+local function render_function_name(ctx: RenderContext, node: ast.Node): doc.Doc | nil
     local function render_function_owner(owner: ast.Node): string | nil
         if owner.kind == "name" then
             return owner.tk
@@ -385,7 +405,7 @@ local function render_function_name(node: ast.Node): doc.Doc | nil
         if fn_node.typeargs == nil then
             return doc.text("")
         end
-        return type_doc.render_typeargs(fn_node.typeargs)
+        return type_doc.render_typeargs(ctx, fn_node.typeargs)
     end
 
     if node.name == nil then
@@ -422,16 +442,19 @@ local function render_function_name(node: ast.Node): doc.Doc | nil
         )
     end
 
-    local prefix = node.implicit_global_function and "function " or "global function "
-    return doc.concat(
-        {doc.text(prefix .. node.name.tk), render_function_typeargs(node)}
-    )
+    local function global_header(): string
+        if node.implicit_global_function then
+            return "function " .. node.name.tk
+        end
+        return "global function " .. node.name.tk
+    end
+    return doc.concat({doc.text(global_header()), render_function_typeargs(node)})
 end
 
 local function render_function_definition_doc(
     ctx: RenderContext, node: ast.Node
 ): doc.Doc | nil
-    local name_prefix = render_function_name(node)
+    local name_prefix = render_function_name(ctx, node)
     if name_prefix is nil then
         return nil
     end
@@ -447,7 +470,7 @@ local function render_local_macroexp_doc(ctx: RenderContext, node: ast.Node): do
         doc.concat(
             {
                 doc.text("local macroexp " .. node.name.tk),
-                macroexp_signature_doc(node.macrodef),
+                macroexp_signature_doc(ctx, node.macrodef),
             }
         )
     )
@@ -480,11 +503,13 @@ local function render_if_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
                 return doc.text("else")
             end
             local keyword = index == 1 and "if" or "elseif"
-            local has_inline_trivia = #ast.inline_trivia(if_block, "after_opener") > 0
+            local has_inline_trivia = #ctx.slots:opener_comments(
+                if_block, "after_opener"
+            ) > 0
             if
                 not has_inline_trivia
                 and render_builders.is_top_level_binary_op(if_block.exp)
-                and not render_builders.has_chain_internal_trivia(if_block.exp)
+                and not render_builders.has_chain_internal_trivia(ctx, if_block.exp)
             then
                 return render_builders.wrap_keyword_around(
                     doc.text(keyword),
@@ -493,7 +518,9 @@ local function render_if_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
                 )
             end
             local with_comment = render_builders.with_leading_inline_trivia(
-                if_block, doc.text(keyword .. " "), ctx.render_expr(if_block.exp)
+                ctx.slots:opener_comments(if_block, "after_opener"),
+                doc.text(keyword .. " "),
+                ctx.render_expr(if_block.exp)
             )
             return doc.group(doc.concat({with_comment, doc.text(" then")}))
         end
@@ -502,7 +529,10 @@ local function render_if_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
             table.insert(parts, doc.line())
         end
         table.insert(parts, get_head_text())
-        table.insert(parts, render_builders.head_trivia_doc(if_block))
+        table.insert(
+            parts,
+            render_builders.head_trivia_doc(ctx.slots:opener_comments(if_block, "head"))
+        )
         table.insert(parts, doc.indent_line(body_doc))
     end
 
@@ -520,10 +550,10 @@ local function render_while_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
         return nil
     end
 
-    local has_inline_trivia = #ast.inline_trivia(node, "after_opener") > 0
+    local has_inline_trivia = #ctx.slots:opener_comments(node, "after_opener") > 0
     local should_wrap_around = not has_inline_trivia
         and render_builders.is_top_level_binary_op(node.exp)
-        and not render_builders.has_chain_internal_trivia(node.exp)
+        and not render_builders.has_chain_internal_trivia(ctx, node.exp)
 
     local function build_head_group(): doc.Doc
         if should_wrap_around then
@@ -532,13 +562,18 @@ local function render_while_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
             )
         end
         local while_and_exp_doc = render_builders.with_leading_inline_trivia(
-            node, doc.text("while "), ctx.render_expr(node.exp)
+            ctx.slots:opener_comments(node, "after_opener"),
+            doc.text("while "),
+            ctx.render_expr(node.exp)
         )
         return doc.group(doc.concat({while_and_exp_doc, doc.text(" do")}))
     end
 
     local header = doc.concat(
-        {build_head_group(), render_builders.head_trivia_doc(node)}
+        {
+            build_head_group(),
+            render_builders.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
+        }
     )
     return block_with_close(header, body_doc, "end")
 end
@@ -570,12 +605,14 @@ local function render_fornum_doc(ctx: RenderContext, node: ast.Node): doc.Doc | 
         {
             build_fornum_range_doc(node, ctx),
             doc.text(" do"),
-            render_builders.head_trivia_doc(node),
+            render_builders.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
         }
     )
     return block_with_close(
         render_builders.with_leading_inline_trivia(
-            node, doc.text("for " .. node.var.tk .. " = "), tail
+            ctx.slots:opener_comments(node, "after_opener"),
+            doc.text("for " .. node.var.tk .. " = "),
+            tail
         ),
         body_doc,
         "end"
@@ -597,10 +634,10 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
         return nil
     end
 
-    local has_inline_trivia = #ast.inline_trivia(node, "after_opener") > 0
+    local has_inline_trivia = #ctx.slots:opener_comments(node, "after_opener") > 0
     local single_exp_is_chainable = #node.exps == 1
         and render_builders.is_top_level_binary_op(node.exps[1])
-        and not render_builders.has_chain_internal_trivia(node.exps[1])
+        and not render_builders.has_chain_internal_trivia(ctx, node.exps[1])
     local should_wrap_around = not has_inline_trivia
         and (#node.exps > 1 or single_exp_is_chainable)
 
@@ -626,12 +663,19 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
                     render_builders.wrap_keyword_around(
                         for_in_keyword, build_wrapped_exps(), doc.text("do")
                     ),
-                    render_builders.head_trivia_doc(node),
+                    render_builders.head_trivia_doc(
+                        ctx.slots:opener_comments(node, "head")
+                    ),
                 }
             )
         end
         local tail_doc = doc.concat(
-            {doc.text(" do"), render_builders.head_trivia_doc(node)}
+            {
+                doc.text(" do"),
+                render_builders.head_trivia_doc(
+                    ctx.slots:opener_comments(node, "head")
+                ),
+            }
         )
         local exps_and_tail = doc.concat(
             {
@@ -640,7 +684,9 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
             }
         )
         return render_builders.with_leading_inline_trivia(
-            node, doc.concat({for_in_keyword, doc.text(" ")}), exps_and_tail
+            ctx.slots:opener_comments(node, "after_opener"),
+            doc.concat({for_in_keyword, doc.text(" ")}),
+            exps_and_tail
         )
     end
 
@@ -658,16 +704,20 @@ local function render_repeat_doc(ctx: RenderContext, node: ast.Node): doc.Doc | 
     end
 
     local header = doc.concat(
-        {doc.text("repeat"), render_builders.head_trivia_doc(node)}
+        {
+            doc.text("repeat"),
+            render_builders.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
+        }
     )
 
     -- block_with_indent always emits a newline into the body, which produces a
     -- spurious blank line when the body is empty. Skip it in that case.
-    local is_empty_body = #node.body == 0 and #(node.body.dangling_comments or {}) == 0
-    local has_inline_trivia = #ast.inline_trivia(node, "after_opener") > 0
+    local is_empty_body = #node.body == 0
+        and #ctx.slots:dangling_comments(node.body) == 0
+    local has_inline_trivia = #ctx.slots:opener_comments(node, "after_opener") > 0
     local should_wrap_around = not has_inline_trivia
         and render_builders.is_top_level_binary_op(node.exp)
-        and not render_builders.has_chain_internal_trivia(node.exp)
+        and not render_builders.has_chain_internal_trivia(ctx, node.exp)
 
     local function build_until_doc(): doc.Doc
         if should_wrap_around then
@@ -676,7 +726,9 @@ local function render_repeat_doc(ctx: RenderContext, node: ast.Node): doc.Doc | 
             )
         end
         return render_builders.with_leading_inline_trivia(
-            node, doc.text("until "), ctx.render_expr(node.exp)
+            ctx.slots:opener_comments(node, "after_opener"),
+            doc.text("until "),
+            ctx.render_expr(node.exp)
         )
     end
 

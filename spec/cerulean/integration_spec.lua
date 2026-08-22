@@ -258,8 +258,7 @@ describe("formatter integration", function()
       ]=], [=[
          function a( -- keep me
          )
-         end
-         --[[ keep me
+         end --[[ keep me
          ]]
       ]=]))
 
@@ -285,6 +284,33 @@ describe("formatter integration", function()
          else
          d = 3
          end
+      ]]))
+
+      -- A statement partially covered by an fmt:off region freezes whole, so its
+      -- verbatim lines can carry comments that sit outside the region (here after
+      -- the interior fmt:on). Raw emission must mark those consumed, or the
+      -- enclosing statement's sweep relocates a duplicate copy.
+      it("does not duplicate a comment on a frozen line outside the fmt:off region", helpers.check([[
+         local function f()
+             local t = {
+                 -- fmt:off
+                 1,
+                 -- fmt:on
+                 2, -- stray
+             }
+         end
+      ]]))
+
+      -- A bare `;` is discarded by the grammar and leaves no node, so the frozen
+      -- region has no statement to anchor on. Reading the block's dangling trivia
+      -- straight off the token stream (rather than the attachment pass, which
+      -- synthesized a blank line where the `;` sat and leaked it into the frozen
+      -- text) keeps the region verbatim.
+      it("freezes a bare semicolon inside an fmt:off region", helpers.check([[
+         return
+         -- fmt:off
+         ;
+         -- fmt:on
       ]]))
    end)
 
@@ -548,7 +574,7 @@ describe("formatter integration", function()
 
       it("does not drop a leading fmt:off comment preceding a semicolon and nested record", helpers.check([[
          -- fmt:off
-         ; local record r is end end
+         ; local record r end
       ]]))
 
       it("keeps a leading comment when the semicolon it precedes is removed", helpers.format([[
@@ -568,7 +594,6 @@ describe("formatter integration", function()
       ]], [[
          local a = 1
          -- before semi
-
          -- before next
          local b = 2
       ]]))

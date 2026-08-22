@@ -1,6 +1,8 @@
--- The data contract between the parser and the renderers: AST nodes, the
--- type hierarchy, comments, and inline-trivia slots. Renderers depend on
--- this module only; any parser that produces ast.Node trees can drive them.
+-- The data contract between the parser and the renderers: AST nodes, the type
+-- hierarchy, comments, and the token-index slots (tok_first/tok_last/slot_tok)
+-- the renderer uses to read comments off the lossless token stream. Renderers
+-- depend on this module only; any parser that produces ast.Node trees can drive
+-- them.
 local tl = require("tl")
 
 local record ast
@@ -42,19 +44,49 @@ local record ast
         x: integer
     end
 
-    interface HasInlineTrivia
-        inline_trivia: {InlineSlot: {Comment}}
+    -- The opener token index feeding each positional slot (the `(`/`=`/`until`
+    -- that introduces a value, etc.), stamped by the parser. The renderer reads
+    -- the lossless token stream at that index to recover the opener's same-line
+    -- trivia (RenderContext:opener_comments); index-aligned with the parser's
+    -- token array, which the token stream re-lexes one-to-one.
+    interface HasOpenerSlots
+        slot_tok: {InlineSlot: integer}
     end
 
-    -- Token-index span into the parser's token array. Parser-internal:
-    -- consumed by the comment attachment pass, meaningless to renderers
-    -- (the token array does not outlive parsing).
+    -- Token-index span into the parser's token array, stamped by the parser. The
+    -- renderer reads the token stream built from that same array (see
+    -- token_stream.from_tokens), so the indices address it directly and
+    -- tok_last lands exactly on a delimited construct's closing token
+    -- (`end`/`until`/`else`/`elseif`/`}`/`)`), the token before which dangling
+    -- comments sit.
     interface HasTokenSpan
         tok_first: integer
         tok_last: integer
+        -- Separator ownership, stamped by the parser at the site that consumes
+        -- the token (the full_moon Punctuated model: a separator has no role of
+        -- its own, it belongs to a node). The render layer decides trivia claims
+        -- from these indices and never classifies tokens itself. (Statement `;`
+        -- separators need no stamp: the parser deletes them from the token
+        -- array as it consumes them.)
+        --   tok_sep: the list separator (`,` / table `;` / `|`) right after this
+        --     item; it donates its same-line trailing trivia to the item.
+        --   tok_bound: the parent construct's `=`/`:` right after this node; it
+        --     ends the node's same-line trivia claim and donates nothing.
+        tok_sep: integer
+        tok_bound: integer
     end
 
-    interface Type is Where, HasInlineTrivia, HasTokenSpan where self.typename
+    -- A child of a container that lists its items one per line (statements,
+    -- table items, call arguments, enum items, record fields). It may keep a
+    -- single blank line above itself; blank_lines.mark recomputes the flag from
+    -- the token stream and the renderer emits it.
+    interface ContainerItem
+        is HasTokenSpan
+
+        blank_line_before: boolean
+    end
+
+    interface Type is Where, HasOpenerSlots, HasTokenSpan where self.typename
         typename: TypeName    -- discriminator
         paren: boolean
     end
@@ -77,11 +109,6 @@ local record ast
         typevals: {Type}
     end
 
-    record SelfType
-        is Type
-        where self.typename == "self"
-    end
-
     interface ArrayLikeType
         is Type
         where self.elements
@@ -101,30 +128,23 @@ local record ast
     end
 
     enum InlineSlot
-        "op_leading"
-        "op_trailing"
-        "before_separator"
         "head"
         "after_opener"
-        "leading"
     end
 
     record FieldEntry
-        is HasTokenSpan
+        is ContainerItem
         where self.the_type ~= nil
         name: string
         the_type: Type
         node: Node
-        leading_comments: {Comment}
         is_meta: boolean
         is_string_key: boolean
         string_key_token: string
         is_longstring_key: boolean
         line: integer
         yend: integer
-        blank_line_before: boolean
-        trailing_comments: {Comment}
-        new: function(string, Type, Node, {Comment}, boolean, integer): FieldEntry
+        new: function(string, Type, Node, boolean, integer): FieldEntry
     end
 
     interface RecordLikeType
@@ -134,7 +154,6 @@ local record ast
         interface_list: {ArrayType | NominalType}
         meta_fields: {string: Type}
         field_entries: {FieldEntry}
-        dangling_comments: {Comment}
     end
 
     record RecordType
@@ -152,8 +171,6 @@ local record ast
         where self.typename == "tuple"
 
         is_va: boolean
-        argnames: {string}
-        is_optional: {boolean}
         tuple: {Type}
     end
 
@@ -185,7 +202,7 @@ local record ast
         is_method: boolean
         maybe_method: boolean
         bare: boolean
-        args: TupleType
+        args: Node
         rets: TupleType
         macroexp: Node
         yend: integer
@@ -213,7 +230,6 @@ local record ast
         where self.typename == "enum"
 
         enum_items: {Node}
-        dangling_comments: {Comment}
     end
 
     enum KeyParsed
@@ -275,13 +291,12 @@ local record ast
     simple_types: {TypeName: boolean}
 
     record Node
-        is {Node}, Where, HasInlineTrivia, HasTokenSpan
+        is {Node}, Where, HasOpenerSlots, ContainerItem
         where self.kind ~= nil
 
         -- fmt: off
         tk:                             string
         kind:                           NodeKind
-        leading_comments:               {Comment}
         hashbang:                       string
         is_longstring:                  boolean
         yend:                           integer
@@ -311,6 +326,11 @@ local record ast
         def:                            Type
         op:                             Operator
         op_y:                           integer
+        -- The interior token a node threads its inline op-trivia around, stamped
+        -- by the parser: a binary/unary operator, a `.`/`:` member access, an
+        -- `as`/`is` cast keyword, or a function definition's name separator. The
+        -- op_leading/op_trailing accessors read the gap on either side of it.
+        tok_op:                         integer
         e1:                             Node
         e2:                             Node
         conststr:                       string
@@ -324,31 +344,21 @@ local record ast
         pkey:                           string
         pvalue:                         string
         opt:                            boolean
+        is_va:                          boolean
         trailing_comma:                 boolean
-        dangling_comments:              {Comment}
-        trailing_comments:              {Comment}
-        blank_line_before:              boolean
         is_type_declaration:            boolean
         f:                              string
         -- fmt: on
     end
-
-    inline_trivia: function(node: HasInlineTrivia, slot: InlineSlot): {Comment}
 end
 
 function ast.FieldEntry.new(
-    name: string,
-    the_type: ast.Type,
-    node: ast.Node,
-    comments: {ast.Comment},
-    is_meta: boolean,
-    line: integer
+    name: string, the_type: ast.Type, node: ast.Node, is_meta: boolean, line: integer
 ): ast.FieldEntry
     local self = setmetatable({}, {__index = ast.FieldEntry}) as ast.FieldEntry
     self.name = name
     self.the_type = the_type
     self.node = node
-    self.leading_comments = comments
     self.is_meta = is_meta
     self.line = line
     return self
@@ -365,18 +375,5 @@ ast.simple_types = {
     ["self"] = true,
     ["table"] = true,
 }
-
-local EMPTY_INLINE_TRIVIA: {ast.Comment} = {}
-
--- Returns the trivia list for `slot` on `node`, or an empty list when absent.
--- Callers must treat the result as read-only — the empty case shares one constant.
-function ast.inline_trivia(
-    node: ast.HasInlineTrivia, slot: ast.InlineSlot
-): {ast.Comment}
-    if node.inline_trivia == nil then
-        return EMPTY_INLINE_TRIVIA
-    end
-    return node.inline_trivia[slot] or EMPTY_INLINE_TRIVIA
-end
 
 return ast

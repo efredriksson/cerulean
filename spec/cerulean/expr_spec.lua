@@ -251,6 +251,15 @@ describe("formatter function expressions", function()
       }
    ]]))
 
+   it("keeps a parenthesized assignment on its own line as a separate statement", helpers.check([[
+      local x = nil
+      (t).f = 1
+   ]]))
+
+   it("keeps redundant parentheses around a deeply nested expression", helpers.check([[
+      local x = (((((((((((1)))))))))))
+   ]]))
+
 end)
 
 describe("formatter binary operator chains", function()
