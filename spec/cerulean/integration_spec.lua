@@ -404,6 +404,10 @@ describe("formatter integration", function()
          --
       ]]))
 
+      it("does not crash on function declaration name at EOF", helpers.parse_error([[
+         function f
+      ]]))
+
       it("does not duplicate fmt:off content when parse errors precede the block", helpers.check([[
          local x:a<
          -- fmt:off

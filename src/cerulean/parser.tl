@@ -2652,6 +2652,10 @@ do
     -- a block-opening keyword so trailing inline trivia does not leak into
     -- the first body statement's leading comments.
     take_same_line_comments = function(token: Token, line: integer): {Comment}
+        -- Error recovery can leave a token index past $EOF$.
+        if token == nil then
+            return {}
+        end
         local lc_list = token.comments
         if lc_list == nil or #lc_list == 0 then
             return {}
@@ -3249,6 +3253,17 @@ do
             return i, node
         end
 
+        -- Trial-parses so a non-variable after a comma (e.g. a call mistaken
+        -- for an assignment LHS) does not commit the consumed tokens; the
+        -- statement loop then resumes at the comma, like parse_trying_list.
+        local function attempt_parse_variable(
+            ps: ParseState, i: integer
+        ): integer, Node, integer
+            local node: Node
+            i, node = attempt(ps, i, parse_variable)
+            return i, node
+        end
+
         parse_call_or_assignment = function(ps: ParseState, i: integer): integer, Node
             local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
             local exp: Node
@@ -3273,7 +3288,7 @@ do
             asgn.vars = new_node(ps, istart, "variable_list")
             asgn.vars[1] = exp
             if ps.tokens[i].tk == "," then
-                i = thread_list(ps, i, asgn.vars, parse_variable, ",")
+                i = thread_list(ps, i, asgn.vars, attempt_parse_variable, ",")
                 if #asgn.vars < 2 then
                     return fail(ps, i, "syntax error")
                 end
