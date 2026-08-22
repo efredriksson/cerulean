@@ -78,39 +78,6 @@ end
 
 local an_operator: function(Node, integer, string): Operator
 
-local function clear_redundant_errors(errors: {Error})
-    local redundant: {integer} = {}
-    local lastx, lasty = 0, 0
-    for i, err in ipairs(errors) do
-        err.i = i
-    end
-    table.sort(
-        errors,
-        function(a: Error, b: Error): boolean
-            local af = assert(a.filename)
-            local bf = assert(b.filename)
-            return af < bf
-                or (
-                    af == bf
-                    and (
-                        a.y < b.y
-                        or (a.y == b.y and (a.x < b.x or (a.x == b.x and (a.i < b.i))))
-                    )
-                )
-        end
-    )
-    for i, err in ipairs(errors) do
-        err.i = nil
-        if err.x == lastx and err.y == lasty then
-            table.insert(redundant, i)
-        end
-        lastx, lasty = err.x, err.y
-    end
-    for i = #redundant, 1, -1 do
-        table.remove(errors, redundant[i])
-    end
-end
-
 local simple_types = ast.simple_types
 
 local function node_is_require_call(n: Node): string
@@ -148,8 +115,6 @@ local record ParseState
     tokens: {Token}
     errs: {Error}
     filename: string
-    end_alignment_hint: Error
-    source_lines: {string}
     -- Macros are file-local: only `local macro`, only invoked through a bare name,
     -- only after the declaration has been read. So one flat table filled during the
     -- single forward pass answers every lookup, with no scope stack.
@@ -231,30 +196,26 @@ local parse_record_body: function(
 local parse_type_body_fns: {BodyTypeName: ParseBody}
 
 do
+    -- Raised by fail and caught at trial-parse boundaries (skip, attempt) and
+    -- in parser.parse; identity comparison keeps genuine runtime errors
+    -- propagating. The formatter never renders a file with parse errors, so
+    -- the parse aborts at the first one.
+    local parse_abort <const>: any = {}
+
+    -- Declared to return an integer so grammar paths can `return fail(...)`
+    -- and typecheck, but it always raises.
     local function fail(ps: ParseState, i: integer, msg: string): integer
-        if not ps.tokens[i] then
-            local eof = ps.tokens[#ps.tokens]
-            table.insert(
-                ps.errs,
-                {
-                    filename = ps.filename,
-                    y = eof.y,
-                    x = eof.x,
-                    msg = msg or "unexpected end of file",
-                }
-            )
-            return #ps.tokens
-        end
+        local token = ps.tokens[i] or ps.tokens[#ps.tokens]
         table.insert(
             ps.errs,
             {
                 filename = ps.filename,
-                y = ps.tokens[i].y,
-                x = ps.tokens[i].x,
+                y = token.y,
+                x = token.x,
                 msg = assert(msg, "syntax error, but no error message provided"),
             }
         )
-        return math.min(#ps.tokens, i + 1)
+        error(parse_abort)
     end
 
     local function end_at(node: Node, tk: Token)
@@ -272,31 +233,10 @@ do
         ps: ParseState, i: integer, istart: integer, node: Node
     ): integer
         if ps.tokens[i].tk == "end" then
-            local endy, endx = ps.tokens[i].y, ps.tokens[i].x
-            node.yend = endy
-            if node.kind ~= "function" and endy ~= node.y and endx ~= node.x then
-                if not ps.end_alignment_hint then
-                    ps.end_alignment_hint = {
-                        filename = ps.filename,
-                        y = node.y,
-                        x = node.x,
-                        msg = "syntax error hint: construct starting here is not aligned with its 'end' at "
-                            .. ps.filename
-                            .. ":"
-                            .. endy
-                            .. ":"
-                            .. endx
-                            .. ":",
-                    }
-                end
-            end
+            node.yend = ps.tokens[i].y
             return i + 1
         end
         end_at(node, ps.tokens[i])
-        if ps.end_alignment_hint then
-            table.insert(ps.errs, ps.end_alignment_hint)
-            ps.end_alignment_hint = nil
-        end
         local location = ps.filename
             .. ":"
             .. ps.tokens[istart].y
@@ -338,28 +278,6 @@ do
         t.y = token.y
         t.typename = typename
         return t
-    end
-
-    local function split_source_lines(input: string): {string}
-        local lines: {string} = {}
-        local start = 1
-
-        while true do
-            local newline = input:find("\n", start, true)
-            if newline == nil then
-                table.insert(lines, input:sub(start))
-                break
-            end
-
-            table.insert(lines, input:sub(start, newline - 1))
-            start = newline + 1
-        end
-
-        if #lines == 0 then
-            table.insert(lines, "")
-        end
-
-        return lines
     end
 
     local function new_first_order_type(
@@ -419,24 +337,32 @@ do
             filename = ps.filename,
             tokens = ps.tokens,
             errs = {},
-            source_lines = ps.source_lines,
             macro_params = ps.macro_params,
             allow_bare_type = ps.allow_bare_type,
         }
     end
 
+    -- Pure lookahead for grammar disambiguation: trial-runs skip_fn on a
+    -- throwaway state so neither recorded errors nor a parse abort escape.
+    -- Reports the trial as not-parsing instead.
     local function skip(
         ps: ParseState, i: integer, skip_fn: SkipFunction
     ): integer, Node | boolean
-        return skip_fn(fork(ps), i)
-    end
-
-    local function failskip(
-        ps: ParseState, i: integer, msg: string, skip_fn: SkipFunction, starti?: integer
-    ): integer
-        local skip_i = skip(ps, starti or i, skip_fn)
-        fail(ps, i, msg)
-        return skip_i
+        local trial_ps = fork(ps)
+        local skip_i: integer
+        local skipped: Node | boolean
+        local function run_trial(): any
+            skip_i, skipped = skip_fn(trial_ps, i)
+            return nil
+        end
+        local ok, raised = pcall(run_trial)
+        if not ok then
+            if raised ~= parse_abort then
+                error(raised)
+            end
+            return i, nil
+        end
+        return skip_i, skipped
     end
 
     local function parse_type_body(
@@ -474,30 +400,27 @@ do
     local function parse_table_value(ps: ParseState, i: integer): integer, Node, integer
         local next_word = ps.tokens[i].tk
         if next_word == "record" or next_word == "interface" then
-            local skip_i, e = skip(ps, i, skip_type_body as SkipFunction)
+            local _, e = skip(ps, i, skip_type_body as SkipFunction)
             if e then
-                fail(
+                return fail(
                     ps,
                     i,
                     next_word == "record"
                         and "syntax error: this syntax is no longer valid; declare nested record inside a record" or "syntax error: cannot declare interface inside a table; use a statement"
                 )
-                return skip_i, new_node(ps, i, "error_node")
             end
         elseif next_word == "enum" and ps.tokens[i + 1].kind == "string" then
-            i = failskip(
+            return fail(
                 ps,
                 i,
-                "syntax error: this syntax is no longer valid; declare nested enum inside a record",
-                skip_type_body as SkipFunction
+                "syntax error: this syntax is no longer valid; declare nested enum inside a record"
             )
-            return i, new_node(ps, i - 1, "error_node")
         end
 
         local e: Node
         i, e = parse_expression(ps, i)
         if not e then
-            e = new_node(ps, i - 1, "error_node")
+            return fail(ps, i, "syntax error, expected an expression")
         end
         return i, e
     end
@@ -558,25 +481,34 @@ do
                 node.key_parsed = "short"
                 local orig_i = i
                 local try_ps = fork(ps)
-                i, node.key = verify_kind(try_ps, i, "identifier", "string")
-                node.key.conststr = node.key.tk
-                node.key.tk = '"' .. node.key.tk .. '"'
-                i = verify_tk(try_ps, i, ":")
-                i, node.itemtype = parse_type(try_ps, i)
-                if node.itemtype and ps.tokens[i].tk == "=" then
-                    i = verify_tk(try_ps, i, "=")
-                    i, node.value = parse_table_value(try_ps, i)
-                    if node.value then
-                        for _, e in ipairs(try_ps.errs) do
-                            table.insert(ps.errs, e)
+                local trial_i: integer
+                local function try_typed_key_item(): any
+                    local ti = orig_i
+                    ti, node.key = verify_kind(try_ps, ti, "identifier", "string")
+                    node.key.conststr = node.key.tk
+                    node.key.tk = '"' .. node.key.tk .. '"'
+                    ti = verify_tk(try_ps, ti, ":")
+                    ti, node.itemtype = parse_type(try_ps, ti)
+                    if node.itemtype and try_ps.tokens[ti].tk == "=" then
+                        ti = verify_tk(try_ps, ti, "=")
+                        ti, node.value = parse_table_value(try_ps, ti)
+                        if node.value then
+                            trial_i = ti
                         end
-                        node.yend = token_yend(ps.tokens[i - 1])
-                        return i, node, n
                     end
+                    return nil
                 end
-                -- backtrack:
+                local ok, raised = pcall(try_typed_key_item)
+                if not ok and raised ~= parse_abort then
+                    error(raised)
+                end
+                if trial_i then
+                    i = trial_i
+                    node.yend = token_yend(ps.tokens[i - 1])
+                    return i, node, n
+                end
+                -- backtrack: not a `key: type = value` item after all
                 node.itemtype = nil
-                i = orig_i
             end
         end
 
@@ -701,30 +633,12 @@ do
                     table.insert(options, "'" .. k .. "'")
                 end
                 table.sort(options)
-                local first = options[1]:sub(2, -2)
-                local msg: string
-                if first == ")" and ps.tokens[i].tk == "=" then
-                    msg = "syntax error, cannot perform an assignment here (did you mean '=='?)"
-                    i = failskip(ps, i, msg, parse_expression as SkipFunction, i + 1)
-                else
-                    table.insert(options, "','")
-                    msg = "syntax error, expected one of: "
-                        .. table.concat(options, ", ")
-                    fail(ps, i, msg)
-                end
-                if first ~= "}" and ps.tokens[i].y ~= ps.tokens[i - 1].y then
-                    table.insert(
-                        ps.tokens,
-                        i,
-                        {
-                            tk = first,
-                            y = ps.tokens[i - 1].y,
-                            x = ps.tokens[i - 1].x + 1,
-                            kind = "keyword",
-                        } as Token
-                    )
-                    return i, list
-                end
+                table.insert(options, "','")
+                return fail(
+                    ps,
+                    i,
+                    "syntax error, expected one of: " .. table.concat(options, ", ")
+                )
             end
         end
         return i, list
@@ -770,19 +684,27 @@ do
     end
 
     -- Trial-parses one item on a throwaway state so a "is there even an item
-    -- here?" probe never leaks errors. On success, replays the trial's errors
-    -- onto `ps` and returns the advanced index + item; on failure returns the
-    -- original index and nil.
+    -- here?" probe never leaks errors or a parse abort. On success returns the
+    -- advanced index + item; on failure returns the original index and nil.
     local function attempt<T>(
         ps: ParseState, i: integer, parse_item: ParseItem<T>
     ): integer, T
         local try_ps = fork(ps)
-        local tryi, item = parse_item(try_ps, i)
-        if not item then
+        local tryi: integer
+        local item: T
+        local function run_trial(): any
+            tryi, item = parse_item(try_ps, i)
+            return nil
+        end
+        local ok, raised = pcall(run_trial)
+        if not ok then
+            if raised ~= parse_abort then
+                error(raised)
+            end
             return i
         end
-        for _, e in ipairs(try_ps.errs) do
-            table.insert(ps.errs, e)
+        if not item then
+            return i
         end
         return tryi, item
     end
@@ -1348,17 +1270,6 @@ do
                 or prevnode.kind == "variable"
         end
 
-        local function failstore(ps: ParseState, tkop: Token, e1: Node): Node
-            return {
-                f = ps.filename,
-                y = tkop.y,
-                x = tkop.x,
-                kind = "paren",
-                e1 = e1,
-                failstore = true,
-            }
-        end
-
         -- A top-level comma belongs to the statement itself unless another argument
         -- is still expected, as in `wrap!(a, b = 1, 2)`. Teal instead keeps the
         -- longest extent that parses, which is why `pair!(z = 3, 7)` reaches it as
@@ -1422,8 +1333,17 @@ do
             slice_ps.allow_bare_type = true
 
             local saved = snapshot_comments(slice)
-            local _, node = parse_statements(slice_ps, 1, true)
-            if #slice_ps.errs == 0 and node ~= nil then
+            local node: Node
+            local function run_slice(): any
+                local _, parsed = parse_statements(slice_ps, 1, true)
+                node = parsed
+                return nil
+            end
+            local ok, raised = pcall(run_slice)
+            if not ok and raised ~= parse_abort then
+                error(raised)
+            end
+            if ok and node ~= nil then
                 return stop, node
             end
 
@@ -1542,8 +1462,7 @@ do
                     i = i + 1
                     tkop = ps.tokens[i]
                     if not args_starters[tkop.kind] then
-                        fail(ps, i, "expected macro arguments")
-                        return i, failstore(ps, tkop, e1)
+                        return fail(ps, i, "expected macro arguments")
                     end
                 end
                 if tkop.tk == "." or tkop.tk == ":" then
@@ -1555,39 +1474,17 @@ do
                     local key: Node
                     i = i + 1
                     local op_trailing_trivia = take_all_token_comments(ps.tokens[i])
-                    if ps.tokens[i].kind ~= "identifier" then
-                        local skipped = skip(ps, i, parse_type as SkipFunction)
-                        if skipped > i + 1 then
-                            fail(
-                                ps,
-                                i,
-                                "syntax error, cannot declare a type here (missing 'local' or 'global'?)"
-                            )
-                            return skipped, failstore(ps, tkop, e1)
-                        end
-                    end
                     i, key = verify_kind(ps, i, "identifier")
-                    if not key then
-                        return i, failstore(ps, tkop, e1)
-                    end
 
                     if op.op == ":" then
                         if not args_starters[ps.tokens[i].kind] then
-                            if ps.tokens[i].tk == "=" then
-                                fail(
-                                    ps,
-                                    i,
-                                    "syntax error, cannot perform an assignment here (missing 'local' or 'global'?)"
-                                )
-                            else
-                                fail(ps, i, "expected a function call for a method")
-                            end
-                            return i, failstore(ps, tkop, e1)
+                            return fail(ps, i, "expected a function call for a method")
                         end
 
                         if not after_valid_prefixexp(ps, e1, prev_i) then
-                            fail(ps, prev_i, "cannot call a method on this expression")
-                            return i, failstore(ps, tkop, e1)
+                            return fail(
+                                ps, prev_i, "cannot call a method on this expression"
+                            )
                         end
                     end
 
@@ -1687,8 +1584,7 @@ do
                     end
 
                     if not after_valid_prefixexp(ps, e1, prev_i) then
-                        fail(ps, prev_i, "cannot call this expression")
-                        return i, failstore(ps, tkop, e1)
+                        return fail(ps, prev_i, "cannot call this expression")
                     end
 
                     local funcall_yend = math.max(args.yend or args.y, args.y)
@@ -1719,8 +1615,7 @@ do
                     i, idx = parse_expression_and_tk(ps, i, "]")
 
                     if not after_valid_prefixexp(ps, e1, prev_i) then
-                        fail(ps, prev_i, "cannot index this expression")
-                        return i, failstore(ps, tkop, e1)
+                        return fail(ps, prev_i, "cannot index this expression")
                     end
 
                     e1 = {
@@ -1749,20 +1644,12 @@ do
                     end
 
                     if not after_valid_prefixexp(ps, e1, prev_i) then
-                        if tkop.kind == "string" then
-                            fail(
-                                ps,
-                                prev_i,
-                                "cannot use a string here; if you're trying to call the previous expression, wrap it in parentheses"
-                            )
-                        else
-                            fail(
-                                ps,
-                                prev_i,
-                                "cannot use a table here; if you're trying to call the previous expression, wrap it in parentheses"
-                            )
-                        end
-                        return i, failstore(ps, tkop, e1)
+                        return fail(
+                            ps,
+                            prev_i,
+                            tkop.kind == "string"
+                                and "cannot use a string here; if you're trying to call the previous expression, wrap it in parentheses" or "cannot use a table here; if you're trying to call the previous expression, wrap it in parentheses"
+                        )
                     end
 
                     table.insert(args, argument)
@@ -1788,7 +1675,7 @@ do
                         i, cast.casttype = parse_type(ps, i)
                     end
                     if not cast.casttype then
-                        return i, failstore(ps, tkop, e1)
+                        return fail(ps, i, "expected a type")
                     end
                     cast.yend = ps.tokens[i - 1].y
                     e1 = {
@@ -1891,29 +1778,12 @@ do
         local e: Node
         i, e = parse_expression(ps, i)
         if not e then
-            e = new_node(ps, i - 1, "error_node")
+            return fail(ps, i, "syntax error, expected an expression")
         end
-        if ps.tokens[i].tk == tk then
-            i = i + 1
-        else
-            local msg = "syntax error, expected '" .. tk .. "'"
-            if ps.tokens[i].tk == "=" then
-                msg = "syntax error, cannot perform an assignment here (did you mean '=='?)"
-            end
-
-            for n = 0, 19 do
-                local t = ps.tokens[i + n]
-                if t.kind == "$EOF$" then
-                    break
-                end
-                if t.tk == tk then
-                    fail(ps, i, msg)
-                    return i + n + 1, e
-                end
-            end
-            i = fail(ps, i, msg)
+        if ps.tokens[i].tk ~= tk then
+            return fail(ps, i, "syntax error, expected '" .. tk .. "'")
         end
-        return i, e
+        return i + 1, e
     end
 
     local function parse_variable_name(
@@ -2126,8 +1996,7 @@ do
         if ps.tokens[i].kind == "identifier" then
             return i + 1, new_node(ps, i, "identifier")
         end
-        i = fail(ps, i, "syntax error, expected identifier")
-        return i, new_node(ps, i, "error_node")
+        return fail(ps, i, "syntax error, expected identifier")
     end
 
     local function parse_local_function(ps: ParseState, i: integer): integer, Node
@@ -2869,12 +2738,7 @@ do
     ): integer, ArrayType
         local first = def.interface_list[1]
         if first and first is ArrayType then
-            return failskip(
-                ps,
-                i,
-                "duplicated declaration of array element type",
-                parse_type as SkipFunction
-            )
+            return fail(ps, i, "duplicated declaration of array element type")
         end
         local t: Type
         i, t = parse_base_type(ps, i)
@@ -3012,12 +2876,7 @@ do
                 store_field_in_record(ps, iv, v.tk, nt.newtype, def, nt, i, comments)
             elseif parse_type_body_fns[tn] and ps.tokens[i + 1].tk ~= ":" then
                 if def.typename == "interface" and tn == "record" then
-                    i = failskip(
-                        ps,
-                        i,
-                        "interfaces cannot contain record definitions",
-                        skip_type_body as SkipFunction
-                    )
+                    i = fail(ps, i, "interfaces cannot contain record definitions")
                 else
                     i = parse_nested_type(ps, i, def, tn)
                 end
@@ -3240,7 +3099,7 @@ do
                 return i
             end
 
-            if node_is_funcall(exp) or exp.failstore then
+            if node_is_funcall(exp) then
                 if exp then
                     exp.leading_comments = comments
                 end
@@ -3321,7 +3180,7 @@ do
             local tn = next_word as BodyTypeName
             if parse_type_body_fns[tn] then
                 local scope = node_name == "local_declaration" and "local" or "global"
-                return failskip(
+                return fail(
                     ps,
                     i + 1,
                     "syntax error: this syntax is no longer valid; use '"
@@ -3330,20 +3189,18 @@ do
                         .. next_word
                         .. " "
                         .. asgn.vars[1].tk
-                        .. "'",
-                    skip_type_body as SkipFunction
+                        .. "'"
                 )
             elseif next_word == "functiontype" then
                 local scope = node_name == "local_declaration" and "local" or "global"
-                return failskip(
+                return fail(
                     ps,
                     i + 1,
                     "syntax error: this syntax is no longer valid; use '"
                         .. scope
                         .. " type "
                         .. asgn.vars[1].tk
-                        .. " = function('...",
-                    parse_function_type as SkipFunction
+                        .. " = function('..."
                 )
             end
 
@@ -3494,10 +3351,6 @@ do
         return parse_type_constructor(ps, i, "bare_type", tn)
     end
 
-    local function skip_type_declaration(ps: ParseState, i: integer): integer, Node
-        return parse_type_declaration(ps, i + 1, "local_type")
-    end
-
     local function parse_local_macroexp(ps: ParseState, i: integer): integer, Node
         local istart = i
         i = i + 2
@@ -3634,13 +3487,12 @@ do
 
     local function type_needs_local_or_global(ps: ParseState, i: integer): integer, Node
         local tk = ps.tokens[i].tk
-        return failskip(
+        return fail(
             ps,
             i,
             ("%s needs to be declared with 'local %s' or 'global %s'"):format(
                 tk, tk, tk
-            ),
-            skip_type_body as SkipFunction
+            )
         )
     end
 
@@ -3648,11 +3500,8 @@ do
         ParseState, integer
     ): (integer, Node)} = {
         ["type"] = function(ps: ParseState, i: integer): integer, Node
-            return failskip(
-                ps,
-                i,
-                "types need to be declared with 'local type' or 'global type'",
-                skip_type_declaration as SkipFunction
+            return fail(
+                ps, i, "types need to be declared with 'local type' or 'global type'"
             )
         end,
         ["record"] = type_needs_local_or_global,
@@ -3750,14 +3599,11 @@ do
         return i, node
     end
 
-    local function parse_program(
-        tokens: {Token}, errs: {Error}, filename: string, source_lines: {string}
-    ): Node
+    local function parse_program(tokens: {Token}, errs: {Error}, filename: string): Node
         local ps: ParseState = {
             tokens = tokens,
             errs = errs,
             filename = filename,
-            source_lines = source_lines,
             macro_params = {},
             allow_bare_type = false,
         }
@@ -3772,7 +3618,6 @@ do
             node.hashbang = hashbang
         end
 
-        clear_redundant_errors(errs)
         return node
     end
 
@@ -3784,8 +3629,15 @@ do
         for _, token in ipairs(tokens) do
             comment_count = comment_count + #(token.comments or {})
         end
-        local source_lines = split_source_lines(input)
-        local node = parse_program(tokens, errs, filename, source_lines)
+        local node: Node
+        local function run_parse(): any
+            node = parse_program(tokens, errs, filename)
+            return nil
+        end
+        local ok, raised = pcall(run_parse)
+        if not ok and raised ~= parse_abort then
+            error(raised)
+        end
         return node, errs, comment_count
     end
 end

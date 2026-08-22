@@ -299,7 +299,6 @@ local record ast
         "local_macroexp"
         "interface"
         "pragma"
-        "error_node"
     end
 
     simple_types: {TypeName: boolean}
@@ -345,7 +344,6 @@ local record ast
         e1:                             Node
         e2:                             Node
         conststr:                       string
-        failstore:                      boolean
         label:                          string
         casttype:                       Type
         macrodef:                       Node
