@@ -581,4 +581,34 @@ describe("formatter integration", function()
       ]]))
    end)
 
+   -- The parser accepts anything grammatical; `tl check` owns semantics. These
+   -- inputs are Teal-invalid but must format rather than error.
+   describe("Teal-invalid but grammatical code", function()
+      it("formats an unknown variable attribute", helpers.check([[
+         local x <whatever> = 1
+      ]]))
+
+      it("formats a duplicated userdata declaration", helpers.check([[
+         local record R is userdata, userdata
+         end
+      ]]))
+
+      it("formats a redeclared non-function record field", helpers.check([[
+         local record R
+             f: string
+             f: integer
+         end
+      ]]))
+
+      it("formats a non-optional argument after an optional one", helpers.check([[
+         local function g(a?: string, b: integer)
+             return a, b
+         end
+      ]]))
+
+      it("formats a type declaration requiring a non-literal module", helpers.check([[
+         local type M = require(modname)
+      ]]))
+   end)
+
 end)

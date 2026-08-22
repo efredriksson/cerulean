@@ -29,7 +29,6 @@ local type TupleType = ast.TupleType
 local type TypeArgType = ast.TypeArgType
 local type NominalType = ast.NominalType
 local type FunctionType = ast.FunctionType
-local type Attribute = ast.Attribute
 local type FirstOrderType = ast.FirstOrderType
 local type FirstClassType = ast.FirstClassType
 local type StructuralType = ast.StructuralType
@@ -39,7 +38,6 @@ local type NilType = ast.NilType
 local type UnionType = ast.UnionType
 local type TupleTableType = ast.TupleTableType
 local type MapType = ast.MapType
-local type PolyType = ast.PolyType
 local type EnumType = ast.EnumType
 local type SelfType = ast.SelfType
 local type TokenKind = tl.TokenKind
@@ -80,34 +78,9 @@ local an_operator: function(Node, integer, string): Operator
 
 local simple_types = ast.simple_types
 
-local function node_is_require_call(n: Node): string
-    if not (n.e1 and n.e2) then
-        return nil
-    end
-    if n.op and n.op.op == "." then
-        return node_is_require_call(n.e1)
-    elseif
-        n.e1.kind == "variable"
-        and n.e1.tk == "require"
-        and n.e2.kind == "expression_list"
-        and #n.e2 == 1
-        and n.e2[1].kind == "string"
-    then
-        return n.e2[1].conststr
-    end
-    return nil
-end
-
 local function node_is_funcall(node: Node): boolean
     return node.kind == "op" and node.op.op == "@funcall"
 end
-
-local attributes <total>: {Attribute: boolean} = {
-    ["const"] = true,
-    ["close"] = true,
-    ["total"] = true,
-}
-local is_attribute <const>: {string: boolean} = attributes as {string: boolean}
 
 -- ── Parser block ─────────────────────────────────────────────────────────────
 
@@ -1799,10 +1772,7 @@ do
             local annotation: Node
             i, annotation = verify_kind(ps, i, "identifier")
             if annotation then
-                if not is_attribute[annotation.tk] then
-                    fail(ps, i, "unknown variable annotation: " .. annotation.tk)
-                end
-                node.attribute = annotation.tk as Attribute
+                node.attribute = annotation.tk
             else
                 fail(ps, i, "expected a variable annotation")
             end
@@ -1851,21 +1821,6 @@ do
         node.dangling_comments = get_attached_comments(
             ps.tokens[i - 1], ps.tokens[i - 2]
         )
-        local opts = false
-        for a, fnarg in ipairs(node) do
-            if fnarg.tk == "..." then
-                if a ~= #node then
-                    fail(ps, i, "'...' can only be last argument")
-                    break
-                end
-            elseif fnarg.opt then
-                opts = true
-            elseif opts then
-                return fail(
-                    ps, i, "non-optional arguments cannot follow optional arguments"
-                )
-            end
-        end
         return i, node
     end
 
@@ -2071,7 +2026,6 @@ do
                     y = selfy,
                     tk = "self",
                     kind = "identifier",
-                    is_self = true,
                 } as Node
             )
         end
@@ -2090,12 +2044,10 @@ do
     end
 
     local function parse_if_block(
-        ps: ParseState, i: integer, n: integer, node: Node, is_else?: boolean
+        ps: ParseState, i: integer, node: Node, is_else?: boolean
     ): integer, Node
         local block = new_node(ps, i, "if_block")
         i = i + 1
-        block.if_parent = node
-        block.if_block_n = n
         if not is_else then
             set_inline_trivia(
                 block,
@@ -2124,20 +2076,18 @@ do
         local istart = i
         local node = new_node(ps, i, "if")
         node.if_blocks = {}
-        i, node = parse_if_block(ps, i, 1, node)
+        i, node = parse_if_block(ps, i, node)
         if not node then
             return i
         end
-        local n = 2
         while ps.tokens[i].tk == "elseif" do
-            i, node = parse_if_block(ps, i, n, node)
+            i, node = parse_if_block(ps, i, node)
             if not node then
                 return i
             end
-            n = n + 1
         end
         if ps.tokens[i].tk == "else" then
-            i, node = parse_if_block(ps, i, n, node, true)
+            i, node = parse_if_block(ps, i, node, true)
             if not node then
                 return i
             end
@@ -2252,7 +2202,6 @@ do
             node, "head", take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
         )
         i, node.body = parse_statements(ps, i)
-        node.body.is_repeat = true
         i = verify_tk(ps, i, "until")
         set_inline_trivia(
             node,
@@ -2354,7 +2303,6 @@ do
 
     local function store_field_in_record(
         ps: ParseState,
-        i: integer,
         field_name: string,
         newt: Type,
         def: RecordLikeType,
@@ -2362,12 +2310,7 @@ do
         end_i: integer,
         comments?: {Comment},
         meta?: string
-    ): boolean
-        local fields = def.fields
-        if meta then
-            fields = def.meta_fields
-        end
-
+    )
         local entry_line = node ~= nil and node.y or newt.y
         local entry = FieldEntry.new(
             field_name, newt, node, comments or {}, meta ~= nil, entry_line
@@ -2376,34 +2319,9 @@ do
         entry.trailing_comments = take_same_line_comments(ps.tokens[end_i], entry.yend)
         table.insert(def.field_entries, entry)
 
-        if not fields[field_name] then
-            fields[field_name] = newt
-            return true
+        if meta and def.meta_fields[field_name] == nil then
+            def.meta_fields[field_name] = newt
         end
-
-        local oldt = fields[field_name]
-        local oldf: Type = oldt is GenericType and oldt.t or oldt
-        local newf: Type = newt is GenericType and newt.t or newt
-
-        if newf is FunctionType then
-            if oldf is FunctionType then
-                local p = new_type(ps, i, "poly") as PolyType
-                p.types = {oldt as FunctionType, newt as FunctionType}
-                fields[field_name] = p
-                return true
-            elseif oldt is PolyType then
-                table.insert(oldt.types, newt as FunctionType)
-                return true
-            end
-        end
-        fail(
-            ps,
-            i,
-            "attempt to redeclare field '"
-                .. field_name
-                .. "' (only functions can be overloaded)"
-        )
-        return false
     end
 
     local function set_declname(def: Type, declname: string)
@@ -2581,7 +2499,6 @@ do
     ): integer, boolean
         local istart = i
         i = i + 1
-        local iv = i
 
         local v: Node
         i, v = verify_kind(ps, i, "identifier", "type_identifier")
@@ -2603,7 +2520,6 @@ do
 
         store_field_in_record(
             ps,
-            iv,
             v.tk,
             nt.newtype,
             def,
@@ -2700,9 +2616,7 @@ do
         return i, node
     end
 
-    local function parse_where_clause(
-        ps: ParseState, i: integer, def: RecordLikeType
-    ): integer, Node
+    local function parse_where_clause(ps: ParseState, i: integer): integer, Node
         local node = new_node(ps, i, "macroexp")
 
         node.is_method = true
@@ -2710,7 +2624,6 @@ do
         node.args[1] = new_node(ps, i, "argument")
         node.args[1].tk = "self"
         node.args[1].argtype = new_type(ps, i, "self")
-        (node.args[1].argtype as SelfType).display_type = def
         node.rets = new_tuple(ps, i)
         node.rets.tuple[1] = new_type(ps, i, "boolean")
         i, node.exp = parse_expression(ps, i)
@@ -2753,28 +2666,9 @@ do
         return i, t
     end
 
-    local function fail_if_duplicate_userdata(
-        ps: ParseState, i: integer, interface_list: {Type}
-    )
-        local userdata_count = 0
-        for _, iface in ipairs(interface_list) do
-            if
-                iface is NominalType
-                and #iface.names == 1
-                and iface.names[1] == "userdata"
-            then
-                userdata_count = userdata_count + 1
-            end
-        end
-        if userdata_count > 1 then
-            fail(ps, i, "duplicated 'userdata' declaration")
-        end
-    end
-
     parse_record_body = function(
         ps: ParseState, i: integer, def: RecordLikeType
     ): integer, boolean
-        def.fields = {}
         def.field_entries = {}
         def.interface_list = {}
 
@@ -2808,28 +2702,18 @@ do
                     ps, i, {}, parse_interface_name
                 )
             end
-
-            fail_if_duplicate_userdata(ps, i, def.interface_list)
         end
 
         if ps.tokens[i].tk == "where" then
             local wstart = i
             i = i + 1
             local where_macroexp: Node
-            i, where_macroexp = parse_where_clause(ps, i, def)
+            i, where_macroexp = parse_where_clause(ps, i)
 
             local typ = new_type(ps, wstart, "function") as FunctionType
             typ.is_method = true
             typ.args = new_tuple(
-                ps,
-                wstart,
-                {
-                    a_type(
-                        where_macroexp as Where,
-                        "self",
-                        {display_type = def} as SelfType
-                    ),
-                }
+                ps, wstart, {a_type(where_macroexp as Where, "self", {} as SelfType)}
             )
             typ.rets = new_tuple(ps, wstart, {new_type(ps, wstart, "boolean")})
             typ.macroexp = where_macroexp as Node
@@ -2842,7 +2726,6 @@ do
             local tn = ps.tokens[i].tk as BodyTypeName
             if ps.tokens[i].tk == "userdata" and ps.tokens[i + 1].tk ~= ":" then
                 table.insert(def.interface_list, new_nominal(ps, i, "userdata"))
-                fail_if_duplicate_userdata(ps, i, def.interface_list)
                 i = i + 1
             elseif ps.tokens[i].tk == "{" then
                 return fail(
@@ -2853,7 +2736,6 @@ do
             elseif ps.tokens[i].tk == "type" and ps.tokens[i + 1].tk ~= ":" then
                 local comments = get_attached_comments(ps.tokens[i], ps.tokens[i - 1])
                 i = i + 1
-                local iv = i
 
                 local lt: Node
                 i, lt = parse_type_declaration(ps, i, "local_type")
@@ -2873,7 +2755,7 @@ do
                     return fail(ps, i, "expected a type definition")
                 end
 
-                store_field_in_record(ps, iv, v.tk, nt.newtype, def, nt, i, comments)
+                store_field_in_record(ps, v.tk, nt.newtype, def, nt, i, comments)
             elseif parse_type_body_fns[tn] and ps.tokens[i + 1].tk ~= ":" then
                 if def.typename == "interface" and tn == "record" then
                     i = fail(ps, i, "interfaces cannot contain record definitions")
@@ -2900,7 +2782,6 @@ do
                 else
                     i, v = verify_kind(ps, i, "identifier", "variable")
                 end
-                local iv = i
                 if not v then
                     return fail(ps, i, "expected a variable name")
                 end
@@ -2940,7 +2821,6 @@ do
 
                     store_field_in_record(
                         ps,
-                        iv,
                         field_name,
                         t,
                         def,
@@ -3209,43 +3089,15 @@ do
         return i, asgn
     end
 
-    local function parse_type_require(
-        ps: ParseState, i: integer, asgn: Node
-    ): integer, Node
-        local istart = i
-        i, asgn.value = parse_expression(ps, i)
-        if not asgn.value then
-            return i
-        end
-        if
-            asgn.value.op and asgn.value.op.op ~= "@funcall" and asgn.value.op.op ~= "."
-        then
-            fail(
-                ps,
-                istart,
-                "require() in type declarations cannot be part of larger expressions"
-            )
-            return i
-        end
-        if not node_is_require_call(asgn.value) then
-            fail(
-                ps,
-                istart,
-                "require() for type declarations must have a literal argument"
-            )
-            return i
-        end
-        return i, asgn
-    end
-
     local function parse_special_type_declaration(
         ps: ParseState, i: integer, asgn: Node
     ): boolean, integer, Node
         if ps.tokens[i].tk == "require" then
-            return true, parse_type_require(ps, i, asgn)
-        elseif ps.tokens[i].tk == "pcall" then
-            fail(ps, i, "pcall() cannot be used in type declarations")
-            return true, i
+            i, asgn.value = parse_expression(ps, i)
+            if not asgn.value then
+                return true, i
+            end
+            return true, i, asgn
         end
         return false, i, asgn
     end

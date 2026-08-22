@@ -25,7 +25,6 @@ local record ast
         "union"
         "nominal"
         "tuple"
-        "poly"
         "any"
         "table"
     end
@@ -90,9 +89,6 @@ local record ast
     record SelfType
         is FirstOrderType
         where self.typename == "self"
-
-        -- to be used only in error reports, not for type resolution
-        display_type: RecordLikeType
     end
 
     interface ArrayLikeType
@@ -141,10 +137,9 @@ local record ast
 
     interface RecordLikeType
         is StructuralType, HasDeclName, ArrayLikeType
-        where self.fields
+        where self.field_entries
 
         interface_list: {ArrayType | NominalType}
-        fields: {string: Type}
         meta_fields: {string: Type}
         field_entries: {FieldEntry}
         dangling_comments: {Comment}
@@ -197,7 +192,6 @@ local record ast
 
         is_method: boolean
         maybe_method: boolean
-        is_record_function: boolean
         bare: boolean
         args: TupleType
         rets: TupleType
@@ -222,27 +216,12 @@ local record ast
         where self.typename == "tupletable"
     end
 
-    -- Intersection types, currently restricted to polymorphic functions
-    -- defined inside records, representing polymorphic Lua APIs.
-    record PolyType
-        is AggregateType
-        where self.typename == "poly"
-
-        types: {FunctionType | GenericType}
-    end
-
     record EnumType
         is StructuralType, HasDeclName
         where self.typename == "enum"
 
         enum_items: {Node}
         dangling_comments: {Comment}
-    end
-
-    enum Attribute
-        "const"
-        "close"
-        "total"
     end
 
     enum KeyParsed
@@ -325,13 +304,10 @@ local record ast
         implicit_global_function:       boolean
         is_macro_invocation:            boolean
         name:                           Node
-        is_repeat:                      boolean
-        attribute:                      Attribute
+        attribute:                      string
         fn_owner:                       Node
         is_method:                      boolean
         exp:                            Node
-        if_parent:                      Node
-        if_block_n:                     integer
         if_blocks:                      {Node}
         var:                            Node
         from:                           Node
@@ -347,7 +323,6 @@ local record ast
         label:                          string
         casttype:                       Type
         macrodef:                       Node
-        expanded:                       Node
         argtype:                        Type
         itemtype:                       Type
         decltuple:                      TupleType
@@ -358,7 +333,6 @@ local record ast
         dangling_comments:              {Comment}
         trailing_comments:              {Comment}
         blank_line_before:              boolean
-        is_self:                        boolean
         is_type_declaration:            boolean
         f:                              string
         -- fmt: on
