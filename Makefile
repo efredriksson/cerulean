@@ -52,6 +52,13 @@ release-upload:
 	@test -n "$(VERSION)" || (echo "Usage: make release-upload VERSION=x.y.z" && exit 1)
 	luarocks upload cerulean-$(VERSION)-1.rockspec --api-key=$(LUAROCKS_API_KEY)
 
+.PHONY: ab-snapshot ab-diff
+ab-snapshot:
+	tl run fuzz/ab.tl -- snapshot
+
+ab-diff:
+	tl run fuzz/ab.tl -- diff
+
 .PHONY: fuzz fuzz-corpus fuzz-deep
 fuzz:
 	tl run fuzz/fuzz.tl -- $(ARGS)
