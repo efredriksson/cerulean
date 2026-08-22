@@ -210,10 +210,10 @@ local parse_expression_and_tk: function(
 ): integer, Node
 
 local parse_statements: function(ParseState, integer, ?boolean): integer, Node
-local parse_argument_list: function(ParseState, integer): integer, Node, integer
+local parse_argument_list: function(ParseState, integer): integer, Node
 local parse_argument_type_list: function(
     ParseState, integer
-): integer, TupleType, boolean, integer
+): integer, TupleType, boolean
 
 local parse_type: function(ParseState, integer): integer, FirstClassType, integer
 local parse_type_declaration: function(
@@ -587,7 +587,6 @@ do
 
         node.key = new_node(ps, i, "integer")
         node.key_parsed = "implicit"
-        node.key.constnum = n
         node.key.tk = tostring(n)
         i, node.value = parse_expression(ps, i)
         if not node.value then
@@ -1003,16 +1002,13 @@ do
 
         i, typeargs = parse_typeargs_if_any(ps, i)
         if ps.tokens[i].tk == "(" then
-            i, typ.args, typ.maybe_method, typ.min_arity = parse_argument_type_list(
-                ps, i
-            )
+            i, typ.args, typ.maybe_method = parse_argument_type_list(ps, i)
             i, typ.rets = parse_return_types(ps, i)
         else
             typ.bare = true
             typ.args = new_tuple(ps, i, {new_type(ps, i, "any")}, true)
             typ.rets = new_tuple(ps, i, {new_type(ps, i, "any")}, true)
             typ.is_method = false
-            typ.min_arity = 0
         end
         typ.yend = ps.tokens[i - 1].y
 
@@ -1219,7 +1215,7 @@ do
     ): integer, Node
         local istart = i - 1
         i, node.typeargs = parse_typeargs_if_any(ps, i)
-        i, node.args, node.min_arity = parse_argument_list(ps, i)
+        i, node.args = parse_argument_list(ps, i)
         i, node.rets = parse_return_types(ps, i)
         set_inline_trivia(
             node, "head", take_same_line_comments(ps.tokens[i], ps.tokens[i - 1].y)
@@ -1263,11 +1259,7 @@ do
             node.yend = token_yend(ps.tokens[i])
             return i + 1, node
         elseif kind == "number" or kind == "integer" then
-            local n = tonumber(tk)
-            local node: Node
-            i, node = verify_kind(ps, i, kind)
-            node.constnum = n
-            return i, node
+            return verify_kind(ps, i, kind)
         elseif tk == "true" then
             return verify_kind(ps, i, "keyword", "boolean")
         elseif tk == "false" then
@@ -2022,7 +2014,7 @@ do
         return i, node, 0
     end
 
-    parse_argument_list = function(ps: ParseState, i: integer): integer, Node, integer
+    parse_argument_list = function(ps: ParseState, i: integer): integer, Node
         local node = new_node(ps, i, "argument_list")
         local open_paren_leading_trivia = take_same_line_comments(
             ps.tokens[i + 1], ps.tokens[i].y
@@ -2033,7 +2025,6 @@ do
             ps.tokens[i - 1], ps.tokens[i - 2]
         )
         local opts = false
-        local min_arity = 0
         for a, fnarg in ipairs(node) do
             if fnarg.tk == "..." then
                 if a ~= #node then
@@ -2046,11 +2037,9 @@ do
                 return fail(
                     ps, i, "non-optional arguments cannot follow optional arguments"
                 )
-            else
-                min_arity = min_arity + 1
             end
         end
-        return i, node, min_arity
+        return i, node
     end
 
     local function parse_argument_type(
@@ -2134,7 +2123,7 @@ do
 
     parse_argument_type_list = function(
         ps: ParseState, i: integer
-    ): integer, TupleType, boolean, integer
+    ): integer, TupleType, boolean
         -- Walk arguments by hand (not parse_bracket_list) so inline comments
         -- around each survive, stored on the argument's type as `leading` and
         -- `before_separator`.
@@ -2190,7 +2179,6 @@ do
         t.argnames = {}
         t.is_optional = {}
         local n = #ars
-        local min_arity = 0
         for l, ar in ipairs(ars) do
             list[l] = ar.type
             t.argnames[l] = ar.name
@@ -2198,14 +2186,11 @@ do
             if ar.is_va and l < n then
                 fail(ps, ar.i, "'...' can only be last argument")
             end
-            if not ar.opt then
-                min_arity = min_arity + 1
-            end
         end
         if n > 0 and ars[n].is_va then
             t.is_va = true
         end
-        return i, t, (n > 0 and ars[1].is_self), min_arity
+        return i, t, (n > 0 and ars[1].is_self)
     end
 
     local function parse_identifier(ps: ParseState, i: integer): integer, Node, integer
@@ -2291,7 +2276,6 @@ do
                     is_self = true,
                 } as Node
             )
-            fn.min_arity = fn.min_arity + 1
         end
 
         if not fn.name then
@@ -2581,31 +2565,10 @@ do
         comments?: {Comment},
         meta?: string
     ): boolean
-        local field_order: {string}
-        local fields: {string: Type}
-        local nodes: {string: Node}
-        local field_comments: {string: {{Comment}}}
+        local fields = def.fields
         if meta then
-            field_order, fields, nodes, field_comments =
-                def.meta_field_order,
-                def.meta_fields,
-                def.nodes,
-                def.meta_field_comments
-        else
-            field_order, fields, nodes, field_comments =
-                def.field_order, def.fields, def.nodes, def.field_comments
+            fields = def.meta_fields
         end
-
-        if comments and not field_comments then
-            field_comments = {}
-            if meta then
-                def.meta_field_comments = field_comments
-            else
-                def.field_comments = field_comments
-            end
-        end
-
-        nodes[field_name] = node
 
         local entry_line = node ~= nil and node.y or newt.y
         local entry = FieldEntry.new(
@@ -2617,10 +2580,6 @@ do
 
         if not fields[field_name] then
             fields[field_name] = newt
-            if comments then
-                field_comments[field_name] = {comments}
-            end
-            table.insert(field_order, field_name)
             return true
         end
 
@@ -2628,30 +2587,14 @@ do
         local oldf: Type = oldt is GenericType and oldt.t or oldt
         local newf: Type = newt is GenericType and newt.t or newt
 
-        local function store_comment_for_poly(poly: PolyType)
-            if comments then
-                if not field_comments[field_name] then
-                    field_comments[field_name] = {}
-                    for idx = 1, #poly.types - 1 do
-                        field_comments[field_name][idx] = {}
-                    end
-                end
-                table.insert(field_comments[field_name], comments)
-            elseif field_comments and field_comments[field_name] then
-                table.insert(field_comments[field_name], {})
-            end
-        end
-
         if newf is FunctionType then
             if oldf is FunctionType then
                 local p = new_type(ps, i, "poly") as PolyType
                 p.types = {oldt as FunctionType, newt as FunctionType}
                 fields[field_name] = p
-                store_comment_for_poly(p)
                 return true
             elseif oldt is PolyType then
                 table.insert(oldt.types, newt as FunctionType)
-                store_comment_for_poly(oldt)
                 return true
             end
         end
@@ -2946,7 +2889,7 @@ do
             i = iargs
         end
 
-        i, node.args, node.min_arity = parse_argument_list(ps, i)
+        i, node.args = parse_argument_list(ps, i)
         i, node.rets = parse_return_types(ps, i)
         i = verify_tk(ps, i, "return")
         i, node.exp = parse_expression(ps, i)
@@ -2966,7 +2909,6 @@ do
         node.args[1].tk = "self"
         node.args[1].argtype = new_type(ps, i, "self")
         (node.args[1].argtype as SelfType).display_type = def
-        node.min_arity = 1
         node.rets = new_tuple(ps, i)
         node.rets.tuple[1] = new_type(ps, i, "boolean")
         i, node.exp = parse_expression(ps, i)
@@ -3036,8 +2978,6 @@ do
         ps: ParseState, i: integer, def: RecordLikeType
     ): integer, boolean
         def.fields = {}
-        def.nodes = {}
-        def.field_order = {}
         def.field_entries = {}
         def.interface_list = {}
 
@@ -3083,7 +3023,6 @@ do
 
             local typ = new_type(ps, wstart, "function") as FunctionType
             typ.is_method = true
-            typ.min_arity = 1
             typ.args = new_tuple(
                 ps,
                 wstart,
@@ -3099,9 +3038,7 @@ do
             typ.macroexp = where_macroexp as Node
 
             def.meta_fields = {}
-            def.meta_field_order = {}
             def.meta_fields["__is"] = typ
-            table.insert(def.meta_field_order, "__is")
         end
 
         while not (ps.tokens[i].kind == "$EOF$" or ps.tokens[i].tk == "end") do
@@ -3137,11 +3074,6 @@ do
                 nt.is_type_declaration = lt.is_type_declaration
                 if not nt or not nt.newtype then
                     return fail(ps, i, "expected a type definition")
-                end
-
-                local ntt = nt.newtype
-                if ntt.is_alias then
-                    ntt.is_nested_alias = true
                 end
 
                 store_field_in_record(ps, iv, v.tk, nt.newtype, def, nt, i, comments)
@@ -3196,7 +3128,6 @@ do
                     if is_metamethod then
                         if not def.meta_fields then
                             def.meta_fields = {}
-                            def.meta_field_order = {}
                         end
                         if not metamethod_names[field_name] then
                             fail(ps, i - 1, "not a valid metamethod: " .. field_name)
@@ -3311,15 +3242,6 @@ do
 
         node.newtype = new_typedecl(ps, istart, def)
 
-        if def is NominalType then
-            node.newtype.is_alias = true
-        elseif def is GenericType then
-            local deft = def.t
-            if deft is NominalType then
-                node.newtype.is_alias = true
-            end
-        end
-
         return i, node
     end
 
@@ -3386,9 +3308,8 @@ do
     local parse_call_or_assignment: function(ps: ParseState, i: integer): integer, Node
     do
         local function is_lvalue(node: Node): boolean
-            node.is_lvalue = node.kind == "variable"
+            return node.kind == "variable"
                 or (node.kind == "op" and (node.op.op == "@index" or node.op.op == "."))
-            return node.is_lvalue
         end
 
         local function parse_variable(
@@ -3870,9 +3791,6 @@ do
                 local semi_comments = ps.tokens[i].comments or {}
                 prepend_token_comments(ps.tokens[i + 1], semi_comments)
                 i = i + 1
-                if item then
-                    item.semicolon = true
-                end
             end
 
             if ps.tokens[i].kind == "$EOF$" then

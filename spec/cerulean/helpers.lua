@@ -92,7 +92,7 @@ local function normalize_node(node)
     elseif node.kind == "string" then
         normalized.conststr = node.conststr or node.tk
     elseif node.kind == "integer" or node.kind == "number" then
-        normalized.constnum = node.constnum or node.tk
+        normalized.constnum = node.tk
     elseif node.kind == "boolean" or node.kind == "nil" then
         normalized.tk = node.tk
     end

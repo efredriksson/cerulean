@@ -57,7 +57,6 @@ local record ast
 
         typeargs: {TypeArgType}
         t: FirstOrderType
-        fresh: boolean
     end
 
     interface FirstOrderType is Type
@@ -74,9 +73,6 @@ local record ast
         where self.typename == "typedecl"
 
         def: FirstClassType
-        closed: boolean
-        is_alias: boolean
-        is_nested_alias: boolean
     end
 
     interface HasDeclName
@@ -89,8 +85,6 @@ local record ast
 
         names: {string}
         typevals: {FirstClassType}
-        found: TypeDeclType      -- type is found but typeargs are not resolved
-        resolved: Type       -- type is found and typeargs are resolved
     end
 
     record SelfType
@@ -106,8 +100,6 @@ local record ast
         where self.elements
 
         elements: Type
-        consttypes: {Type}
-        inferred_len: integer
     end
 
     record ArrayType
@@ -152,14 +144,8 @@ local record ast
         where self.fields
 
         interface_list: {ArrayType | NominalType}
-        interfaces_expanded: boolean
         fields: {string: Type}
-        nodes: {string: Node}
-        field_order: {string}
-        field_comments: {string: {{Comment}}}
         meta_fields: {string: Type}
-        meta_field_order: {string}
-        meta_field_comments: {string: {{Comment}}}
         field_entries: {FieldEntry}
         dangling_comments: {Comment}
     end
@@ -213,7 +199,6 @@ local record ast
         maybe_method: boolean
         is_record_function: boolean
         bare: boolean
-        min_arity: integer
         args: TupleType
         rets: TupleType
         macroexp: Node
@@ -327,7 +312,6 @@ local record ast
         tk:                             string
         kind:                           NodeKind
         leading_comments:               {Comment}
-        semicolon:                      boolean
         hashbang:                       string
         is_longstring:                  boolean
         yend:                           integer
@@ -336,7 +320,6 @@ local record ast
         value:                          Node
         key_parsed:                     KeyParsed
         typeargs:                       {TypeArgType}
-        min_arity:                      integer
         args:                           Node
         rets:                           TupleType
         body:                           Node
@@ -361,12 +344,10 @@ local record ast
         op:                             Operator
         e1:                             Node
         e2:                             Node
-        constnum:                       number
         conststr:                       string
         failstore:                      boolean
         label:                          string
         casttype:                       Type
-        is_lvalue:                      boolean
         macrodef:                       Node
         expanded:                       Node
         argtype:                        Type
