@@ -4,7 +4,7 @@ local parser = require("cerulean.parser")
 local assert = require("luassert")
 
 local function comment_count(src)
-    local _, _, _, count = parser.parse(src, "t.tl")
+    local _, _, count = parser.parse(src, "t.tl")
     return count
 end
 

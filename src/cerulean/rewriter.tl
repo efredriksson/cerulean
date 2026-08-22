@@ -86,7 +86,7 @@ end
 local function output_failure(
     source_comments: integer, output: string, filename: string
 ): string
-    local _, parse_errors, _, output_comments = parser.parse(output, filename)
+    local _, parse_errors, output_comments = parser.parse(output, filename)
     if #parse_errors > 0 then
         return "the formatter produced output that is not valid Teal"
     end
@@ -103,7 +103,7 @@ end
 function rewriter.rewrite(
     source_: string, filename: string, opts: FormatterOptions
 ): Rewrite
-    local root, parse_errors, _, source_comments = parser.parse(source_, filename)
+    local root, parse_errors, source_comments = parser.parse(source_, filename)
     if #parse_errors > 0 then
         return Rewrite.new(source_, "unchanged", parse_errors)
     end

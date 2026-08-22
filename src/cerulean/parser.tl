@@ -12,12 +12,7 @@ local type Token = tl.Token
 local record parser
     type Error = tl.Error
 
-    parse_program: function(
-        tokens: {tl.Token}, errs: {Error}, filename?: string, source_lines?: {string}
-    ): ast.Node, {string}
-    parse: function(
-        input: string, filename: string
-    ): ast.Node, {Error}, {string}, integer
+    parse: function(input: string, filename: string): ast.Node, {Error}, integer
 end
 
 -- ── Local aliases for the ast data contract ─────────────────────────────────
@@ -155,7 +150,6 @@ local record ParseState
     filename: string
     end_alignment_hint: Error
     source_lines: {string}
-    required_modules: {string}
     -- Macros are file-local: only `local macro`, only invoked through a bare name,
     -- only after the declaration has been read. So one flat table filled during the
     -- single forward pass answers every lookup, with no scope stack.
@@ -420,14 +414,12 @@ do
     local type SkipFunction = function(ParseState, integer): integer, Node | boolean
 
     -- A sub-parse collects its own errors so a probe that fails leaks none of them.
-    -- A probe meant to be thrown away passes its own `required_modules`.
-    local function fork(ps: ParseState, required_modules?: {string}): ParseState
+    local function fork(ps: ParseState): ParseState
         return {
             filename = ps.filename,
             tokens = ps.tokens,
             errs = {},
             source_lines = ps.source_lines,
-            required_modules = required_modules or ps.required_modules,
             macro_params = ps.macro_params,
             allow_bare_type = ps.allow_bare_type,
         }
@@ -436,7 +428,7 @@ do
     local function skip(
         ps: ParseState, i: integer, skip_fn: SkipFunction
     ): integer, Node | boolean
-        return skip_fn(fork(ps, {}), i)
+        return skip_fn(fork(ps), i)
     end
 
     local function failskip(
@@ -1268,27 +1260,6 @@ do
         return fail(ps, i, "syntax error")
     end
 
-    local function node_is_require_call_or_pcall(n: Node): string
-        local r = node_is_require_call(n)
-        if r then
-            return r
-        end
-        if
-            node_is_funcall(n)
-            and n.e1
-            and n.e1.tk == "pcall"
-            and n.e2
-            and #n.e2 == 2
-            and n.e2[1].kind == "variable"
-            and n.e2[1].tk == "require"
-            and n.e2[2].kind == "string"
-            and n.e2[2].conststr
-        then
-            return n.e2[2].conststr
-        end
-        return nil
-    end
-
     do
         local precedences: {integer: {string: integer}} = {
             [1] = {
@@ -1738,8 +1709,6 @@ do
                         args.y,
                         e1.y
                     )
-
-                    table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
                 elseif tkop.tk == "[" then
                     local op: Operator = new_operator(tkop, 2, "@index")
 
@@ -1807,8 +1776,6 @@ do
                         e2 = args,
                         is_macro_invocation = is_macro_invocation,
                     }
-
-                    table.insert(ps.required_modules, node_is_require_call_or_pcall(e1))
                 elseif tkop.tk == "as" or tkop.tk == "is" then
                     local op: Operator = new_operator(tkop, 2, tkop.tk)
                     local op_leading_trivia = take_all_token_comments(tkop)
@@ -3783,16 +3750,14 @@ do
         return i, node
     end
 
-    parser.parse_program = function(
-        tokens: {Token}, errs: {Error}, filename?: string, source_lines?: {string}
-    ): Node, {string}
-        errs = errs or {}
+    local function parse_program(
+        tokens: {Token}, errs: {Error}, filename: string, source_lines: {string}
+    ): Node
         local ps: ParseState = {
             tokens = tokens,
             errs = errs,
-            filename = filename or "",
-            source_lines = source_lines or {},
-            required_modules = {},
+            filename = filename,
+            source_lines = source_lines,
             macro_params = {},
             allow_bare_type = false,
         }
@@ -3808,12 +3773,10 @@ do
         end
 
         clear_redundant_errors(errs)
-        return node, ps.required_modules
+        return node
     end
 
-    parser.parse = function(
-        input: string, filename: string
-    ): Node, {Error}, {string}, integer
+    parser.parse = function(input: string, filename: string): Node, {Error}, integer
         -- tl.lex loses a trailing comment when the file has no final newline
         local lex_input = input:sub(-1) == "\n" and input or input .. "\n"
         local tokens, errs = tl.lex(lex_input, filename)
@@ -3822,10 +3785,8 @@ do
             comment_count = comment_count + #(token.comments or {})
         end
         local source_lines = split_source_lines(input)
-        local node, required_modules = parser.parse_program(
-            tokens, errs, filename, source_lines
-        )
-        return node, errs, required_modules, comment_count
+        local node = parse_program(tokens, errs, filename, source_lines)
+        return node, errs, comment_count
     end
 end
 
