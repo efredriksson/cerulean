@@ -55,23 +55,14 @@ local record ast
     record GenericType is Type where self.typename == "generic"
 
         typeargs: {TypeArgType}
-        t: FirstOrderType
-    end
-
-    interface FirstOrderType is Type
-    end
-
-    type FirstClassType = GenericType | FirstOrderType
-
-    interface StructuralType
-        is FirstOrderType
+        t: Type
     end
 
     record TypeDeclType
         is Type
         where self.typename == "typedecl"
 
-        def: FirstClassType
+        def: Type
     end
 
     interface HasDeclName
@@ -79,20 +70,20 @@ local record ast
     end
 
     record NominalType
-        is FirstOrderType
+        is Type
         where self.typename == "nominal"
 
         names: {string}
-        typevals: {FirstClassType}
+        typevals: {Type}
     end
 
     record SelfType
-        is FirstOrderType
+        is Type
         where self.typename == "self"
     end
 
     interface ArrayLikeType
-        is StructuralType
+        is Type
         where self.elements
 
         elements: Type
@@ -136,7 +127,7 @@ local record ast
     end
 
     interface RecordLikeType
-        is StructuralType, HasDeclName, ArrayLikeType
+        is HasDeclName, ArrayLikeType
         where self.field_entries
 
         interface_list: {ArrayType | NominalType}
@@ -156,7 +147,7 @@ local record ast
     end
 
     record TupleType
-        is FirstOrderType
+        is Type
         where self.typename == "tuple"
 
         is_va: boolean
@@ -174,7 +165,7 @@ local record ast
     end
 
     record MapType
-        is StructuralType
+        is Type
         where self.typename == "map"
 
         keys: Type
@@ -182,12 +173,12 @@ local record ast
     end
 
     record NilType
-        is StructuralType
+        is Type
         where self.typename == "nil"
     end
 
     record FunctionType
-        is StructuralType
+        is Type
         where self.typename == "function"
 
         is_method: boolean
@@ -200,7 +191,7 @@ local record ast
     end
 
     interface AggregateType
-        is StructuralType
+        is Type
         where self.types
 
         types: {Type}
@@ -217,7 +208,7 @@ local record ast
     end
 
     record EnumType
-        is StructuralType, HasDeclName
+        is Type, HasDeclName
         where self.typename == "enum"
 
         enum_items: {Node}

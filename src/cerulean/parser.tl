@@ -29,9 +29,6 @@ local type TupleType = ast.TupleType
 local type TypeArgType = ast.TypeArgType
 local type NominalType = ast.NominalType
 local type FunctionType = ast.FunctionType
-local type FirstOrderType = ast.FirstOrderType
-local type FirstClassType = ast.FirstClassType
-local type StructuralType = ast.StructuralType
 local type ArrayType = ast.ArrayType
 local type RecordLikeType = ast.RecordLikeType
 local type NilType = ast.NilType
@@ -150,7 +147,7 @@ local parse_argument_type_list: function(
     ParseState, integer
 ): integer, TupleType, boolean
 
-local parse_type: function(ParseState, integer): integer, FirstClassType, integer
+local parse_type: function(ParseState, integer): integer, Type, integer
 local parse_type_declaration: function(
     ps: ParseState, i: integer, node_name: NodeKind
 ): integer, Node
@@ -253,14 +250,12 @@ do
         return t
     end
 
-    local function new_first_order_type(
-        ps: ParseState, i: integer, tn: BodyTypeName
-    ): FirstOrderType
-        return new_type(ps, i, tn as TypeName) as FirstOrderType
+    local function new_body_type(ps: ParseState, i: integer, tn: BodyTypeName): Type
+        return new_type(ps, i, tn as TypeName)
     end
 
     local function new_generic(
-        ps: ParseState, i: integer, typeargs: {TypeArgType}, typ: FirstOrderType
+        ps: ParseState, i: integer, typeargs: {TypeArgType}, typ: Type
     ): GenericType
         local gt = new_type(ps, i, "generic") as GenericType
         gt.typeargs = typeargs
@@ -268,9 +263,7 @@ do
         return gt
     end
 
-    local function new_typedecl(
-        ps: ParseState, i: integer, def: FirstClassType
-    ): TypeDeclType
+    local function new_typedecl(ps: ParseState, i: integer, def: Type): TypeDeclType
         local t = new_type(ps, i, "typedecl") as TypeDeclType
         t.def = def
         return t
@@ -340,12 +333,12 @@ do
 
     local function parse_type_body(
         ps: ParseState, i: integer, istart: integer, node: Node, tn: BodyTypeName
-    ): integer, GenericType | FirstOrderType
+    ): integer, Type
         local typeargs: {TypeArgType}
-        local def: FirstOrderType
+        local def: Type
         i, typeargs = parse_typeargs_if_any(ps, i)
 
-        def = new_first_order_type(ps, istart, tn)
+        def = new_body_type(ps, istart, tn)
 
         local ok: boolean
         i, ok = parse_type_body_fns[tn](ps, i, def)
@@ -898,11 +891,11 @@ do
 
     local function parse_simple_type_or_nominal(
         ps: ParseState, i: integer
-    ): integer, FirstOrderType
+    ): integer, Type
         local tk = ps.tokens[i].tk
         local st = simple_types[tk as TypeName]
         if st and ps.tokens[i + 1].tk ~= "." then
-            return i + 1, new_type(ps, i, tk as TypeName) as StructuralType
+            return i + 1, new_type(ps, i, tk as TypeName)
         end
 
         local typ = new_nominal(ps, i, tk)
@@ -923,9 +916,7 @@ do
         return i, typ
     end
 
-    local function parse_base_type(
-        ps: ParseState, i: integer
-    ): integer, FirstClassType, integer
+    local function parse_base_type(ps: ParseState, i: integer): integer, Type, integer
         local tk = ps.tokens[i].tk
         if ps.tokens[i].kind == "identifier" then
             return parse_simple_type_or_nominal(ps, i)
@@ -994,7 +985,7 @@ do
         return fail(ps, i, "expected a type")
     end
 
-    parse_type = function(ps: ParseState, i: integer): integer, FirstClassType, integer
+    parse_type = function(ps: ParseState, i: integer): integer, Type, integer
         if ps.tokens[i].tk == "(" then
             i = i + 1
             local t: Type
@@ -1006,7 +997,7 @@ do
             return i, t
         end
 
-        local bt: FirstClassType
+        local bt: Type
         local istart = i
         i, bt = parse_base_type(ps, i)
         if not bt then
@@ -2631,11 +2622,9 @@ do
         return i, node
     end
 
-    parse_interface_name = function(
-        ps: ParseState, i: integer
-    ): integer, FirstOrderType, integer
+    parse_interface_name = function(ps: ParseState, i: integer): integer, Type, integer
         local istart = i
-        local typ: FirstOrderType
+        local typ: Type
         i, typ = parse_simple_type_or_nominal(ps, i)
         if not typ then
             return i
@@ -2899,7 +2888,7 @@ do
 
     local function parse_newtype(ps: ParseState, i: integer): integer, Node
         local node: Node = new_node(ps, i, "newtype")
-        local def: FirstClassType
+        local def: Type
         local tn = ps.tokens[i].tk as BodyTypeName
         local istart = i
 
