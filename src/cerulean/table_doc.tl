@@ -33,9 +33,6 @@ local function item_value_needs_semicolon(value: ast.Node): boolean
             if op == "as" or op == "is" then
                 return type_doc.cast_absorbs_trailing_comma(value.e2.casttype)
             end
-            if op == "@funcall" or op == "@index" or op == "." or op == ":" then
-                return false
-            end
             local parent_prec = value.op.prec
             value = value.e2
             if binary_right_gets_parens(value, parent_prec) then

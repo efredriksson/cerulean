@@ -70,13 +70,7 @@ local function a_type<T is Type>(w: Where, typename: TypeName, t: T): T
     return t
 end
 
-local an_operator: function(Node, integer, string): Operator
-
 local simple_types = ast.simple_types
-
-local function node_is_funcall(node: Node): boolean
-    return node.kind == "op" and node.op.op == "@funcall"
-end
 
 -- ── Parser block ─────────────────────────────────────────────────────────────
 
@@ -1171,10 +1165,6 @@ do
                 ["%"] = 10,
                 ["^"] = 12,
                 ["as"] = 50,
-                ["@funcall"] = 100,
-                ["@index"] = 100,
-                ["."] = 100,
-                [":"] = 100,
             },
         }
 
@@ -1193,16 +1183,6 @@ do
             }
         end
 
-        an_operator = function(node: Node, arity: integer, op: string): Operator
-            return {
-                y = node.y,
-                x = node.x,
-                arity = arity,
-                op = op,
-                prec = precedences[arity][op],
-            }
-        end
-
         local args_starters: {TokenKind: boolean} = {
             ["("] = true,
             ["{"] = true,
@@ -1215,15 +1195,11 @@ do
             ps: ParseState, prevnode: Node, i: integer
         ): boolean
             return ps.tokens[i - 1].kind == ")"
-                or (
-                    prevnode.kind == "op"
-                    and (
-                        prevnode.op.op == "@funcall"
-                        or prevnode.op.op == "@index"
-                        or prevnode.op.op == "."
-                        or prevnode.op.op == ":"
-                    )
-                ) or prevnode.kind == "name"
+                or prevnode.kind == "field"
+                or prevnode.kind == "method"
+                or prevnode.kind == "index"
+                or prevnode.kind == "call"
+                or prevnode.kind == "name"
         end
 
         -- A top-level comma belongs to the statement itself unless another argument
@@ -1422,7 +1398,7 @@ do
                     end
                 end
                 if tkop.tk == "." or tkop.tk == ":" then
-                    local op: Operator = new_operator(tkop, 2, tkop.tk)
+                    local is_method = tkop.tk == ":"
 
                     local prev_i = i
 
@@ -1432,7 +1408,7 @@ do
                     local op_trailing_trivia = take_all_token_comments(ps.tokens[i])
                     i, key = verify_kind(ps, i, "identifier", "name")
 
-                    if op.op == ":" then
+                    if is_method then
                         if not args_starters[ps.tokens[i].kind] then
                             return fail(ps, i, "expected a function call for a method")
                         end
@@ -1448,8 +1424,8 @@ do
                         f = ps.filename,
                         y = e1.y,
                         x = e1.x,
-                        kind = "op",
-                        op = op,
+                        kind = is_method and "method" or "field",
+                        op_y = tkop.y,
                         e1 = e1,
                         e2 = key,
                         yend = key.yend or key.y,
@@ -1457,8 +1433,8 @@ do
                     set_inline_trivia(e1, "op_leading", op_leading_trivia)
                     set_inline_trivia(e1, "op_trailing", op_trailing_trivia)
                     fmt_logger.debug(
-                        "[expr] %s op node: base y=%s op_tk=%s op_y=%s -> node y=%s",
-                        op.op,
+                        "[expr] %s node: base y=%s op_tk=%s op_y=%s -> node y=%s",
+                        e1.kind,
                         e1.e1.y,
                         tkop.tk,
                         tkop.y,
@@ -1479,8 +1455,6 @@ do
                         )
                         break
                     end
-
-                    local op: Operator = new_operator(tkop, 2, "@funcall")
 
                     local prev_i = i
 
@@ -1549,8 +1523,7 @@ do
                         y = e1.y,
                         x = e1.x,
                         yend = funcall_yend,
-                        kind = "op",
-                        op = op,
+                        kind = "call",
                         e1 = e1,
                         e2 = args,
                         is_macro_invocation = is_macro_invocation,
@@ -1562,8 +1535,6 @@ do
                         e1.y
                     )
                 elseif tkop.tk == "[" then
-                    local op: Operator = new_operator(tkop, 2, "@index")
-
                     local prev_i = i
 
                     local idx: Node
@@ -1578,15 +1549,12 @@ do
                         f = ps.filename,
                         y = e1.y,
                         x = e1.x,
-                        kind = "op",
-                        op = op,
+                        kind = "index",
                         e1 = e1,
                         e2 = idx,
                         yend = ps.tokens[i - 1].y,
                     }
                 elseif tkop.kind == "string" or tkop.kind == "{" then
-                    local op: Operator = new_operator(tkop, 2, "@funcall")
-
                     local prev_i = i
 
                     local args = new_node(ps, i, "expression_list")
@@ -1613,8 +1581,7 @@ do
                         f = ps.filename,
                         y = e1.y,
                         x = e1.x,
-                        kind = "op",
-                        op = op,
+                        kind = "call",
                         e1 = e1,
                         e2 = args,
                         is_macro_invocation = is_macro_invocation,
@@ -1981,14 +1948,12 @@ do
             local owner = names[1]
             owner.kind = "name"
             for i2 = 2, #names - 1 do
-                local dot = an_operator(names[i2], 2, ".")
                 names[i2].kind = "name"
                 owner = {
                     f = ps.filename,
                     y = names[i2].y,
                     x = names[i2].x,
-                    kind = "op",
-                    op = dot,
+                    kind = "field",
                     e1 = owner,
                     e2 = names[i2],
                 }
@@ -2911,8 +2876,7 @@ do
     local parse_call_or_assignment: function(ps: ParseState, i: integer): integer, Node
     do
         local function is_lvalue(node: Node): boolean
-            return node.kind == "name"
-                or (node.kind == "op" and (node.op.op == "@index" or node.op.op == "."))
+            return node.kind == "name" or node.kind == "index" or node.kind == "field"
         end
 
         local function parse_variable(
@@ -2946,7 +2910,7 @@ do
                 return i
             end
 
-            if node_is_funcall(exp) then
+            if exp.kind == "call" then
                 if exp then
                     exp.leading_comments = comments
                 end

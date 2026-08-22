@@ -215,6 +215,10 @@ local record ast
 
     enum NodeKind
         "op"
+        "field"
+        "method"
+        "index"
+        "call"
         "nil"
         "string"
         "number"
@@ -297,6 +301,7 @@ local record ast
         exps:                           Node
         def:                            Type
         op:                             Operator
+        op_y:                           integer
         e1:                             Node
         e2:                             Node
         conststr:                       string

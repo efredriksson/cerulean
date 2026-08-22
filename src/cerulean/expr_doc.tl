@@ -240,6 +240,55 @@ local function call_doc_build_call_expr_doc(
     return doc.concat({callee_doc, bang_doc, call_args_doc, args_tc})
 end
 
+-- Suffixes (field/method/index/call) bind tighter than any operator, so their
+-- base renders with the maximum parent precedence: an operator base parenthesizes
+-- itself (`(a + b).c`), every other base renders flush.
+local SUFFIX_PREC = 100
+
+-- `base.field` / `base:method`. A comment before the dot/colon anchors to the
+-- base's last line; one after it anchors to the separator's own line (`op_y`),
+-- so a comment sharing the operator's line hugs it instead of breaking away.
+local function render_member(
+    ctx: RenderContext, node: ast.Node, same_indent_on_line: boolean
+): doc.Doc
+    local separator = node.kind == "method" and ":" or "."
+    local parts: {doc.Doc} = {
+        render_expr(ctx, node.e1, SUFFIX_PREC, same_indent_on_line),
+    }
+    trivia_doc.emit_transition(
+        parts,
+        ast.inline_trivia(node, "op_leading"),
+        node.e1.yend,
+        doc.text(separator),
+        doc.text("")
+    )
+    trivia_doc.emit_transition(
+        parts,
+        ast.inline_trivia(node, "op_trailing"),
+        node.op_y,
+        doc.text(node.e2.tk),
+        doc.text("")
+    )
+    return doc.concat(parts)
+end
+
+-- `base[key]`, spacing the bracket off a long-string key so `[[` never lexes as
+-- a long-string opener.
+local function render_index(
+    ctx: RenderContext, node: ast.Node, same_indent_on_line: boolean
+): doc.Doc
+    local key = node.e2
+    local spacing = render_builders.key_starts_with_long_string(key) and " " or ""
+    return doc.concat(
+        {
+            render_expr(ctx, node.e1, SUFFIX_PREC, same_indent_on_line),
+            doc.text("[" .. spacing),
+            render_root_expr(ctx, key, false),
+            doc.text(spacing .. "]"),
+        }
+    )
+end
+
 local function op_has_any_trivia(node: ast.Node): boolean
     return #ast.inline_trivia(node, "op_leading") > 0
         or #ast.inline_trivia(node, "op_trailing") > 0
@@ -278,26 +327,7 @@ local function render_op(
     local left = node.e1
     local right = node.e2
     local op = operator.op
-    if op == "." or op == ":" then
-        return join_op_with_trivia(
-            node,
-            render_expr(ctx, left, operator.prec, same_indent_on_line),
-            doc.text(right.tk),
-            doc.text("")
-        )
-    elseif op == "@index" then
-        local spacing = render_builders.key_starts_with_long_string(right) and " " or ""
-        return doc.concat(
-            {
-                render_expr(ctx, left, operator.prec, same_indent_on_line),
-                doc.text("[" .. spacing),
-                render_root_expr(ctx, right, false),
-                doc.text(spacing .. "]"),
-            }
-        )
-    elseif op == "@funcall" then
-        return call_doc_build_call_expr_doc(ctx, node, left, right)
-    elseif op == "as" or op == "is" then
+    if op == "as" or op == "is" then
         local left_doc = render_expr(ctx, left, operator.prec, same_indent_on_line)
         local casttype_doc = type_doc.render(right.casttype)
         if op_has_any_trivia(node) then
@@ -372,6 +402,12 @@ render_expr = function(
         return render_statements(ctx, node)
     elseif node.kind == "function" then
         return function_doc.render_anonymous(ctx, node, doc.text("function"))
+    elseif node.kind == "field" or node.kind == "method" then
+        return render_member(ctx, node, same_indent_on_line)
+    elseif node.kind == "index" then
+        return render_index(ctx, node, same_indent_on_line)
+    elseif node.kind == "call" then
+        return call_doc_build_call_expr_doc(ctx, node, node.e1, node.e2)
     elseif node.kind == "op" then
         return render_op(ctx, node, parent_prec, same_indent_on_line)
     end

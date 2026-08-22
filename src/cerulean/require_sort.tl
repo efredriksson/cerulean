@@ -39,10 +39,7 @@ local function extract_require_module_path(node: ast.Node): string | nil
     if call_node == nil then
         return nil
     end
-    if call_node.kind ~= "op" then
-        return nil
-    end
-    if call_node.op == nil or call_node.op.op ~= "@funcall" then
+    if call_node.kind ~= "call" then
         return nil
     end
     if call_node.e1 == nil or call_node.e1.tk ~= "require" then

@@ -281,12 +281,23 @@ function render_builders.is_top_level_binary_op(node: ast.Node): boolean
     if node.op.arity ~= 2 then
         return false
     end
-    local op = node.op.op
-    return op ~= "@funcall" and op ~= "@index" and op ~= "." and op ~= ":"
+    -- Suffixes are their own node kinds now, so every remaining binary op —
+    -- `as` included, which a long header may end on — breaks at the top level.
+    return true
 end
 
+-- Operators and the suffix chain (field/method/index/call) are the nodes whose
+-- subtree can hold op trivia worth descending into.
+local CHAIN_NODE_KINDS: {ast.NodeKind: boolean} = {
+    ["op"] = true,
+    ["field"] = true,
+    ["method"] = true,
+    ["index"] = true,
+    ["call"] = true,
+}
+
 function render_builders.has_chain_internal_trivia(node: ast.Node): boolean
-    if node.kind ~= "op" or node.op == nil then
+    if not CHAIN_NODE_KINDS[node.kind] then
         return false
     end
     if #ast.inline_trivia(node, "op_leading") > 0 then
@@ -350,10 +361,15 @@ end
 function render_builders.key_starts_with_long_string(node: ast.Node): boolean
     -- When the key expression's leftmost token is a long string, the subscript `[`
     -- must be spaced away to prevent `[[[k]]` from being lexed as a long string.
-    return node.is_longstring
-        or node.kind == "op"
-            and node.op.arity == 2
-            and render_builders.key_starts_with_long_string(node.e1)
+    if node.is_longstring then
+        return true
+    end
+    local descends_left = node.kind == "field"
+        or node.kind == "method"
+        or node.kind == "index"
+        or node.kind == "call"
+        or (node.kind == "op" and node.op.arity == 2)
+    return descends_left and render_builders.key_starts_with_long_string(node.e1)
 end
 
 return render_builders

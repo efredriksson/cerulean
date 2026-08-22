@@ -370,13 +370,7 @@ local function render_function_name(node: ast.Node): doc.Doc | nil
     local function render_function_owner(owner: ast.Node): string | nil
         if owner.kind == "name" then
             return owner.tk
-        elseif
-            owner.kind == "op"
-            and owner.op ~= nil
-            and owner.op.op == "."
-            and owner.e1 ~= nil
-            and owner.e2 ~= nil
-        then
+        elseif owner.kind == "field" and owner.e1 ~= nil and owner.e2 ~= nil then
             local left = render_function_owner(owner.e1)
             if left == nil then
                 return nil
@@ -745,7 +739,7 @@ function stmt_doc.render_statement_doc(
         return doc.text("goto " .. node.label)
     elseif node.kind == "label" then
         return doc.text("::" .. node.label .. "::")
-    elseif node.kind == "op" then
+    elseif node.kind == "call" then
         return ctx.render_expr(node, true)
     elseif node.kind == "pragma" then
         return doc.text("--#pragma " .. node.pkey .. " " .. node.pvalue)
