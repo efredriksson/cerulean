@@ -274,22 +274,38 @@ function render_builders.append_lines_pre_node(
     return doc.concat(parts)
 end
 
+-- The binding precedence a cast exposes to a parent expression: `as` binds
+-- tighter than every operator, while `is` sits with the relational ops. Held
+-- here rather than on the node so the parser need not carry operator metadata
+-- for casts.
+local AS_PREC = 50
+local IS_PREC = 3
+
+function render_builders.cast_prec(node: ast.Node): integer
+    if node.is_assertion then
+        return IS_PREC
+    end
+    return AS_PREC
+end
+
+-- A control-flow head wraps its expression with a hanging indent for a binary
+-- op or a cast: a long condition ending in either breaks around the keyword
+-- rather than overflowing the line.
 function render_builders.is_top_level_binary_op(node: ast.Node): boolean
+    if node.kind == "cast" then
+        return true
+    end
     if node.kind ~= "op" or node.op == nil then
         return false
     end
-    if node.op.arity ~= 2 then
-        return false
-    end
-    -- Suffixes are their own node kinds now, so every remaining binary op —
-    -- `as` included, which a long header may end on — breaks at the top level.
-    return true
+    return node.op.arity == 2
 end
 
--- Operators and the suffix chain (field/method/index/call) are the nodes whose
--- subtree can hold op trivia worth descending into.
+-- Operators, casts, and the suffix chain (field/method/index/call) are the nodes
+-- whose subtree can hold op trivia worth descending into.
 local CHAIN_NODE_KINDS: {ast.NodeKind: boolean} = {
     ["op"] = true,
+    ["cast"] = true,
     ["field"] = true,
     ["method"] = true,
     ["index"] = true,
@@ -368,6 +384,7 @@ function render_builders.key_starts_with_long_string(node: ast.Node): boolean
         or node.kind == "method"
         or node.kind == "index"
         or node.kind == "call"
+        or node.kind == "cast"
         or (node.kind == "op" and node.op.arity == 2)
     return descends_left and render_builders.key_starts_with_long_string(node.e1)
 end

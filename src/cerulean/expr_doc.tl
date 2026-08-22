@@ -23,16 +23,26 @@ local function render_root_expr(
     return render_expr(ctx, node, 0, same_indent_on_line)
 end
 
--- For unary parents only the strict-less-than rule applies; equal-precedence
--- unary chains (e.g. "not not x") never need parens.
+-- A unary operand needs parentheses when it binds looser than the unary parent.
+-- Only the strict-less-than rule applies, so equal-precedence unary chains (e.g.
+-- "not not x") never need them. Casts expose their own precedence (`as`/`is`);
+-- leaves and suffix chains always bind tighter, so they never need parens.
+local function operand_needs_unary_parens(
+    child: ast.Node, parent_prec: integer
+): boolean
+    if child.kind == "cast" then
+        return render_builders.cast_prec(child) < parent_prec
+    end
+    if child.kind == "op" and child.op ~= nil then
+        return child.op.prec ~= nil and child.op.prec < parent_prec
+    end
+    return false
+end
+
 local function parenthesize_unary_operand(
     rendered: doc.Doc, child: ast.Node, parent_prec: integer
 ): doc.Doc
-    if child.kind ~= "op" or child.op == nil then
-        return rendered
-    end
-    local child_prec = child.op.prec
-    if child_prec == nil or child_prec >= parent_prec then
+    if not operand_needs_unary_parens(child, parent_prec) then
         return rendered
     end
     return doc.group(
@@ -289,6 +299,51 @@ local function render_index(
     )
 end
 
+-- `expr as Type` / `expr is Type`. The operand renders at the cast's own
+-- precedence (`as` binds tighter than every operator, `is` with the relational
+-- ops). A comment before the keyword anchors to the operand's last line; one
+-- after it anchors to the keyword's own line (`op_y`), so a comment sharing that
+-- line hugs the keyword instead of breaking away.
+local function render_cast(
+    ctx: RenderContext, node: ast.Node, same_indent_on_line: boolean
+): doc.Doc
+    local keyword = node.is_assertion and "is" or "as"
+    local operand_doc = render_expr(
+        ctx, node.e1, render_builders.cast_prec(node), same_indent_on_line
+    )
+    local casttype_doc = type_doc.render(node.casttype)
+
+    if
+        #ast.inline_trivia(node, "op_leading") > 0
+        or #ast.inline_trivia(node, "op_trailing") > 0
+    then
+        local parts: {doc.Doc} = {operand_doc}
+        trivia_doc.emit_transition(
+            parts,
+            ast.inline_trivia(node, "op_leading"),
+            node.e1.yend,
+            doc.text(keyword),
+            doc.text(" ")
+        )
+        trivia_doc.emit_transition(
+            parts,
+            ast.inline_trivia(node, "op_trailing"),
+            node.op_y,
+            casttype_doc,
+            doc.text(" ")
+        )
+        return doc.concat(parts)
+    end
+
+    -- Only the operator and the cast type go in the group. An operand that
+    -- spans lines of its own (a table constructor, a wrapped call) would
+    -- otherwise force the break and push a short cast onto its own line.
+    local cast_doc = doc.indent(
+        doc.concat({doc.line(), doc.text(keyword .. " "), casttype_doc})
+    )
+    return doc.concat({operand_doc, doc.group(cast_doc)})
+end
+
 local function op_has_any_trivia(node: ast.Node): boolean
     return #ast.inline_trivia(node, "op_leading") > 0
         or #ast.inline_trivia(node, "op_trailing") > 0
@@ -327,20 +382,7 @@ local function render_op(
     local left = node.e1
     local right = node.e2
     local op = operator.op
-    if op == "as" or op == "is" then
-        local left_doc = render_expr(ctx, left, operator.prec, same_indent_on_line)
-        local casttype_doc = type_doc.render(right.casttype)
-        if op_has_any_trivia(node) then
-            return join_op_with_trivia(node, left_doc, casttype_doc, doc.text(" "))
-        end
-        -- Only the operator and the cast type go in the group. An operand that
-        -- spans lines of its own (a table constructor, a wrapped call) would
-        -- otherwise force the break and push a short cast onto its own line.
-        local cast_doc = doc.indent(
-            doc.concat({doc.line(), doc.text(op .. " "), casttype_doc})
-        )
-        return doc.concat({left_doc, doc.group(cast_doc)})
-    elseif operator.arity == 1 then
+    if operator.arity == 1 then
         local op_prec = operator.prec
         local child = parenthesize_unary_operand(
             render_expr(ctx, left, op_prec, same_indent_on_line), left, op_prec
@@ -408,6 +450,8 @@ render_expr = function(
         return render_index(ctx, node, same_indent_on_line)
     elseif node.kind == "call" then
         return call_doc_build_call_expr_doc(ctx, node, node.e1, node.e2)
+    elseif node.kind == "cast" then
+        return render_cast(ctx, node, same_indent_on_line)
     elseif node.kind == "op" then
         return render_op(ctx, node, parent_prec, same_indent_on_line)
     end

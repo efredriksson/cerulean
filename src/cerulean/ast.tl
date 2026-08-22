@@ -307,6 +307,7 @@ local record ast
         conststr:                       string
         label:                          string
         casttype:                       Type
+        is_assertion:                   boolean
         macrodef:                       Node
         argtype:                        Type
         itemtype:                       Type

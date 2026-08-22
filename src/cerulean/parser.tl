@@ -1144,7 +1144,6 @@ do
             [2] = {
                 ["or"] = 1,
                 ["and"] = 2,
-                ["is"] = 3,
                 ["<"] = 3,
                 [">"] = 3,
                 ["<="] = 3,
@@ -1164,7 +1163,6 @@ do
                 ["//"] = 10,
                 ["%"] = 10,
                 ["^"] = 12,
-                ["as"] = 50,
             },
         }
 
@@ -1587,30 +1585,28 @@ do
                         is_macro_invocation = is_macro_invocation,
                     }
                 elseif tkop.tk == "as" or tkop.tk == "is" then
-                    local op: Operator = new_operator(tkop, 2, tkop.tk)
                     local op_leading_trivia = take_all_token_comments(tkop)
 
                     i = i + 1
-                    local cast = new_node(ps, i, "cast")
+                    local casttype: Type
                     if ps.tokens[i].tk == "(" then
-                        i, cast.casttype = parse_type_list(ps, i, "casttype")
+                        i, casttype = parse_type_list(ps, i, "casttype")
                     else
-                        i, cast.casttype = parse_type(ps, i)
+                        i, casttype = parse_type(ps, i)
                     end
-                    if not cast.casttype then
+                    if not casttype then
                         return fail(ps, i, "expected a type")
                     end
-                    cast.yend = ps.tokens[i - 1].y
                     e1 = {
                         f = ps.filename,
-                        y = tkop.y,
-                        x = tkop.x,
-                        kind = "op",
-                        op = op,
+                        y = e1.y,
+                        x = e1.x,
+                        kind = "cast",
+                        is_assertion = tkop.tk == "is",
+                        op_y = tkop.y,
                         e1 = e1,
-                        e2 = cast,
-                        conststr = e1.conststr,
-                        yend = cast.yend,
+                        casttype = casttype,
+                        yend = ps.tokens[i - 1].y,
                     }
                     set_inline_trivia(e1, "op_leading", op_leading_trivia)
                 else

@@ -15,24 +15,34 @@ local function binary_right_gets_parens(child: ast.Node, parent_prec: integer): 
     if child.kind ~= "op" then
         return false
     end
-    local op = child.op.op
-    if op == "as" or op == "is" then
-        return false
-    end
     return child.op.prec < parent_prec
+end
+
+-- The binding precedence of a unary operand for the rightmost-spine walk: an
+-- operator's own, a cast's, or 0 for anything that ends the spine.
+local function unary_operand_prec(node: ast.Node): integer
+    if node.kind == "cast" then
+        return render_builders.cast_prec(node)
+    end
+    if node.kind == "op" then
+        return node.op.prec
+    end
+    return 0
 end
 
 -- `x as function(): T, next` re-parses as `x as function(): (T, next)`: the table
 -- separator `,` is greedily consumed as a return-type component. Use `;` instead.
--- Walks the rightmost operand chain to find such a cast, stopping when the
+-- Walks the rightmost operand spine to find such a cast, stopping when the
 -- renderer would already wrap the subtree in parens, making the `,` safe.
 local function item_value_needs_semicolon(value: ast.Node): boolean
-    while value.kind == "op" do
+    while true do
+        if value.kind == "cast" then
+            return type_doc.cast_absorbs_trailing_comma(value.casttype)
+        end
+        if value.kind ~= "op" then
+            return false
+        end
         if value.op.arity == 2 then
-            local op = value.op.op
-            if op == "as" or op == "is" then
-                return type_doc.cast_absorbs_trailing_comma(value.e2.casttype)
-            end
             local parent_prec = value.op.prec
             value = value.e2
             if binary_right_gets_parens(value, parent_prec) then
@@ -40,13 +50,12 @@ local function item_value_needs_semicolon(value: ast.Node): boolean
             end
         else
             local inner = value.e1
-            if inner.kind ~= "op" or inner.op.prec < value.op.prec then
+            if unary_operand_prec(inner) < value.op.prec then
                 return false
             end
             value = inner
         end
     end
-    return false
 end
 
 local function build_table_item_text(ctx: RenderContext, item: ast.Node): doc.Doc
