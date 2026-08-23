@@ -2787,6 +2787,20 @@ describe("formatter comment matrix (construct gaps)", function()
       ]==]))
    end)
 
+   -- A swept comment's only idempotent home is its own line, so relocation must
+   -- force a flattenable enclosing body open; joined flat it re-lexes into a
+   -- different slot and the second pass renders it differently.
+   describe("sweep forces enclosing flat groups open", function()
+      it("[anonymous_function|swept_body_comment|forces_break]", helpers.format([==[
+         local f = function() local --[[c]] x = 1 end
+      ]==], [==[
+         local f = function()
+             --[[c]]
+             local x = 1
+         end
+      ]==]))
+   end)
+
    -- An own-line comment in a nested operator gap of a flattenable chain forces
    -- the chain broken and renders before that operator's line, through the same
    -- transition model render_member/render_cast use.

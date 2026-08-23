@@ -89,6 +89,13 @@ local function render_structural_segment(
             comment.text
         )
     end
+    -- A relocated comment's only idempotent home is its own line: force any
+    -- flattenable enclosing group open, or a flat body would join the run
+    -- inline (`--[[c]]; stmt`), where it re-lexes into a different slot and
+    -- the second pass renders it differently.
+    if #swept > 0 then
+        table.insert(parts, doc.break_parent())
+    end
 
     line_before = render_builders.append_comment_docs(parts, leading, line_before)
     line_before = render_builders.append_comment_docs(parts, swept, line_before)
