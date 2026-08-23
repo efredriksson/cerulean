@@ -114,7 +114,6 @@ local record RenderState
     max_width: integer
     indent_width: integer
     broken_groups: {integer: boolean}
-    line_suffixes: {RenderCommand}
     marked_column: integer
 end
 
@@ -254,21 +253,6 @@ local function has_line_break_opportunity(node: Doc): boolean
     return false
 end
 
-local function push_pending_line_suffixes(
-    commands: {RenderCommand}, state: RenderState
-): integer
-    if #state.line_suffixes == 0 then
-        return 0
-    end
-
-    local suffix_count = #state.line_suffixes
-    for index = #state.line_suffixes, 1, -1 do
-        table.insert(commands, state.line_suffixes[index])
-    end
-    state.line_suffixes = {}
-    return suffix_count
-end
-
 local function write_raw_lines(state: RenderState, raw_lines: {string})
     assert(
         state.current_line:match("^%s*$"), "doc.raw must be emitted at line boundary"
@@ -381,14 +365,7 @@ local function render_doc(root: Doc, state: RenderState)
         RenderCommand.new(root, 0, false, nil),
     }
 
-    while #commands > 0 or #state.line_suffixes > 0 do
-        if #commands == 0 then
-            local suffix_count = push_pending_line_suffixes(commands, state)
-            if suffix_count == 0 then
-                break
-            end
-        end
-
+    while #commands > 0 do
         local command = table.remove(commands)
         local node = command.node
         local indent = command.indent
@@ -415,12 +392,7 @@ local function render_doc(root: Doc, state: RenderState)
                     state.current_line = indent_text
                     state.column = indent
                 elseif state.current_line ~= indent_text then
-                    local suffix_count = push_pending_line_suffixes(commands, state)
-                    if suffix_count > 0 then
-                        table.insert(commands, #commands - suffix_count + 1, command)
-                    else
-                        break_line(state, indent)
-                    end
+                    break_line(state, indent)
                 end
                 append_text(state, node.close_text)
             end
@@ -446,44 +418,22 @@ local function render_doc(root: Doc, state: RenderState)
             if node_flat then
                 append_text(state, node.flat_text or "")
             else
-                local suffix_count = push_pending_line_suffixes(commands, state)
-                if suffix_count > 0 then
-                    table.insert(commands, #commands - suffix_count + 1, command)
-                else
-                    break_line(state, indent)
-                end
+                break_line(state, indent)
             end
         elseif node is DocTrimStart then
             state.marked_column = state.column
         elseif node is DocTrimEnd then
-            if state.column > state.marked_column then
-                if not node_flat then
-                    local suffix_count = push_pending_line_suffixes(commands, state)
-                    if suffix_count > 0 then
-                        table.insert(commands, #commands - suffix_count + 1, command)
-                    else
-                        break_line(state, indent)
-                    end
-                end
-            end
-        elseif node is DocHardLine then
-            local suffix_count = push_pending_line_suffixes(commands, state)
-            if suffix_count > 0 then
-                table.insert(commands, #commands - suffix_count + 1, command)
-            else
+            if state.column > state.marked_column and not node_flat then
                 break_line(state, indent)
             end
+        elseif node is DocHardLine then
+            break_line(state, indent)
         elseif node is DocBlankLine then
             if not node_flat then
-                local suffix_count = push_pending_line_suffixes(commands, state)
-                if suffix_count > 0 then
-                    table.insert(commands, #commands - suffix_count + 1, command)
-                else
-                    table.insert(state.lines, state.current_line)
-                    table.insert(state.lines, "")
-                    state.current_line = string.rep(" ", indent)
-                    state.column = indent
-                end
+                table.insert(state.lines, state.current_line)
+                table.insert(state.lines, "")
+                state.current_line = string.rep(" ", indent)
+                state.column = indent
             end
         elseif node is DocConcat then
             push_concat_parts(
@@ -549,7 +499,6 @@ local function render(to_render: Doc, max_width: integer, indent_width: integer)
         max_width = max_width,
         indent_width = indent_width,
         broken_groups = {},
-        line_suffixes = {},
     }
 
     render_doc(to_render, state)
@@ -739,7 +688,7 @@ end
 
 function doc.concat(parts: {Doc}): Doc
     local flat_parts: {Doc} = {}
-    local function add_if_non_empyt(part: Doc)
+    local function add_if_non_empty(part: Doc)
         if not (part is DocText and part.text == "") then
             table.insert(flat_parts, part)
         end
@@ -748,10 +697,10 @@ function doc.concat(parts: {Doc}): Doc
     for _, part in ipairs(parts) do
         if part is DocConcat then
             for _, nested in ipairs(part.parts) do
-                add_if_non_empyt(nested)
+                add_if_non_empty(nested)
             end
         else
-            add_if_non_empyt(part)
+            add_if_non_empty(part)
         end
     end
     local result = new_doc("concat") as DocConcat
