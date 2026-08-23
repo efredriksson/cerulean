@@ -720,6 +720,12 @@ do
             return i + 1, new_type(ps, i, tk as TypeName)
         end
 
+        -- A nominal starts with an identifier; anything else here (a keyword,
+        -- EOF) is a syntax error, not a name to walk dots from.
+        if ps.tokens[i].kind ~= "identifier" then
+            return fail(ps, i, "expected a type")
+        end
+
         local typ = new_nominal(ps, i, tk)
         i = i + 1
         while ps.tokens[i].tk == "." do
