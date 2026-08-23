@@ -2612,9 +2612,12 @@ do
         return i, node
     end
 
+    -- The node spans from the `--#pragma` token itself: stamping tok_first at
+    -- the name token instead would put the pragma's leading comments outside
+    -- its span, where no leading read or sweep can reach them.
     local function parse_pragma(ps: ParseState, i: integer): integer, Node
-        i = i + 1
         local pragma = new_node(ps, i, "pragma")
+        i = i + 1
 
         if ps.tokens[i].kind ~= "pragma_identifier" then
             return fail(ps, i, "expected pragma name")
@@ -2628,6 +2631,7 @@ do
         pragma.pvalue = ps.tokens[i].tk
         i = i + 1
 
+        pragma.tok_last = i - 1
         return i, pragma
     end
 
