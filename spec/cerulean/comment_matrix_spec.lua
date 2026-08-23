@@ -2692,3 +2692,143 @@ describe("comment attachment regressions", function()
       end
    ]]))
 end)
+
+describe("formatter comment matrix (construct gaps)", function()
+   describe("statement leaves", function()
+      it("[label|leading_and_trailing|kept_in_place]", helpers.check([[
+         do
+             -- before label
+             ::top:: -- loop head
+             goto top
+         end
+      ]]))
+
+      it("[goto|leading_and_trailing|kept_in_place]", helpers.check([[
+         do
+             ::top::
+             -- retry from the top
+             goto top -- jump
+         end
+      ]]))
+
+      it("[break|leading_and_trailing|kept_in_place]", helpers.check([[
+         while true do
+             -- stop here
+             break -- done
+         end
+      ]]))
+
+      it("[varargs|leading_and_trailing|kept_in_place]", helpers.check([[
+         local function f(...)
+             -- forward everything
+             return ... -- unchanged
+         end
+      ]]))
+
+      -- tl.lex rejects a trailing comment on a pragma line ("invalid token"),
+      -- so leading is the only comment placement a pragma has.
+      it("[pragma|leading|kept_in_place]", helpers.check([[
+         -- enable arity checks
+         --#pragma arity on
+      ]]))
+   end)
+
+   describe("record body entries", function()
+      it("[record|metamethod|leading_and_trailing|kept_in_place]", helpers.check([[
+         local record R
+             -- pairwise addition
+             metamethod __add: function(R, R): R -- checked
+         end
+      ]]))
+   end)
+
+   -- A block comment wedged inside inline type syntax has no kept slot; the
+   -- per-statement sweep relocates it to the statement's own-line leading.
+   describe("type forms", function()
+      it("[map_type|key_block|relocates_to_leading]", helpers.format([==[
+         local m: {--[[k]] string: integer} = {}
+      ]==], [==[
+         --[[k]]
+         local m: {string: integer} = {}
+      ]==]))
+
+      it("[union_type|bar_block|relocates_to_leading]", helpers.format([==[
+         local u: integer --[[or]] | string
+      ]==], [==[
+         --[[or]]
+         local u: integer | string
+      ]==]))
+
+      it("[tupletable_type|item_block|relocates_to_leading]", helpers.format([==[
+         local t: {--[[first]] integer, string}
+      ]==], [==[
+         --[[first]]
+         local t: {integer, string}
+      ]==]))
+   end)
+
+   -- Interface bodies ride the record-like path; pin the same placements the
+   -- [record|...] cases pin so the shared path cannot regress for one construct
+   -- only.
+   describe("interface parity", function()
+      it("[interface|single|leading_before_first|top_level_comment_prelude]", helpers.format([[
+         -- top-level prelude comment
+         local interface Shape
+           area: function(Shape): number -- inline field comment
+           -- end comment
+         end
+      ]], [[
+         -- top-level prelude comment
+         local interface Shape
+             area: function(Shape): number -- inline field comment
+             -- end comment
+         end
+      ]]))
+
+      it("[interface|name_block|leads_first_field]", helpers.format([==[
+         local interface I --[[c]] x: integer end
+      ]==], [==[
+         local interface I
+             --[[c]]
+             x: integer
+         end
+      ]==]))
+
+      it("[interface|name_block|empty_body_dangles]", helpers.format([==[
+         local interface I --[[c]] end
+      ]==], [==[
+         local interface I
+             --[[c]]
+         end
+      ]==]))
+
+      it("[interface|field|trailing_line_comment]", helpers.check([[
+         local interface I
+             x: number -- c
+         end
+      ]]))
+
+      it("[interface|name_block|is_clause_relocates_to_leading]", helpers.format([==[
+         local interface A end
+         local interface I --[[c]] is A x: integer end
+      ]==], [==[
+         local interface A
+         end
+         --[[c]]
+         local interface I is A
+             x: integer
+         end
+      ]==]))
+
+      it("[interface|header_kw_block|relocates_to_leading]", helpers.format([==[
+         local interface --[[c]] I
+             x: integer
+         end
+      ]==], [==[
+         --[[c]]
+         local interface I
+             x: integer
+         end
+      ]==]))
+   end)
+end)
