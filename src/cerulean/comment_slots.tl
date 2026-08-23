@@ -451,19 +451,29 @@ local function leading_run(
     return comments
 end
 
+-- The statement's leading run, read for geometry without consuming: fmt-off
+-- math asks which of these comments fall inside a frozen region and where the
+-- run starts, then leaves the emitting read to take them. Consuming here would
+-- mark comments taken that this caller never emits, and the sweep -- which
+-- relocates exactly the unconsumed strays -- would skip them; the same hazard
+-- trailing_extent and leading_extent avoid.
+function CommentSlots:peek_leading_comments(node: ast.Node): {ast.Comment}
+    local override = self.leading_overrides[node]
+    if override ~= nil then
+        return override
+    end
+    if node.tok_first == nil then
+        return EMPTY_COMMENTS
+    end
+    return leading_run(self, node.tok_first - 1, node.tok_first, false)
+end
+
 -- Every comment leading a statement: its first token's leading run (the parser
 -- deleted any discarded `;` between statements, moving its comments to the
 -- token that follows). require_sort relocates comments contrary to source
 -- order, so for the nodes it reordered the override map is authoritative.
 function CommentSlots:leading_comments(node: ast.Node): {ast.Comment}
-    local override = self.leading_overrides[node]
-    if override ~= nil then
-        return consume(self, override)
-    end
-    if node.tok_first == nil then
-        return EMPTY_COMMENTS
-    end
-    return consume(self, leading_run(self, node.tok_first - 1, node.tok_first, false))
+    return consume(self, self:peek_leading_comments(node))
 end
 
 -- The token the dangling scan opens at: the physically last token any statement

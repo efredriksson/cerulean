@@ -103,7 +103,7 @@ local function block_min_source_line(ctx: RenderContext, block: ast.Node): integ
     local min_line = block.y
     local first = block[1]
     if first ~= nil and first.kind ~= "statements" then
-        for _, comment in ipairs(ctx.slots:leading_comments(first)) do
+        for _, comment in ipairs(ctx.slots:peek_leading_comments(first)) do
             if comment.y < min_line then
                 min_line = comment.y
             end
@@ -204,7 +204,7 @@ local function back_extended_first_line(
     ctx: RenderContext, stmt: ast.Node, previous_boundary: integer
 ): integer
     local first_line = stmt.y
-    for _, comment in ipairs(ctx.slots:leading_comments(stmt)) do
+    for _, comment in ipairs(ctx.slots:peek_leading_comments(stmt)) do
         if
             comment.y > previous_boundary
             and ctx.fmt_off_regions:includes_line(comment.y)
@@ -389,7 +389,7 @@ end
 function frozen_regions.blank_before_fmt_off_start(
     ctx: RenderContext, stmt: ast.Node
 ): boolean
-    for _, comment in ipairs(ctx.slots:leading_comments(stmt)) do
+    for _, comment in ipairs(ctx.slots:peek_leading_comments(stmt)) do
         if ctx.fmt_off_regions:includes_line(comment.y) then
             return comment.blank_line_before
         end
