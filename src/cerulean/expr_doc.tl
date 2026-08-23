@@ -337,11 +337,6 @@ local function render_cast(
     return doc.concat({operand_doc, doc.group(cast_doc)})
 end
 
-local function op_has_any_trivia(ctx: RenderContext, node: ast.Node): boolean
-    return #ctx.slots:op_leading_comments(node) > 0
-        or #ctx.slots:op_trailing_comments(node) > 0
-end
-
 -- Renders `left op right`, keeping any comment attached to the operator: a
 -- comment between the operands is pushed onto its own line instead of dropped.
 local function join_op_with_trivia(
@@ -392,7 +387,7 @@ local function render_op(
         return parenthesize_if_lower_prec(doc.concat(parts), op_prec, parent_prec)
     else
         local op_prec = operator.prec
-        if is_chainable_binary_op(operator) and not op_has_any_trivia(ctx, node) then
+        if is_chainable_binary_op(operator) and not ctx.slots:has_op_comments(node) then
             return parenthesize_if_lower_prec(
                 render_binary_chain(ctx, operator, left, right, same_indent_on_line),
                 op_prec,

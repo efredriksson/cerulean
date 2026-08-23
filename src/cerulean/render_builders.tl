@@ -313,27 +313,12 @@ function render_builders.is_top_level_binary_op(node: ast.Node): boolean
     return node.op.arity == 2
 end
 
--- Operators, casts, and the suffix chain (field/method/index/call) are the nodes
--- whose subtree can hold op trivia worth descending into.
-local CHAIN_NODE_KINDS: {ast.NodeKind: boolean} = {
-    ["op"] = true,
-    ["cast"] = true,
-    ["field"] = true,
-    ["method"] = true,
-    ["index"] = true,
-    ["call"] = true,
-}
-
+-- Operator trivia anywhere on the operand spine belongs to the enclosing chain,
+-- including under a node that carries no operator token itself, such as a paren.
 function render_builders.has_chain_internal_trivia(
     ctx: RenderContext, node: ast.Node
 ): boolean
-    if not CHAIN_NODE_KINDS[node.kind] then
-        return false
-    end
-    if #ctx.slots:op_leading_comments(node) > 0 then
-        return true
-    end
-    if #ctx.slots:op_trailing_comments(node) > 0 then
+    if ctx.slots:has_op_comments(node) then
         return true
     end
     if node.e1 ~= nil and render_builders.has_chain_internal_trivia(ctx, node.e1) then

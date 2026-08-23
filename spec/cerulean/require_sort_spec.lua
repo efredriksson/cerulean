@@ -93,7 +93,7 @@ describe("formatter require sorting", function()
    ]], [[
       local a = require("a")
       local b = require("b")
-   ]], { skip_ast_equivalence = true }))
+   ]]))
 
    it("stops sorting at a fmt:off region", helpers.check([[
       -- fmt:off
@@ -341,7 +341,7 @@ describe("formatter require sorting", function()
       local a = require("a")
       -- lazy load
       local b = require("b")
-   ]], { skip_ast_equivalence = true }))
+   ]]))
 
    it("trailing comment moves with require when sorted to first position", helpers.format([[
       local b = require("b") -- important

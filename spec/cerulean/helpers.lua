@@ -169,15 +169,11 @@ local function assert_equivalent_ast_shape(before_source, after_source)
     assert.same(normalize_node(before_ast), normalize_node(after_ast))
 end
 
-local function assert_stable_rewrite(output, opts)
+local function assert_stable_rewrite(output)
     local second_pass = rewriter.rewrite(output, "test.tl", default_opts())
     assert.same({}, second_pass.parse_errors)
     assert.same(output, second_pass.output)
     assert.same("unchanged", second_pass.status)
-
-    if not opts.skip_ast_equivalence then
-        assert_equivalent_ast_shape(output, second_pass.output)
-    end
 end
 
 -- Returns a test function that asserts the formatter rewrites exact input to exact expected.
@@ -208,7 +204,7 @@ function helpers.format(input, expected, opts)
             assert_equivalent_ast_shape(source, result.output)
         end
 
-        assert_stable_rewrite(result.output, opts)
+        assert_stable_rewrite(result.output)
     end
 end
 
@@ -225,8 +221,7 @@ function helpers.parse_error(source)
 end
 
 -- Returns a test function that asserts the formatter leaves source unchanged.
-function helpers.check(source, opts)
-    opts = opts or {}
+function helpers.check(source)
     return function()
         local dedented = dedent(source)
         local result = rewriter.rewrite(dedented, "test.tl", default_opts())
@@ -234,11 +229,7 @@ function helpers.check(source, opts)
         assert.same(dedented, result.output)
         assert.same("unchanged", result.status, "Formatting failed: " .. result.failure_reason)
 
-        if not opts.skip_ast_equivalence then
-            assert_equivalent_ast_shape(dedented, result.output)
-        end
-
-        assert_stable_rewrite(result.output, opts)
+        assert_stable_rewrite(result.output)
     end
 end
 

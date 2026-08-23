@@ -312,14 +312,22 @@ describe("idempotency: ", function()
               or nil
                   and aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
       ) ^ 1
-   ]=], { skip_ast_equivalence = true }))
+   ]=]))
 
    it("and-or continuation inside subscript keeps indent on second pass in binary op wrapper", helpers.check([=[
       return ... > (
           ~f.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx({}).C[a and b
               or vvvvvvvvvvvvvvvvvvvvvvvvvvvvv]
       ) ^ true
-   ]=], { skip_ast_equivalence = true }))
+   ]=]))
+
+   it("while header keeps 'do' on the closing line when the condition is a binary op wrapper", helpers.check([=[
+      while (
+          a -- c
+              is A
+      ) ^ 1 do
+      end
+   ]=]))
 
    it("no extra blank line after multiline call arg ending in field access", helpers.format([=[
       f(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa or [[ multiline string
@@ -335,7 +343,7 @@ describe("idempotency: ", function()
               ).S,
           c
       )
-   ]=], { skip_ast_equivalence = true }))
+   ]=]))
 
    it("no blank line before statement when string-call arg spans to a later line", helpers.format([==[
       return function ( ) break f(
@@ -367,5 +375,5 @@ describe("idempotency: ", function()
                   + {1, 1},
           }
       )
-   ]=], { skip_ast_equivalence = true }))
+   ]=]))
 end)

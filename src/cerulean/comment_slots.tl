@@ -242,6 +242,10 @@ function CommentSlots:op_trailing_comments(node: ast.Node): {ast.Comment}
     return consume(self, gap_comments(self, node.tok_op, node.tok_op + 1))
 end
 
+function CommentSlots:has_op_comments(node: ast.Node): boolean
+    return #self:op_leading_comments(node) > 0 or #self:op_trailing_comments(node) > 0
+end
+
 -- The trivia rendered after a list item, routed purely off the parser's
 -- ownership stamps. A node whose tok_sep is stamped owns the separator after it
 -- (`,`/table `;`/`|`): a line comment the lexer parked on the node's last token
