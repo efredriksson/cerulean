@@ -12,7 +12,7 @@ FORMATTER := tl run src/cerulean/init.tl --
 
 # Heuristic tripwire, not a proof: catches literal `.text ==`/`.text ~=` only,
 # not `:match`/`:find`/`:sub` or a local alias of `.text`.
-RENDER_LAYER := src/cerulean/*_doc.tl src/cerulean/render_builders.tl src/cerulean/comment_slots.tl src/cerulean/blank_lines.tl
+RENDER_LAYER := src/cerulean/*_doc.tl src/cerulean/render_builders.tl src/cerulean/comment_slots.tl src/cerulean/blank_lines.tl src/cerulean/frozen_regions.tl
 
 lint:
 	tl check ${SRCS_LINT}

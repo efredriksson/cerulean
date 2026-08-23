@@ -24,6 +24,7 @@ If blocked or render fails: keep original source.
 - `comment_slots.tl` — `CommentSlots`: the accessor suite mapping a node's token-ownership stamps to the comments each render slot emits, marking every read on the stream's consume ledger. The ledger itself lives on the `Stream`.
 - `doc.tl` — doc algebra + renderer.
 - `block_doc.tl` — block rendering, statement glue, `make_context()` factory.
+- `frozen_regions.tl` — frozen fmt:off-region geometry: partitions a block into verbatim `Run`s and structural statements (`group_segments` → `Segment` list) and resolves where a run's raw text starts and stops on its boundary lines. `block_doc` renders the segments.
 - `stmt_doc.tl` / `expr_doc.tl` / `table_doc.tl` — per-kind rendering.
 - `delimited_list_doc.tl` — comma-separated, comment-threaded list rendering. `render_items` is the framing-agnostic item loop (driven by an `ItemRenderSpec`); `render_parens` frames it with `(…)`. Shared by call argument lists + parameter lists (`expr_doc`/`type_doc` via `render_parens`) and table constructors (`table_doc` via `render_items`).
 - `render_builders.tl` — shared doc helpers.
