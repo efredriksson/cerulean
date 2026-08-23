@@ -257,6 +257,28 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]==]))
 
+      it("[enum|name_block|empty_body_dangles]", helpers.format([==[
+         local enum E --[[c]] end
+      ]==], [==[
+         local enum E
+             --[[c]]
+         end
+      ]==]))
+
+      it("[table|empty|only_comment_dangles]", helpers.format([==[
+         local t = { --[[c]] }
+      ]==], [==[
+         local t = {
+             --[[c]]
+         }
+      ]==]))
+
+      it("[record|field|trailing_line_comment]", helpers.check([[
+         local record R
+             x: number -- c
+         end
+      ]]))
+
       -- A nested type alias's value-trailing block comment must be read once (the
       -- value's trailing), not also by the header. The nested newtype node spans the
       -- value, so a header-gap read off it would re-claim the value's trailing and
@@ -1843,6 +1865,14 @@ describe("formatter comment matrix (single-line)", function()
       it("keeps multiple block comments after declaration lhs before equals inline", helpers.check([=[
          local x --[[c1]] --[[c2]] = 1
       ]=]))
+
+      it("keeps a line comment after declaration lhs, breaking before equals", helpers.format([[
+         local x -- c
+         = 1
+      ]], [[
+         local x -- c
+             = 1
+      ]]))
 
       it("relocates a multiline block comment between lhs and equals", helpers.format([=[
          i, t --[[what

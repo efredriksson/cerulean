@@ -278,9 +278,10 @@ local function render_record_like_body_doc(
         )
         table.insert(parts, render_field_entry(ctx, entry))
 
-        for _, comment in ipairs(ctx.slots:trailing_comments(entry)) do
-            table.insert(parts, doc.text(" " .. comment.text))
-        end
+        table.insert(
+            parts,
+            render_builders.trailing_comment_doc(ctx.slots:trailing_comments(entry))
+        )
         line_before = true
     end
     local end_comments = ctx.slots:container_dangling_comments(

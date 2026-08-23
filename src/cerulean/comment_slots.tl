@@ -345,6 +345,17 @@ function CommentSlots:trailing_extent(node: ast.HasTokenSpan): integer
     return trivia_extent(trailing_run(self, node), 0)
 end
 
+-- The index of the last token before `item`'s leading gap: the previous item's
+-- last token when the iterating caller knows one, else the token just before
+-- the item. Shared by the emitting read (item_leading_comments) and the
+-- geometry read (leading_extent) so both walk the same window.
+local function resolve_prev_end(item: ast.HasTokenSpan, prev: ast.HasTokenSpan): integer
+    if prev ~= nil and prev.tok_last ~= nil then
+        return prev.tok_last
+    end
+    return item.tok_first - 1
+end
+
 -- The last source line a node's leading comment run reaches, 0 when it has none:
 -- the same window item_leading_comments reads, measured instead of converted.
 -- Geometry, not emission, exactly as trailing_extent is to trailing_comments --
@@ -356,10 +367,7 @@ function CommentSlots:leading_extent(
     if item.tok_first == nil then
         return 0
     end
-    local prev_end = item.tok_first - 1
-    if prev ~= nil and prev.tok_last ~= nil then
-        prev_end = prev.tok_last
-    end
+    local prev_end = resolve_prev_end(item, prev)
     local extent = 0
     local before = self.tokens[prev_end]
     if absorb_opener == true and before ~= nil then
@@ -563,10 +571,7 @@ function CommentSlots:item_leading_comments(
     if item.tok_first == nil then
         return EMPTY_COMMENTS
     end
-    local prev_end = item.tok_first - 1
-    if prev ~= nil and prev.tok_last ~= nil then
-        prev_end = prev.tok_last
-    end
+    local prev_end = resolve_prev_end(item, prev)
     return consume(
         self, leading_run(self, prev_end, item.tok_first, absorb_opener == true)
     )
