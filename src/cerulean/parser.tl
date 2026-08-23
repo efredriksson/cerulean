@@ -221,7 +221,7 @@ do
         end,
     }
 
-    local function new_node(ps: ParseState, i: integer, kind?: NodeKind): Node
+    local function new_node(ps: ParseState, i: integer, kind: NodeKind): Node
         local t = ps.tokens[i]
         return setmetatable(
             {
@@ -229,7 +229,7 @@ do
                 y = t.y,
                 x = t.x,
                 tk = t.tk,
-                kind = kind or (t.kind as NodeKind),
+                kind = kind,
                 tok_first = i,
             },
             node_mt
@@ -278,7 +278,7 @@ do
     end
 
     local function verify_kind(
-        ps: ParseState, i: integer, kind: TokenKind, node_kind?: NodeKind
+        ps: ParseState, i: integer, kind: TokenKind, node_kind: NodeKind
     ): integer, Node
         if ps.tokens[i].kind == kind then
             return i + 1, new_node(ps, i, node_kind)
@@ -961,8 +961,10 @@ do
             local node = new_node(ps, i, "macro_quote")
             node.yend = token_yend(ps.tokens[i])
             return i + 1, node
-        elseif kind == "number" or kind == "integer" then
-            return verify_kind(ps, i, kind)
+        elseif kind == "number" then
+            return verify_kind(ps, i, "number", "number")
+        elseif kind == "integer" then
+            return verify_kind(ps, i, "integer", "integer")
         elseif tk == "true" then
             return verify_kind(ps, i, "keyword", "boolean")
         elseif tk == "false" then
@@ -974,7 +976,7 @@ do
         elseif tk == "{" then
             return parse_table_literal(ps, i)
         elseif kind == "..." then
-            return verify_kind(ps, i, "...")
+            return verify_kind(ps, i, "...", "...")
         elseif kind == "$ERR$" then
             return fail(ps, i, "invalid token")
         end
@@ -1350,7 +1352,7 @@ do
                     local args = new_node(ps, i, "expression_list")
                     local argument: Node
                     if tkop.kind == "string" then
-                        argument = new_node(ps, i)
+                        argument = new_node(ps, i, "string")
                         argument.conststr, argument.is_longstring = unquote(tkop.tk)
                         i = i + 1
                     else
