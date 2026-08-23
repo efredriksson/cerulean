@@ -138,18 +138,21 @@ local function build_vars_doc(
     )
 end
 
+-- The declaration up to any `=`: the variables, plus `: T` when annotated.
+local function build_decl_prefix_doc(
+    ctx: RenderContext, stmt: ast.Node, vars_doc: doc.Doc
+): doc.Doc
+    if stmt.decltuple == nil or #stmt.decltuple.tuple == 0 then
+        return vars_doc
+    end
+    return doc.concat({vars_doc, doc.text(": "), type_doc.render(ctx, stmt.decltuple)})
+end
+
 function inline_stmt_doc.render_declaration_doc(
     ctx: RenderContext, stmt: ast.Node, keyword: string
 ): doc.Doc
     local vars_doc = build_vars_doc(ctx, stmt, keyword)
-    local prefix_doc: doc.Doc
-    if stmt.decltuple == nil or #stmt.decltuple.tuple == 0 then
-        prefix_doc = vars_doc
-    else
-        prefix_doc = doc.concat(
-            {vars_doc, doc.text(": "), type_doc.render(ctx, stmt.decltuple)}
-        )
-    end
+    local prefix_doc = build_decl_prefix_doc(ctx, stmt, vars_doc)
 
     if stmt.exps == nil or #stmt.exps == 0 then
         -- With no initializer nothing follows the vars on the line, so their

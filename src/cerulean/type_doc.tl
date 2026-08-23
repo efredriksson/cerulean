@@ -112,22 +112,26 @@ function type_doc.render_typeargs(
     )
 end
 
+-- The `: rets` tail of a function type, parenthesized when a multi-return
+-- annotation may wrap.
+local function build_rets_doc(
+    ctx: RenderContext, rets: ast.TupleType, opts: TypeRenderOpts
+): doc.Doc
+    if opts.wrap_multi_return_rets and #rets.tuple > 1 and not rets.paren then
+        return doc.concat(
+            {doc.text(": ("), render_type(ctx, rets, opts), doc.text(")")}
+        )
+    end
+    return render_return(ctx, rets)
+end
+
 local function function_type_render(
     ctx: RenderContext, type_def: ast.FunctionType, opts: TypeRenderOpts
 ): doc.Doc
     if type_def.bare then
         return doc.text("function")
     end
-    local rets = type_def.rets
-    local wrap_rets = opts.wrap_multi_return_rets and #rets.tuple > 1 and not rets.paren
-    local rets_doc: doc.Doc
-    if wrap_rets then
-        rets_doc = doc.concat(
-            {doc.text(": ("), render_type(ctx, rets, opts), doc.text(")")}
-        )
-    else
-        rets_doc = render_return(ctx, rets)
-    end
+    local rets_doc = build_rets_doc(ctx, type_def.rets, opts)
     local generic_doc = opts and opts.generic_doc or doc.text("")
     -- measure_flat: same argument-list-before-return-annotation priority as
     -- function_doc.render, cascading through nested function types.

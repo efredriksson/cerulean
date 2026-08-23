@@ -180,6 +180,12 @@ do
         node.tok_last = i
     end
 
+    -- Closes a type's token span. Unlike end_at it stamps only tok_last: the
+    -- render layer reads yend off nodes alone, so types carry none.
+    local function end_span_at(span: HasTokenSpan, i: integer)
+        span.tok_last = i
+    end
+
     local function verify_tk(ps: ParseState, i: integer, tk: string): integer
         if ps.tokens[i].tk == tk then
             return i + 1
@@ -749,14 +755,14 @@ do
             if ps.tokens[i].tk == "}" then
                 local decl = new_type(ps, istart, "array") as ArrayType
                 decl.elements = t
-                end_at(decl as Node, ps, i)
+                end_span_at(decl, i)
                 i = verify_tk(ps, i, "}")
                 return i, decl
             elseif ps.tokens[i].tk == "," then
                 local decl = new_type(ps, istart, "tupletable") as TupleTableType
                 decl.types = {t}
                 i = thread_list(ps, i, decl.types, parse_type, ",")
-                end_at(decl as Node, ps, i)
+                end_span_at(decl, i)
                 i = verify_tk(ps, i, "}")
                 return i, decl
             elseif ps.tokens[i].tk == ":" then
@@ -768,7 +774,7 @@ do
                 if not decl.values then
                     return i
                 end
-                end_at(decl as Node, ps, i)
+                end_span_at(decl, i)
                 i = verify_tk(ps, i, "}")
                 return i, decl
             end
@@ -2068,7 +2074,7 @@ do
             typ.is_method = true
             typ.args = where_macroexp.args
             typ.rets = new_tuple(ps, wstart, {new_type(ps, wstart, "boolean")})
-            typ.macroexp = where_macroexp as Node
+            typ.macroexp = where_macroexp
 
             def.meta_fields = {}
             def.meta_fields["__is"] = typ
@@ -2173,7 +2179,7 @@ do
                         if tt is FunctionType then
                             local macroexp_node: Node
                             i, macroexp_node = parse_macroexp(ps, i + 1, i + 2)
-                            tt.macroexp = macroexp_node as Node
+                            tt.macroexp = macroexp_node
                         else
                             fail(ps, i + 1, "macroexp must have a function type")
                         end

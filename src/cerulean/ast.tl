@@ -356,7 +356,7 @@ end
 function ast.FieldEntry.new(
     name: string, the_type: ast.Type, node: ast.Node, is_meta: boolean, line: integer
 ): ast.FieldEntry
-    local self = setmetatable({}, {__index = ast.FieldEntry}) as ast.FieldEntry
+    local self: ast.FieldEntry = setmetatable({}, {__index = ast.FieldEntry})
     self.name = name
     self.the_type = the_type
     self.node = node
