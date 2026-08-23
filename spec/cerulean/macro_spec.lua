@@ -431,4 +431,12 @@ describe("formatter macro statement arguments", function()
       local x = undeclared!(a, b)
    ]]))
 
+   macro_it("[macro|leading_and_trailing|kept_in_place]", helpers.check([[
+      -- compile-time helper
+      local macro twice!(x: Expression)
+          -- expand to a product
+          return `$x * 2` -- quoted
+      end
+   ]]))
+
 end)

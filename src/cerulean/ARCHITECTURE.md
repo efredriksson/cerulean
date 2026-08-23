@@ -129,7 +129,7 @@ Coverage is enforced, not just documented: `comment_matrix_spec.lua` pins per-co
 
 ### Sweep relocation policy
 
-A comment in a kept slot renders where it was written. Everything else — a block comment wedged into a keyword run (`local --[[c]] x`), inside parentheses (`( --[[c]] e)`), inside type syntax (`Map<--[[k]] string, integer>`), an own-line comment mid-annotation — relocates to the statement's own-line leading. Real code essentially never writes these placements (fuzzing does); one mechanism that provably keeps them beats a dedicated keep-in-place accessor per gap. Known accepted consequence: a comment buried in a record body's *field type* relocates to the whole record statement's leading, because fields are not statements and the sweep is per-statement.
+A comment in a kept slot renders where it was written. Everything else — a block comment wedged into a keyword run (`local --[[c]] x`), inside parentheses (`( --[[c]] e)`), inside type syntax (`Map<--[[k]] string, integer>`), an own-line comment mid-annotation — relocates to the statement's own-line leading. Real code essentially never writes these placements (fuzzing does); one mechanism that provably keeps them beats a dedicated keep-in-place accessor per gap. Known accepted consequences: a comment buried in a record body's *field type* relocates to the whole record statement's leading, because fields are not statements and the sweep is per-statement; likewise a comment inside a `macroexp` body relocates to the declaration's leading, because the body is a single return expression (the parser stores only the expression), not a statement list.
 
 ### Design note
 

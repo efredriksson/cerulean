@@ -2725,6 +2725,26 @@ describe("formatter comment matrix (construct gaps)", function()
          end
       ]]))
 
+      -- A macroexp body is a single return expression, not a statement list
+      -- (the parser stores only the expression), so comments inside it have no
+      -- kept slot and the per-statement sweep relocates them to the whole
+      -- declaration's leading -- the same accepted consequence as a comment in
+      -- a record field's type.
+      it("[macroexp|body|relocates_to_leading]", helpers.format([[
+         -- inline expansion
+         local macroexp double(n: integer): integer
+             -- twice the input
+             return n * 2 -- expanded
+         end
+      ]], [[
+         -- inline expansion
+         -- twice the input
+         -- expanded
+         local macroexp double(n: integer): integer
+             return n * 2
+         end
+      ]]))
+
       -- tl.lex rejects a trailing comment on a pragma line ("invalid token"),
       -- so leading is the only comment placement a pragma has.
       it("[pragma|leading|kept_in_place]", helpers.check([[
