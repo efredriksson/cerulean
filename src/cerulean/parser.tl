@@ -152,8 +152,9 @@ local parse_record_body: function(
 local parse_type_body_fns: {BodyTypeName: ParseBody}
 
 do
-    -- Raised by fail and caught at trial-parse boundaries (skip, attempt) and
-    -- in parser.parse; identity comparison keeps genuine runtime errors
+    -- Raised by fail and caught in exactly two places -- attempt (the one
+    -- speculation primitive) and parser.parse (the fail-fast catch, the Lua
+    -- lparser idiom); identity comparison keeps genuine runtime errors
     -- propagating. The formatter never renders a file with parse errors, so
     -- the parse aborts at the first one.
     local parse_abort <const>: any = {}
@@ -279,8 +280,6 @@ do
         return fail(ps, i, "syntax error, expected " .. kind)
     end
 
-    local type SkipFunction = function(ParseState, integer): integer, Node | boolean
-
     -- A sub-parse collects its own errors so a probe that fails leaks none of them.
     local function fork(ps: ParseState): ParseState
         return {
@@ -292,27 +291,30 @@ do
         }
     end
 
-    -- Pure lookahead for grammar disambiguation: trial-runs skip_fn on a
-    -- throwaway state so neither recorded errors nor a parse abort escape.
-    -- Reports the trial as not-parsing instead.
-    local function skip(
-        ps: ParseState, i: integer, skip_fn: SkipFunction
-    ): integer, Node | boolean
-        local trial_ps = fork(ps)
-        local skip_i: integer
-        local skipped: Node | boolean
-        local function run_trial(): any
-            skip_i, skipped = skip_fn(trial_ps, i)
-            return nil
-        end
-        local ok, raised = pcall(run_trial)
+    local type ParseItem = function<T>(
+        ParseState, integer, ?integer
+    ): integer, T, integer
+
+    -- The parser's only speculation primitive: trial-parses one item on a forked
+    -- state so a "does an X start here?" probe leaks neither errors nor the parse
+    -- abort. On success returns the advanced index + item; on failure the
+    -- original index and nil. Every grammar spot that needs backtracking routes
+    -- through here -- the abort raised by fail is caught in exactly two places,
+    -- this pcall and the one in parser.parse.
+    local function attempt<T>(
+        ps: ParseState, i: integer, parse_item: ParseItem<T>
+    ): integer, T
+        local ok, tryi, item = pcall(parse_item, fork(ps), i)
         if not ok then
-            if raised ~= parse_abort then
-                error(raised)
+            if tryi ~= parse_abort then
+                error(tryi)
             end
-            return i, nil
+            return i
         end
-        return skip_i, skipped
+        if not item then
+            return i
+        end
+        return tryi, item
     end
 
     local function parse_type_body(
@@ -342,27 +344,9 @@ do
         return i, def
     end
 
-    local function skip_type_body(ps: ParseState, i: integer): integer, boolean
-        local tn = ps.tokens[i].tk as BodyTypeName
-        i = i + 1
-        assert(parse_type_body_fns[tn], tn .. " has no parse body function")
-        local ii, tt = parse_type_body(ps, i, i - 1, {} as Node, tn)
-        return ii, not not tt
-    end
-
     local function parse_table_value(ps: ParseState, i: integer): integer, Node, integer
         local next_word = ps.tokens[i].tk
-        if next_word == "record" or next_word == "interface" then
-            local _, e = skip(ps, i, skip_type_body as SkipFunction)
-            if e then
-                return fail(
-                    ps,
-                    i,
-                    next_word == "record"
-                        and "syntax error: this syntax is no longer valid; declare nested record inside a record" or "syntax error: cannot declare interface inside a table; use a statement"
-                )
-            end
-        elseif next_word == "enum" and ps.tokens[i + 1].kind == "string" then
+        if next_word == "enum" and ps.tokens[i + 1].kind == "string" then
             return fail(
                 ps,
                 i,
@@ -404,6 +388,35 @@ do
         return i, node
     end
 
+    -- The typed-key table item `key: Type = value`. `identifier :` also opens a
+    -- method-call expression item (`x:method()`), so past the `:` this fails
+    -- unless a type and an `= value` both follow; `attempt` rolls the trial back
+    -- and the caller re-parses the item as an expression.
+    local function parse_typed_key_item(
+        ps: ParseState, i: integer
+    ): integer, Node, integer
+        local node = new_node(ps, i, "literal_table_item")
+        node.key_parsed = "short"
+        i, node.key = verify_kind(ps, i, "identifier", "string")
+        node.key.conststr = node.key.tk
+        node.key.tk = '"' .. node.key.tk .. '"'
+        node.key.tok_bound = i
+        i = verify_tk(ps, i, ":")
+        i, node.itemtype = parse_type(ps, i)
+        if not node.itemtype or ps.tokens[i].tk ~= "=" then
+            return fail(ps, i, "expected '=' after the typed key")
+        end
+        node.itemtype.tok_bound = i
+        i = verify_tk(ps, i, "=")
+        i, node.value = parse_table_value(ps, i)
+        if not node.value then
+            return fail(ps, i, "expected a value")
+        end
+        node.yend = token_yend(ps.tokens[i - 1])
+        node.tok_last = i - 1
+        return i, node
+    end
+
     local function parse_table_item(
         ps: ParseState, i: integer, n?: integer
     ): integer, Node, integer
@@ -434,40 +447,11 @@ do
                 node.tok_last = i - 1
                 return i, node, n
             elseif ps.tokens[i + 1].tk == ":" then
-                node.key_parsed = "short"
-                local orig_i = i
-                local try_ps = fork(ps)
-                local trial_i: integer
-                local function try_typed_key_item(): any
-                    local ti = orig_i
-                    ti, node.key = verify_kind(try_ps, ti, "identifier", "string")
-                    node.key.conststr = node.key.tk
-                    node.key.tk = '"' .. node.key.tk .. '"'
-                    node.key.tok_bound = ti
-                    ti = verify_tk(try_ps, ti, ":")
-                    ti, node.itemtype = parse_type(try_ps, ti)
-                    if node.itemtype and try_ps.tokens[ti].tk == "=" then
-                        node.itemtype.tok_bound = ti
-                        ti = verify_tk(try_ps, ti, "=")
-                        ti, node.value = parse_table_value(try_ps, ti)
-                        if node.value then
-                            trial_i = ti
-                        end
-                    end
-                    return nil
+                local typed_i, typed = attempt(ps, i, parse_typed_key_item)
+                if typed then
+                    return typed_i, typed, n
                 end
-                local ok, raised = pcall(try_typed_key_item)
-                if not ok and raised ~= parse_abort then
-                    error(raised)
-                end
-                if trial_i then
-                    i = trial_i
-                    node.yend = token_yend(ps.tokens[i - 1])
-                    node.tok_last = i - 1
-                    return i, node, n
-                end
-                -- backtrack: not a `key: type = value` item after all
-                node.itemtype = nil
+                -- backtracked: not a `key: type = value` item after all
             end
         end
 
@@ -482,10 +466,6 @@ do
         node.tok_last = i - 1
         return i, node, n + 1
     end
-
-    local type ParseItem = function<T>(
-        ParseState, integer, ?integer
-    ): integer, T, integer
 
     local function parse_list<T is Node>(
         ps: ParseState,
@@ -575,32 +555,6 @@ do
             last.tok_bound = node.tok_last
         end
         return i, node
-    end
-
-    -- Trial-parses one item on a throwaway state so a "is there even an item
-    -- here?" probe never leaks errors or a parse abort. On success returns the
-    -- advanced index + item; on failure returns the original index and nil.
-    local function attempt<T>(
-        ps: ParseState, i: integer, parse_item: ParseItem<T>
-    ): integer, T
-        local try_ps = fork(ps)
-        local tryi: integer
-        local item: T
-        local function run_trial(): any
-            tryi, item = parse_item(try_ps, i)
-            return nil
-        end
-        local ok, raised = pcall(run_trial)
-        if not ok then
-            if raised ~= parse_abort then
-                error(raised)
-            end
-            return i
-        end
-        if not item then
-            return i
-        end
-        return tryi, item
     end
 
     -- Walks the `sep`-separated tail of a list whose first element is already in
@@ -1107,6 +1061,17 @@ do
             return i
         end
 
+        -- The statement-list trial for parse_statement_argument, shaped for
+        -- `attempt`. Bare type names read as expressions here: a macroexp hands
+        -- types where expressions go. The flag mutates only `attempt`'s fork.
+        local function parse_statement_slice(
+            ps: ParseState, i: integer
+        ): integer, Node, integer
+            ps.allow_bare_type = true
+            local next_i, parsed = parse_statements(ps, i, true)
+            return next_i, parsed
+        end
+
         -- The argument parses as a statement list on the file's own token array, so
         -- every stamp it writes (tok_first/tok_last/tok_bound/slot_tok) addresses the
         -- array the renderer reads. Only the argument's end token is masked: a
@@ -1128,19 +1093,7 @@ do
             }
             ps.tokens[stop] = sentinel
 
-            local slice_ps = fork(ps)
-            slice_ps.allow_bare_type = true
-
-            local node: Node
-            local function run_slice(): any
-                local _, parsed = parse_statements(slice_ps, i, true)
-                node = parsed
-                return nil
-            end
-            local ok, raised = pcall(run_slice)
-            if not ok and raised ~= parse_abort then
-                error(raised)
-            end
+            local _, slice = attempt(ps, i, parse_statement_slice)
 
             local end_i = stop
             for k = stop, i, -1 do
@@ -1151,8 +1104,8 @@ do
                 end
             end
 
-            if ok and node ~= nil then
-                return end_i, node
+            if slice ~= nil then
+                return end_i, slice
             end
 
             -- Teal rejects a `Statement` parameter handed anything else, but a
@@ -2872,14 +2825,12 @@ do
         -- tl.lex loses a trailing comment when the file has no final newline
         local lex_input = input:sub(-1) == "\n" and input or input .. "\n"
         local tokens, errs = tl.lex(lex_input, filename)
-        local node: Node
-        local function run_parse(): any
-            node = parse_program(tokens, errs, filename)
-            return nil
-        end
-        local ok, raised = pcall(run_parse)
-        if not ok and raised ~= parse_abort then
-            error(raised)
+        local ok, node = pcall(parse_program, tokens, errs, filename)
+        if not ok then
+            if node ~= parse_abort then
+                error(node)
+            end
+            return nil, errs, tokens
         end
         return node, errs, tokens
     end
