@@ -106,12 +106,42 @@ local function is_chainable_binary_op(operator: ast.Operator): boolean
     return CHAINABLE_OPS[operator.op] == true
 end
 
+-- One operator gap of a flattened chain: `trail` is the same-line comment after
+-- the previous term, `leading` the own-line run before the operator. Both sides
+-- of the partition are carried so neither can be silently dropped.
+local record ChainGap
+    trail: ast.Comment
+    leading: {ast.Comment}
+    new: function(trail: ast.Comment, leading: {ast.Comment}): ChainGap
+end
+
+function ChainGap.new(trail: ast.Comment, leading: {ast.Comment}): ChainGap
+    local self: ChainGap = setmetatable({}, {__index = ChainGap})
+    self.trail = trail
+    self.leading = leading
+    return self
+end
+
+local function gap_trail(gap: ChainGap): ast.Comment
+    if gap == nil then
+        return nil
+    end
+    return gap.trail
+end
+
+local function gap_leading(gap: ChainGap): {ast.Comment}
+    if gap == nil then
+        return nil
+    end
+    return gap.leading
+end
+
 local function collect_chain_terms(
     ctx: RenderContext,
     node: ast.Node,
     operator: ast.Operator,
     terms: {ast.Node},
-    gap_before_comments: {integer: ast.Comment}
+    gap_before_comments: {integer: ChainGap}
 )
     -- Terms are rejoined with the enclosing chain's operator, so only the identical
     -- operator may be flattened into it. `<<` and `>>` share a precedence, and
@@ -119,11 +149,11 @@ local function collect_chain_terms(
     if node.kind == "op" and node.op.arity == 2 and node.op.op == operator.op then
         collect_chain_terms(ctx, node.e1, operator, terms, gap_before_comments)
         local lhs_line = node.e1.yend
-        local before_op = trivia_doc.partition(
+        local trail, leading = trivia_doc.partition(
             ctx.slots:op_leading_comments(node), lhs_line
         )
-        if before_op then
-            gap_before_comments[#terms] = before_op
+        if trail ~= nil or #leading > 0 then
+            gap_before_comments[#terms] = ChainGap.new(trail, leading)
         end
         collect_chain_terms(ctx, node.e2, operator, terms, gap_before_comments)
         return
@@ -156,15 +186,13 @@ local function render_binary_chain(
 ): doc.Doc
     local operator_prec = operator.prec
     local terms: {ast.Node} = {}
-    local gap_before_comments: {integer: ast.Comment} = {}
+    local gap_before_comments: {integer: ChainGap} = {}
     collect_chain_terms(ctx, left, operator, terms, gap_before_comments)
     collect_chain_terms(ctx, right, operator, terms, gap_before_comments)
 
     local forced_breaks = false
-    for _, gap_comment in pairs(gap_before_comments) do
-        if gap_comment then
-            forced_breaks = true
-        end
+    for _ in pairs(gap_before_comments) do
+        forced_breaks = true
     end
 
     local parts: {doc.Doc} = {}
@@ -172,13 +200,25 @@ local function render_binary_chain(
     local first_term_doc = render_expr(
         ctx, terms[1], operator_prec, same_indent_on_line
     )
-    first_term_doc = trail_comment_on(first_term_doc, gap_before_comments[1])
+    first_term_doc = trail_comment_on(first_term_doc, gap_trail(gap_before_comments[1]))
     table.insert(parts, first_group_ref:group(first_term_doc))
 
-    local function op_on_line(term_group: doc.Doc, line: doc.Doc): doc.Doc
-        local op_and_term_doc = doc.concat(
-            {line, doc.text(operator.op .. " "), term_group}
-        )
+    -- `leading` is the gap's own-line run: each comment lands on its own line
+    -- before the operator, at the operator's indent (the emit_transition model).
+    local function op_on_line(
+        term_group: doc.Doc, line: doc.Doc, leading?: {ast.Comment}
+    ): doc.Doc
+        local op_parts: {doc.Doc} = {}
+        if leading ~= nil then
+            for _, comment in ipairs(leading) do
+                table.insert(op_parts, doc.hardline())
+                table.insert(op_parts, doc.text(comment.text))
+            end
+        end
+        table.insert(op_parts, line)
+        table.insert(op_parts, doc.text(operator.op .. " "))
+        table.insert(op_parts, term_group)
+        local op_and_term_doc = doc.concat(op_parts)
 
         if same_indent_on_line then
             return op_and_term_doc
@@ -193,9 +233,16 @@ local function render_binary_chain(
         local term_group_ref = doc.group_ref()
         if forced_breaks then
             local term_doc = render_expr(ctx, term, operator_prec, false)
-            term_doc = trail_comment_on(term_doc, gap_before_comments[index])
+            term_doc = trail_comment_on(term_doc, gap_trail(gap_before_comments[index]))
             local term_group = term_group_ref:group(term_doc)
-            table.insert(parts, op_on_line(term_group, doc.hardline()))
+            table.insert(
+                parts,
+                op_on_line(
+                    term_group,
+                    doc.hardline(),
+                    gap_leading(gap_before_comments[index - 1])
+                )
+            )
         elseif term.kind == "paren" then
             local term_doc = render_paren_in_chain(ctx, term, true)
             local term_group = term_group_ref:group(term_doc)

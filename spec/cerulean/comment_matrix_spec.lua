@@ -2787,6 +2787,51 @@ describe("formatter comment matrix (construct gaps)", function()
       ]==]))
    end)
 
+   -- An own-line comment in a nested operator gap of a flattenable chain forces
+   -- the chain broken and renders before that operator's line, through the same
+   -- transition model render_member/render_cast use.
+   describe("binary chain operator comments", function()
+      it("[or_chain|own_line_before_nested_op|kept_in_place]", helpers.check([[
+         local x = a
+             -- c
+             or b
+             or c
+      ]]))
+
+      -- `..` is right-associative, so a comment after the first term sits on
+      -- the TOP operator and routes through the join path: the comment forces
+      -- its break, and the remainder joins flat when it fits.
+      it("[concat_chain|own_line_block_on_top_op|kept_in_place]", helpers.format([==[
+         local s = first
+             --[[middle]]
+             .. second
+             .. third
+      ]==], [==[
+         local s = first
+             --[[middle]]
+             .. second .. third
+      ]==]))
+
+      it("[shift_chain|own_line_before_nested_op|kept_in_place]", helpers.check([[
+         local n = a
+             -- shift more
+             << b
+             << c
+      ]]))
+
+      it("[and_chain|own_line_before_nested_op|forces_break]", helpers.format([[
+         local x = a and b
+             -- c
+             and d and e
+      ]], [[
+         local x = a
+             and b
+             -- c
+             and d
+             and e
+      ]]))
+   end)
+
    -- Interface bodies ride the record-like path; pin the same placements the
    -- [record|...] cases pin so the shared path cannot regress for one construct
    -- only.
