@@ -1,5 +1,6 @@
 -- Single AST statement → doc.Doc. Returns nil for unsupported statement shapes.
 local ast = require("cerulean.ast")
+local construct_layout = require("cerulean.construct_layout")
 local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
 local function_doc = require("cerulean.function_doc")
@@ -45,26 +46,6 @@ local function render_type_alias_doc(
     )
 end
 
--- A soft line here flattens inside a macro statement argument, putting the body
--- back on the call's line and turning the separators between entries into `; `.
-local function with_indented_body(
-    header: doc.Doc, body: doc.Doc, tail: doc.Doc
-): doc.Doc
-    return doc.concat({header, doc.indent_hardline(body), tail})
-end
-
-local function block_with_indent(
-    header: doc.Doc, body: doc.Doc, footer: doc.Doc
-): doc.Doc
-    return with_indented_body(header, body, doc.concat({doc.line(), footer}))
-end
-
-local function block_with_close(
-    header: doc.Doc, body: doc.Doc, close_text: string
-): doc.Doc
-    return with_indented_body(header, body, doc.close(close_text))
-end
-
 local function render_enum_doc(
     ctx: RenderContext, stmt: ast.Node, def: ast.EnumType, keyword?: string
 ): doc.Doc
@@ -93,7 +74,7 @@ local function render_enum_doc(
             true, render_enum_item, no_separator, true
         )
     )
-    return block_with_close(header, items_doc, "end")
+    return construct_layout.block_with_close(header, items_doc, "end")
 end
 
 local render_type_def_doc: function(
@@ -494,8 +475,8 @@ local function render_if_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
                 return doc.text("else")
             end
             local keyword = index == 1 and "if" or "elseif"
-            if render_builders.should_wrap_condition(ctx, if_block, if_block.exp) then
-                return render_builders.wrap_keyword_around(
+            if construct_layout.should_wrap_condition(ctx, if_block, if_block.exp) then
+                return construct_layout.wrap_keyword_around(
                     doc.text(keyword),
                     ctx.render_expr(if_block.exp, true),
                     doc.text("then")
@@ -534,13 +515,13 @@ local function render_while_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
         return nil
     end
 
-    local should_wrap_around = render_builders.should_wrap_condition(
+    local should_wrap_around = construct_layout.should_wrap_condition(
         ctx, node, node.exp
     )
 
     local function build_head_group(): doc.Doc
         if should_wrap_around then
-            return render_builders.wrap_keyword_around(
+            return construct_layout.wrap_keyword_around(
                 doc.text("while"), ctx.render_expr(node.exp, true), doc.text("do")
             )
         end
@@ -558,7 +539,7 @@ local function render_while_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
             render_builders.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
         }
     )
-    return block_with_close(header, body_doc, "end")
+    return construct_layout.block_with_close(header, body_doc, "end")
 end
 
 local function build_fornum_range_doc(node: ast.Node, ctx: RenderContext): doc.Doc
@@ -591,7 +572,7 @@ local function render_fornum_doc(ctx: RenderContext, node: ast.Node): doc.Doc | 
             render_builders.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
         }
     )
-    return block_with_close(
+    return construct_layout.block_with_close(
         render_builders.with_leading_inline_trivia(
             ctx.slots:opener_comments(node, "after_opener"),
             doc.text("for " .. node.var.tk .. " = "),
@@ -621,7 +602,7 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
     -- commas need the hanging indent); a single expression only when it is a bare
     -- binary chain.
     local single_exp_wraps = #node.exps == 1
-        and render_builders.should_wrap_condition(ctx, node, node.exps[1])
+        and construct_layout.should_wrap_condition(ctx, node, node.exps[1])
     local multi_exp_wraps = #node.exps > 1
         and #ctx.slots:opener_comments(node, "after_opener") == 0
     local should_wrap_around = single_exp_wraps or multi_exp_wraps
@@ -645,7 +626,7 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
         if should_wrap_around then
             return doc.concat(
                 {
-                    render_builders.wrap_keyword_around(
+                    construct_layout.wrap_keyword_around(
                         for_in_keyword, build_wrapped_exps(), doc.text("do")
                     ),
                     render_builders.head_trivia_doc(
@@ -675,7 +656,7 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
         )
     end
 
-    return block_with_close(build_header(), body_doc, "end")
+    return construct_layout.block_with_close(build_header(), body_doc, "end")
 end
 
 local function render_repeat_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
@@ -699,13 +680,13 @@ local function render_repeat_doc(ctx: RenderContext, node: ast.Node): doc.Doc | 
     -- spurious blank line when the body is empty. Skip it in that case.
     local is_empty_body = #node.body == 0
         and #ctx.slots:dangling_comments(node.body) == 0
-    local should_wrap_around = render_builders.should_wrap_condition(
+    local should_wrap_around = construct_layout.should_wrap_condition(
         ctx, node, node.exp
     )
 
     local function build_until_doc(): doc.Doc
         if should_wrap_around then
-            return render_builders.wrap_keyword_before(
+            return construct_layout.wrap_keyword_before(
                 doc.text("until"), ctx.render_expr(node.exp, true)
             )
         end
@@ -720,7 +701,7 @@ local function render_repeat_doc(ctx: RenderContext, node: ast.Node): doc.Doc | 
     if is_empty_body then
         return doc.concat({header, doc.line(), until_doc})
     end
-    return block_with_indent(header, body_doc, until_doc)
+    return construct_layout.block_with_indent(header, body_doc, until_doc)
 end
 
 local function render_do_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
@@ -733,7 +714,7 @@ local function render_do_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
         return nil
     end
 
-    return block_with_close(doc.text("do"), body_doc, "end")
+    return construct_layout.block_with_close(doc.text("do"), body_doc, "end")
 end
 
 function stmt_doc.render_statement_doc(

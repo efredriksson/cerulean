@@ -1,4 +1,5 @@
 local ast = require("cerulean.ast")
+local construct_layout = require("cerulean.construct_layout")
 local doc = require("cerulean.doc")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
@@ -88,7 +89,7 @@ local function build_init_doc(
         not eq_carries_comments and render_builders.exp_list_can_break(ctx, stmt.exps)
     then
         -- The `=` sheds its trailing space; the wrap's line puts it back when flat.
-        return render_builders.wrap_keyword_before(
+        return construct_layout.wrap_keyword_before(
             doc.concat({prefix_doc, doc.text(" =")}), value_doc
         )
     end

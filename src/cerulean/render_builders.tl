@@ -1,6 +1,5 @@
 local ast = require("cerulean.ast")
 local doc = require("cerulean.doc")
-local precedence = require("cerulean.precedence")
 local render_context = require("cerulean.render_context")
 local trivia_doc = require("cerulean.trivia_doc")
 
@@ -306,35 +305,6 @@ function render_builders.has_chain_internal_trivia(
         return true
     end
     return false
-end
-
--- Whether a control-flow header wraps its expression around the keyword pair
--- (wrap_keyword_around / wrap_keyword_before): only for a bare top-level binary
--- chain. A comment after the opening keyword pins that keyword to its own line,
--- and trivia inside the chain already breaks it, so either routes the header
--- through the inline-trivia path instead.
-function render_builders.should_wrap_condition(
-    ctx: RenderContext, node: ast.Node, exp: ast.Node
-): boolean
-    if #ctx.slots:opener_comments(node, "after_opener") > 0 then
-        return false
-    end
-    return precedence.is_operator_headed(exp)
-        and not render_builders.has_chain_internal_trivia(ctx, exp)
-end
-
-function render_builders.wrap_keyword_around(
-    keyword: doc.Doc, expression: doc.Doc, closing: doc.Doc
-): doc.Doc
-    return doc.group(
-        doc.concat({keyword, doc.indent_line(expression), doc.line(), closing})
-    )
-end
-
-function render_builders.wrap_keyword_before(
-    keyword: doc.Doc, expression: doc.Doc
-): doc.Doc
-    return doc.group(doc.concat({keyword, doc.indent_line(expression)}))
 end
 
 function render_builders.with_leading_inline_trivia(
