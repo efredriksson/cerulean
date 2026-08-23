@@ -91,7 +91,7 @@ local function normalize_node(node)
         normalized.op = node.op.op
     end
 
-    if node.kind == "identifier" or node.kind == "typeid" then
+    if node.kind == "name" then
         normalized.tk = node.tk
     elseif node.kind == "string" then
         normalized.conststr = node.conststr or node.tk
@@ -99,6 +99,8 @@ local function normalize_node(node)
         normalized.constnum = node.tk
     elseif node.kind == "boolean" or node.kind == "nil" then
         normalized.tk = node.tk
+    elseif node.kind == "goto" or node.kind == "label" then
+        normalized.label = node.label
     end
 
     if node.attribute ~= nil then
@@ -184,6 +186,9 @@ function helpers.format_raw(input, expected)
         assert.same({}, result.parse_errors)
         assert.same(expected, result.output)
         assert.same("reformatted", result.status)
+
+        assert_equivalent_ast_shape(input, result.output)
+        assert_stable_rewrite(result.output)
     end
 end
 
@@ -228,8 +233,6 @@ function helpers.check(source)
         assert.same({}, result.parse_errors)
         assert.same(dedented, result.output)
         assert.same("unchanged", result.status, "Formatting failed: " .. result.failure_reason)
-
-        assert_stable_rewrite(result.output)
     end
 end
 
