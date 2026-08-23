@@ -330,6 +330,21 @@ function render_builders.has_chain_internal_trivia(
     return false
 end
 
+-- Whether a control-flow header wraps its expression around the keyword pair
+-- (wrap_keyword_around / wrap_keyword_before): only for a bare top-level binary
+-- chain. A comment after the opening keyword pins that keyword to its own line,
+-- and trivia inside the chain already breaks it, so either routes the header
+-- through the inline-trivia path instead.
+function render_builders.should_wrap_condition(
+    ctx: RenderContext, node: ast.Node, exp: ast.Node
+): boolean
+    if #ctx.slots:opener_comments(node, "after_opener") > 0 then
+        return false
+    end
+    return render_builders.is_top_level_binary_op(exp)
+        and not render_builders.has_chain_internal_trivia(ctx, exp)
+end
+
 function render_builders.wrap_keyword_around(
     keyword: doc.Doc, expression: doc.Doc, closing: doc.Doc
 ): doc.Doc

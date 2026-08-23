@@ -1,5 +1,6 @@
 -- Single AST statement → doc.Doc. Returns nil for unsupported statement shapes.
 local ast = require("cerulean.ast")
+local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
 local function_doc = require("cerulean.function_doc")
 local inline_stmt_doc = require("cerulean.inline_stmt_doc")
@@ -77,32 +78,22 @@ local function render_enum_doc(
     end
     local header = build_header()
 
-    local parts: {doc.Doc} = {}
-    local line_before = false
-    for index, item_node in ipairs(def.enum_items) do
-        line_before = render_builders.append_comment_docs(
-            parts,
-            ctx.slots:item_leading_comments(
-                item_node, def.enum_items[index - 1], index == 1
-            ),
-            line_before
-        )
-        table.insert(
-            parts, render_builders.append_lines_pre_node(item_node, line_before)
-        )
-        table.insert(parts, doc.text(item_node.tk))
-        table.insert(
-            parts,
-            render_builders.trailing_comment_doc(ctx.slots:trailing_comments(item_node))
-        )
-        line_before = true
+    local function render_enum_item(item_node: ast.Node): doc.Doc
+        return doc.text(item_node.tk)
     end
-    local end_comments = ctx.slots:container_dangling_comments(
-        def, #def.enum_items == 0
+    local function no_separator(_item: ast.Node, _is_last: boolean): doc.Doc
+        return doc.text("")
+    end
+    -- force_wrap: an enum body is always one item per line, never flattened.
+    local items_doc = delimited_list_doc.render_items(
+        ctx,
+        def.enum_items,
+        ctx.slots:container_dangling_comments(def, #def.enum_items == 0),
+        delimited_list_doc.ItemRenderSpec.new(
+            true, render_enum_item, no_separator, true
+        )
     )
-    render_builders.append_comment_docs(parts, end_comments, line_before)
-
-    return block_with_close(header, doc.concat(parts), "end")
+    return block_with_close(header, items_doc, "end")
 end
 
 local render_type_def_doc: function(
@@ -153,13 +144,12 @@ local function render_interface_list_parts(
     if #filtered == 0 then
         return parts
     end
-    table.insert(parts, doc.text(" is "))
-    for index, iface in ipairs(filtered) do
-        table.insert(parts, type_doc.render(ctx, iface))
-        if index < #filtered then
-            table.insert(parts, doc.text(", "))
-        end
+    local iface_docs: {doc.Doc} = {}
+    for _, iface in ipairs(filtered) do
+        table.insert(iface_docs, type_doc.render(ctx, iface))
     end
+    table.insert(parts, doc.text(" is "))
+    table.insert(parts, render_builders.build_comma_separated_docs(iface_docs))
     return parts
 end
 
@@ -504,14 +494,7 @@ local function render_if_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
                 return doc.text("else")
             end
             local keyword = index == 1 and "if" or "elseif"
-            local has_inline_trivia = #ctx.slots:opener_comments(
-                if_block, "after_opener"
-            ) > 0
-            if
-                not has_inline_trivia
-                and render_builders.is_top_level_binary_op(if_block.exp)
-                and not render_builders.has_chain_internal_trivia(ctx, if_block.exp)
-            then
+            if render_builders.should_wrap_condition(ctx, if_block, if_block.exp) then
                 return render_builders.wrap_keyword_around(
                     doc.text(keyword),
                     ctx.render_expr(if_block.exp, true),
@@ -551,10 +534,9 @@ local function render_while_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
         return nil
     end
 
-    local has_inline_trivia = #ctx.slots:opener_comments(node, "after_opener") > 0
-    local should_wrap_around = not has_inline_trivia
-        and render_builders.is_top_level_binary_op(node.exp)
-        and not render_builders.has_chain_internal_trivia(ctx, node.exp)
+    local should_wrap_around = render_builders.should_wrap_condition(
+        ctx, node, node.exp
+    )
 
     local function build_head_group(): doc.Doc
         if should_wrap_around then
@@ -635,12 +617,14 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
         return nil
     end
 
-    local has_inline_trivia = #ctx.slots:opener_comments(node, "after_opener") > 0
-    local single_exp_is_chainable = #node.exps == 1
-        and render_builders.is_top_level_binary_op(node.exps[1])
-        and not render_builders.has_chain_internal_trivia(ctx, node.exps[1])
-    local should_wrap_around = not has_inline_trivia
-        and (#node.exps > 1 or single_exp_is_chainable)
+    -- A comment-free multi-expression list always wraps around the keywords (its
+    -- commas need the hanging indent); a single expression only when it is a bare
+    -- binary chain.
+    local single_exp_wraps = #node.exps == 1
+        and render_builders.should_wrap_condition(ctx, node, node.exps[1])
+    local multi_exp_wraps = #node.exps > 1
+        and #ctx.slots:opener_comments(node, "after_opener") == 0
+    local should_wrap_around = single_exp_wraps or multi_exp_wraps
 
     local for_in_keyword = doc.concat(
         {
@@ -651,7 +635,7 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
     )
 
     local function build_wrapped_exps(): doc.Doc
-        if single_exp_is_chainable then
+        if #node.exps == 1 then
             return ctx.render_expr(node.exps[1], true)
         end
         return render_builders.build_mapped_comma_separated_docs(ctx, node.exps)
@@ -715,10 +699,9 @@ local function render_repeat_doc(ctx: RenderContext, node: ast.Node): doc.Doc | 
     -- spurious blank line when the body is empty. Skip it in that case.
     local is_empty_body = #node.body == 0
         and #ctx.slots:dangling_comments(node.body) == 0
-    local has_inline_trivia = #ctx.slots:opener_comments(node, "after_opener") > 0
-    local should_wrap_around = not has_inline_trivia
-        and render_builders.is_top_level_binary_op(node.exp)
-        and not render_builders.has_chain_internal_trivia(ctx, node.exp)
+    local should_wrap_around = render_builders.should_wrap_condition(
+        ctx, node, node.exp
+    )
 
     local function build_until_doc(): doc.Doc
         if should_wrap_around then
