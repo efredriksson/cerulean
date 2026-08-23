@@ -10,7 +10,9 @@ BINDIR ?= /usr/local/bin
 
 FORMATTER := tl run src/cerulean/init.tl --
 
-RENDER_LAYER := src/cerulean/*_doc.tl src/cerulean/comment_slots.tl src/cerulean/blank_lines.tl
+# Heuristic tripwire, not a proof: catches literal `.text ==`/`.text ~=` only,
+# not `:match`/`:find`/`:sub` or a local alias of `.text`.
+RENDER_LAYER := src/cerulean/*_doc.tl src/cerulean/render_builders.tl src/cerulean/comment_slots.tl src/cerulean/blank_lines.tl
 
 lint:
 	tl check ${SRCS_LINT}
@@ -70,8 +72,10 @@ ab-diff:
 fuzz:
 	tl run fuzz/fuzz.tl -- $(ARGS)
 
+# Pinned seed: the corpus must be reproducible, or regenerating it between
+# ab-snapshot and ab-diff turns the diff into "corpus changed?" noise.
 fuzz-corpus:
-	tl run fuzz/fuzz.tl -- --seed-corpus src/cerulean,spec/cerulean/fixtures --count 5000 --mutations-per-file 1 $(ARGS)
+	tl run fuzz/fuzz.tl -- --seed 20260823 --seed-corpus src/cerulean,spec/cerulean/fixtures --count 5000 --mutations-per-file 1 $(ARGS)
 
 fuzz-deep:
 	tl run fuzz/fuzz.tl -- --depth 40 --trivia-rate 0.4 --count 5000 $(ARGS)

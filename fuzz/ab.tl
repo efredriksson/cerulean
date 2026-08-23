@@ -67,6 +67,11 @@ end
 
 local function classify(path: string, content: string): Outcome
     local opts = options_module.default()
+    -- Strict mode makes a comment-audit or separator-ownership failure raise
+    -- (caught below as "crashed") instead of returning status "failed". Without
+    -- it, a new audit regression on a file already pinned "failed" for another
+    -- reason reports the same status and empty output -- zero drift.
+    opts.strict_comments = true
     local ok, result = pcall(rewriter.rewrite, content, path, opts)
     if not ok then
         return Outcome.new("crashed", "")

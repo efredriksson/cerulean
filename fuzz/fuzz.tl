@@ -519,10 +519,15 @@ local function process_path(config: Config, path: string): boolean
     return false
 end
 
+-- Sorted so a pinned --seed reproduces the same corpus: find's traversal order
+-- is filesystem-dependent, and the mutation stream pairs rng draws with files
+-- by position.
 local function list_tl_files(dirs: {string}): {string}
     local paths: {string} = {}
     for _, dir in ipairs(dirs) do
-        local handle = io.popen("find " .. dir .. " -name '*.tl' -type f 2>/dev/null")
+        local handle = io.popen(
+            "find " .. dir .. " -name '*.tl' -type f 2>/dev/null | sort"
+        )
         if handle then
             for line in handle:lines() do
                 table.insert(paths, line)
