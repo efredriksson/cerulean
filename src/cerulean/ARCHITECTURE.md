@@ -10,7 +10,7 @@
 5. `require_sort.sort_top_level_requires`: in-place reorder of contiguous top-level `local ... = require(...)`. Stops at first non-require / fmt:off. Returns a per-node leading-comment override map (set as `ctx.slots.leading_overrides`) and a floating tail.
 6. If structural render allowed: `block_doc.render_block(ctx, block, …, require_sort_tail)` → `stmt_doc` → `expr_doc`/`table_doc`/`type_doc`, finalized via `doc.Doc:render`.
 
-If blocked or render fails: keep original source.
+If blocked or the render declines (a `nil` doc) or the audit rejects the output: keep original source. A render that *raises* is deliberately not caught — a crash is a bug to see, not to paper over, and no `pcall` guards the render layer.
 
 ## Modules
 
@@ -26,21 +26,24 @@ If blocked or render fails: keep original source.
 - `block_doc.tl` — block rendering, statement glue, `make_context()` factory.
 - `frozen_regions.tl` — frozen fmt:off-region geometry: partitions a block into verbatim `Run`s and structural statements (`group_segments` → `Segment` list) and resolves where a run's raw text starts and stops on its boundary lines. `block_doc` renders the segments.
 - `stmt_doc.tl` / `expr_doc.tl` / `table_doc.tl` — per-kind rendering.
-- `delimited_list_doc.tl` — comma-separated, comment-threaded list rendering. `render_items` is the framing-agnostic item loop (driven by an `ItemRenderSpec`); `render_parens` frames it with `(…)`. Shared by call argument lists + parameter lists (`expr_doc`/`type_doc` via `render_parens`) and table constructors (`table_doc` via `render_items`).
-- `render_builders.tl` — shared doc helpers.
+- `type_body_doc.tl` — definition-site type rendering: record/interface/enum bodies, their field entries, interface lists, `where` clauses and nested type aliases. Distinct from `type_doc.tl`, which renders the type expressions at use sites.
+- `delimited_list_doc.tl` — comma-separated, comment-threaded list rendering. `render_items` is the framing-agnostic item loop (driven by an `ItemRenderSpec`); `render_parens` frames it with `(…)`. Shared by call argument lists + parameter lists (`expr_doc`/`type_doc` via `render_parens`) and table constructors (`table_doc` via `render_items`). Also owns the comma/list doc shapes the two-stage breaks are built from (`build_grouped_comma_items_doc`, `build_exp_list_doc`, …). A record body still runs its own item loop in `type_body_doc`: converging it would need caller-specific knobs (an initial line state, a pre-item separator) on the shared loop.
+- `construct_layout.tl` — how a construct lays out its head, body and closer: whether a control-flow header hangs its expression around the keyword, the indented-body shapes shared by statement and type bodies, and the comment probes that force a list or body to wrap.
+- `precedence.tl` — operator binding strength (including the cast keywords, which carry no `op` node) and the parenthesization it implies. The single authority the expression and table renderers both read.
+- `string_literal.tl` — a string literal's own characters: quote normalisation, and the long-bracket lookahead deciding whether a subscript needs a space.
 - `require_sort.tl` — top-level require reorder.
 - `blank_lines.tl` — recomputes `blank_line_before` on container children from the token stream (statement lists, table literals, call-argument lists, enum items, record field entries).
 - `comment_audit.tl` — comment-preservation backstop. `diff(before_tokens, after_tokens)` compares the two token streams built from each side's parse (one lex per side, the input's shared with the render), keys every comment by its whitespace-normalized text, and reports any the formatter dropped or duplicated; `rewriter` safe-skips on any problem, naming the offending comment.
 
-Dep direction: `rewriter` → render → doc builders → doc core. `rewriter` is the only module requiring `parser`; everything downstream depends on `ast` only.
+Dep direction: `rewriter` → render → doc builders → doc core, acyclic. The render layer's leaves (`trivia_doc`, `string_literal`, `precedence`) require nothing but `ast`/`doc`. `rewriter` is the only module that *calls* `parser`; `cli.tl` requires it for the `parser.Error` type alone, and everything else downstream depends on `ast` only.
 
 ## RenderContext
 
 Breaks `block_doc` ↔ `stmt_doc` ↔ `expr_doc` ↔ `table_doc` cycle via callbacks: `render_expr(node)` and `render_block(node)`. `block_doc.make_context()` wires impls (closures over `self`) and builds the `CommentSlots` reader exposed as `ctx.slots`; created once in `rewriter.rewrite`, threaded through render + require-sort.
 
-## render_builders Helpers
+## Shared doc helpers
 
-(Shared across `block_doc`/`stmt_doc`/`expr_doc`/`table_doc`.)
+(`trivia_doc` owns the comment emitters, `delimited_list_doc` the list shapes, `construct_layout` the head/body layout and force-wrap probes.)
 
 - `trailing_comment_doc(comments)` — joins a comment list as text (` <c1> <c2>…`), else empty. Caller supplies the list from `ctx.slots:trailing_comments` / `ctx.slots:statement_trailing_comments`.
 - `head_trivia_doc(comments)` — emits a comment list inline (the `"head"` slot, read by the caller via `ctx.slots:opener_comments(node, "head")`).
@@ -79,11 +82,12 @@ A node addresses its tokens through the index slots the parser stamps: `tok_firs
 Discarded statement `;` tokens need no stamp: they render nothing, so the parser **deletes them from the token array at the moment it consumes them**, moving any comments parked on the `;` to the following token (the StyLua model — a removed token donates its trivia to a neighbor). `token_stream.from_tokens` then splits those comments against the surviving neighbors as usual: same-line ones become the previous token's trailing, own-line ones the next token's leading. After the parse the renderer's leading read is just "my first token's leading trivia" and statement gaps hold nothing — no scanning, no boundary arguments. One geometric trace remains: a return's consumed `;` leaves its line in `node.yend`, so an fmt:off region anchored only by the `;` line still freezes the statement (frozen output is raw source lines, which preserves the `;` bytes).
 
 Two enforcement points keep this closed:
-- `parser.check_separator_ownership(root, tokens)`, run under `strict_comments` (spec helpers + fuzz enable it): every separator-shaped token in a parsed file must be owned by exactly one stamp; an unowned one raises with its position. A missed consumption site fails the whole suite, position-exact.
-- `make lint` greps the render-layer files for `.text ==`/`.text ~=` and fails on any hit, so token-text classification cannot creep back in.
+- `parser.check_separator_ownership(root, tokens)`, run under `strict_comments` (spec helpers + fuzz enable it): every separator-shaped token in a parsed file must be owned by **at least one** stamp; an unowned one raises with its position. (`=`/`:` are exempt unless they directly follow some node's `tok_last`, since they also appear where no node claims them. Tightening to exactly-one would need dedup bookkeeping and hunts a defect class never observed.) A missed consumption site fails the whole suite, position-exact.
+- `make lint` greps the render-layer files (`RENDER_LAYER` in the Makefile — keep new render modules in that glob) for `.text ==`/`.text ~=` and fails on any hit, so token-text classification cannot creep back in.
 
 **CommentSlots accessors** (all return `{Comment}`, computed from the token stream, marked consumed on read):
-- `leading_comments(node)` — own-line comments leading a statement: its `tok_first` leading trivia (any discarded-`;` trivia was already moved there by the parser's deletion). Consults `leading_overrides` first (see require_sort).
+- `leading_comments(node)` — own-line comments leading a statement: its `tok_first` leading trivia (any discarded-`;` trivia was already moved there by the parser's deletion). Consults `leading_overrides` first (see require_sort). Defined as `consume(peek_leading_comments(node))`.
+- `peek_leading_comments(node)` — the same run read **without** consuming, for geometry: fmt-off math asks which leading comments a frozen region covers and where the run starts, then leaves the emitting read to take them. Same rule as `trailing_extent`/`leading_extent`.
 - `trailing_comments(node)` / `statement_trailing_comments(node)` — same-line comments after a node's last content token, routed by the ownership stamps: `tok_sep` donates the separator's line comments to the item, `tok_bound` ends the claim at line comments (a block comment right before the boundary is left for the sweep), no stamp takes the run whole. Forces a break in surrounding layout.
 - `dangling_comments(block)` / `container_dangling_comments(node, empty?)` — own-line comments before a block's or container's closer (`tok_last`, which lands exactly on the `end`/`}`/`)`, or EOF for the top-level block; the container variant also picks up the opener-trailing comment of an empty container).
 - `item_leading_comments(item, prev, absorb_opener?)` — own-line comments leading a list/table/enum/field item: its leading run plus a comment stranded on the separator in the sibling gap. `prev` is the previous item, passed by the iterating caller (nil for the first item) — the gap between siblings is the caller's knowledge, never scanned for; with `absorb_opener`, the first item also takes the opener's same-line comment.
@@ -91,25 +95,26 @@ Two enforcement points keep this closed:
 - `pre_opener_block_comments(node, slot)` — positional twin of `opener_comments`: the same-line trivia just *before* the slot's opener token (the `=` of an assignment/declaration), kept inline in place, but only when the whole run is single-line block comments; otherwise returns empty without consuming and the run falls to `trailing_comments`/the sweep.
 - `pre_opener_trailing_comments(node, slot, item)` — the line-comment counterpart: `item`'s own `trailing_comments` run, but only when `item.tok_bound` *is* the slot's opener token. The run is emitted after the whole lhs, so an item bounded by anything else (a declaration's `:`) would have its comment land at a token the next parse reads differently; declining leaves it to the sweep.
 - `op_leading_comments(node)` / `op_trailing_comments(node)` — the one-token gap around a binary/cast operator. Own-line forces a chain break; same-line stays inline.
-- `has_op_comments(node)` — probe: does either operator gap hold a comment? Reads through the two accessors above, so it marks consumed; safe only because both probing callers (`expr_doc`'s chain fast-path check, `render_builders.has_chain_internal_trivia`) sit on paths whose emit re-reads the same gaps.
+- `has_op_comments(node)` — probe: does either operator gap hold a comment? Reads through the two accessors above, so it marks consumed; safe only because both probing callers (`expr_doc`'s chain fast-path check, `construct_layout.has_chain_internal_trivia`) sit on paths whose emit re-reads the same gaps.
 - `unconsumed_comments_in_span(node)` — the sweep (layer 3): unpacks the node's token span and delegates to `Stream:take_unconsumed`, which returns every trivium in the window not yet consumed and not frozen by fmt-off, marking each consumed. (`rewriter`'s unconsumed-comment log is the same stream call over the whole array.)
 - `Stream:consume_slice(first_line, start_col, last_line, cut_col?)` — on the stream, not the context, and not a read: marks the comments a frozen (fmt-off) run just emitted raw as consumed, so an enclosing statement's sweep does not relocate a duplicate copy.
 - `trailing_extent(node)` / `leading_extent(item, prev, absorb_opener?)` — geometry, not comments: the last line a node's same-line trailing run or its leading run reaches, read **without consuming**. fmt-off region math and blank-line marking both need the line and neither emits, so consuming here would hide a comment from the sweep that nothing then prints.
 
 `blank_line_before` on a `Comment` (own-line runs) and on a container child (set by `blank_lines.mark`) preserves a single source blank line. For comments it is measured against the actual source lines (`blank_line_between` in comment_slots), not line-number arithmetic: a line that held only a discarded `;` sits inside a token gap without being blank.
 
-**Where each slot is emitted** — the inverse index, so "where is construct X's comment handled?" resolves to a file. Regenerate by grepping `:<accessor>(`. `render_builders` is the shared helper hub (force-wrap probes, list emit loops), not a construct renderer, so it is omitted; `blank_lines`/`rewriter` only *read* some slots (blank marking, require_sort overrides), shown in parentheses.
+**Where each slot is emitted** — the inverse index, so "where is construct X's comment handled?" resolves to a file. Regenerate by grepping `:<accessor>(`. `trivia_doc`/`delimited_list_doc`/`construct_layout` hold shared helpers (comment emitters, list loops, force-wrap probes), not construct renderers, so they are omitted; `blank_lines`/`rewriter`/`frozen_regions` only *read* some slots (blank marking, require_sort overrides, fmt-off geometry), shown in parentheses.
 
 | Accessor | Emitting module(s) |
 | --- | --- |
-| `leading_comments` | block_doc · (rewriter) |
+| `leading_comments` | block_doc, frozen_regions · (rewriter) |
 | `statement_trailing_comments` | block_doc |
 | `unconsumed_comments_in_span` | block_doc |
-| `trailing_comments` | block_doc, stmt_doc, table_doc, delimited_list_doc, inline_stmt_doc |
+| `trailing_comments` | stmt_doc, type_body_doc, table_doc, delimited_list_doc, inline_stmt_doc |
 | `dangling_comments` | block_doc, stmt_doc |
+| `peek_leading_comments` | (frozen_regions — geometry, non-consuming) |
 | `container_dangling_comments` | stmt_doc, table_doc, delimited_list_doc |
-| `item_leading_comments` | stmt_doc, delimited_list_doc |
-| `opener_comments` | stmt_doc, function_doc, type_doc, table_doc, delimited_list_doc, inline_stmt_doc |
+| `item_leading_comments` | type_body_doc, delimited_list_doc |
+| `opener_comments` | stmt_doc, type_body_doc, function_doc, type_doc, table_doc, delimited_list_doc, inline_stmt_doc |
 | `pre_opener_block_comments` | inline_stmt_doc |
 | `pre_opener_trailing_comments` | inline_stmt_doc |
 | `op_leading_comments` / `op_trailing_comments` | expr_doc |
@@ -167,7 +172,7 @@ What any parser (incl. future replacement) must supply. Renderers depend only on
 
 **Positions.** `y`/`x` 1-indexed (`Where` interface). These are **already token-derived by construction** — `new_node` copies `y`/`x`/`tk`/`tok_first` straight off the token at the node's start index, and `end_at`/`verify_end` set `yend`/`tok_last` off the closing token. There is no separate "manual position stamping" layer to delete or re-derive; reworking positions to compute post-hoc from `tok_first`/`tok_last` would be a lateral refactor that only risks drift. `node.yend` guaranteed on statements (set in `parse_statements`) + expression nodes (set before operands wrapped into op nodes); renderers read directly, no `yend or y` fallback. Other kinds (e.g. `if_block` with empty body) may lack `yend`; fallback only there. `close_x` = closing keyword's start column on block statements; nil at top level (EOF not closer).
 
-**Known boundary exceptions.** Two modules sidestep the "positions are parser-derived, trivia is read through `CommentSlots`" discipline, deliberately and narrowly. `require_sort` is the only non-parser *writer* of `y`/`yend`: reordering moves statements and comments contrary to source position, so it re-derives their lines by hand (`move_comment_to` and the block-repack loop). `blank_lines` reads `ctx.tokens[…].y`/`.yend` directly off the stream for its geometry — read-only, but a direct `Token`-field dependency outside the accessor suite. A future change to the position or token model must visit both.
+**Known boundary exceptions.** Three modules sidestep the "positions are parser-derived, trivia is read through `CommentSlots`" discipline, deliberately and narrowly. `require_sort` is the only non-parser *writer* of `y`/`yend`: reordering moves statements and comments contrary to source position, so it re-derives their lines by hand (`move_comment_to` and the block-repack loop). `blank_lines` and `frozen_regions` read `ctx.tokens[…].y`/`.yend` directly off the stream for their geometry — read-only, but a direct `Token`-field dependency outside the accessor suite. A future change to the position or token model must visit all three.
 
 **Token fidelity.** `node.tk` = verbatim source text. String nodes carry `tk` (with quotes), `conststr` (unquoted value), `is_longstring`. Op nodes carry `op.op`, `op.prec`, `op.y`: expression rendering + trivia placement need all three.
 
@@ -175,6 +180,21 @@ What any parser (incl. future replacement) must supply. Renderers depend only on
 
 **Token spans.** Every `Node` / `Type` / `FieldEntry` carries `tok_first` / `tok_last` — integer indices into the token array bounding the source it owns, index-aligned with `token_stream` (see Modules). These are **renderer-facing**: the renderer reads a node's leading comments at `tok_first`'s leading trivia and its trailing at `tok_last`'s trailing trivia, so a node whose span includes a token it does not own (a "phantom span") would read a neighbouring comment. For a delimited construct `tok_last` lands exactly on the closer (`end`/`until`/`else`/`elseif`/`}`/`)`), so `dangling_comments` reads that token's leading trivia with no guesswork.
 
-**Index alignment invariant.** The renderer's stream is built *from the token array the parse returns*, so alignment is by identity, not by parallel construction — which is what makes the parser's one mutation (deleting discarded statement `;` tokens) safe: every index the renderer sees was stamped against the already-compacted array. Deletion happens at the parse frontier, so stamps taken before it point at or before the removal point, and a rolled-back trial parse re-walks the same compacted array (a statement `;` never re-parses as anything else). No synthetic tokens are ever inserted (the old synthetic `;` for the `f()\n(...)` cross-line-call ambiguity is gone: ending the suffix chain already marks the statement boundary). Identity alignment is what lets the accessors trust `tok_first`/`tok_last`/`slot_tok` directly, instead of re-deriving structure from token text (no closer-keyword table, no leftmost-token walk-back).
+**Index alignment invariant.** The renderer's stream is built *from the token array the parse returns*, so alignment is by identity, not by parallel construction — which is what makes the parser's one mutation (deleting discarded statement `;` tokens) safe: every index the renderer sees was stamped against the already-compacted array. Deletion happens at the parse frontier, so stamps taken before it point at or before the removal point, and a rolled-back trial parse re-walks the same compacted array (a statement `;` never re-parses as anything else). No synthetic tokens are ever inserted and the array's length changes only by that deletion (the old synthetic `;` for the `f()\n(...)` cross-line-call ambiguity is gone: ending the suffix chain already marks the statement boundary). Two in-place edits do not disturb alignment: `>>` is rewritten to `>` when it closes two type-argument lists, and `parse_statement_argument` masks one token as `$EOF$` for the length of a macro-argument slice, restoring it after. Identity alignment is what lets the accessors trust `tok_first`/`tok_last`/`slot_tok` directly, instead of re-deriving structure from token text (no closer-keyword table, no leftmost-token walk-back).
 
-**Conformance.** `make ab-snapshot` pins per-file status + output over `fuzz/corpus/`; `make ab-diff` reruns, reports drift. Snapshot before parser change, diff after; review every drift, then retake snapshot. The harness runs with `strict_comments` on, so an audit or separator-ownership regression surfaces as a `crashed` status change even on a file already pinned `failed`. Both the snapshot and the corpus are local-only (gitignored): the comparison exists only between your own snapshot and diff runs. Never regenerate `fuzz/corpus/` between the two — the diff would drown in "corpus changed?" noise; `make fuzz-corpus` pins its `--seed` precisely so a regeneration is reproducible when you do intend one.
+**Line width is byte length.** `doc.tl` advances its column by `#text`, so a
+multi-byte UTF-8 identifier or string counts its bytes, not its codepoints or
+display columns. The failure is conservative — such a line wraps earlier than it
+had to, never later — and matching display width would mean carrying
+east-asian-width tables for a Lua formatter. Deliberate and permanent.
+
+**Constructor downcasts are the sanctioned cast idiom.** `new_type(ps, i, "enum") as EnumType`
+and `new_doc("group") as DocGroup` are legal exactly where they appear: on the
+line that just wrote the discriminator the target type is keyed on, so the cast
+cannot be wrong. Teal cannot narrow a returned base record, and per-kind
+constructor functions would relocate these casts rather than remove them. Casts
+of any other shape are smells: a cross-enum coercion, a function-type coercion
+that defeats contravariance on a dispatch table, and an unchecked widening to an
+interface were each removed rather than restyled.
+
+**Conformance.** `make ab-snapshot` pins per-file status + output over `fuzz/corpus/`; `make ab-diff` reruns, reports drift. Snapshot before parser change, diff after; review every drift, then retake snapshot. The harness runs with `strict_comments` on, so an audit or separator-ownership regression surfaces as a `crashed` status change even on a file already pinned `failed`. `make fuzz` runs with `strict_comments` on for the same reason, and additionally compares the structural shape of the input and output parse trees (`fuzz/ast_shape.tl`), so a pass that rewrites what the program says is caught as `ast_changed` rather than passing as valid output. Findings append to `fuzz/regressions_spec.lua` unique by kind and input; promote each to a minimized case in `spec/` before committing its fix, since that file is gitignored scratch. Both the snapshot and the corpus are local-only (gitignored): the comparison exists only between your own snapshot and diff runs. Never regenerate `fuzz/corpus/` between the two — the diff would drown in "corpus changed?" noise; `make fuzz-corpus` pins its `--seed` precisely so a regeneration is reproducible when you do intend one.
