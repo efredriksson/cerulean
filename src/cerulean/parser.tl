@@ -29,6 +29,8 @@ local type NominalType = ast.NominalType
 local type FunctionType = ast.FunctionType
 local type ArrayType = ast.ArrayType
 local type RecordLikeType = ast.RecordLikeType
+local type RecordType = ast.RecordType
+local type InterfaceType = ast.InterfaceType
 local type NilType = ast.NilType
 local type UnionType = ast.UnionType
 local type TupleTableType = ast.TupleTableType
@@ -140,7 +142,6 @@ local parse_type_declaration: function(
 
 local parse_interface_name: function(ps: ParseState, i: integer): integer, Type, integer
 
-local type ParseBody = function(ps: ParseState, i: integer, def: Type): integer, boolean
 local parse_enum_body: function(
     ps: ParseState, i: integer, def: EnumType
 ): integer, boolean
@@ -149,7 +150,14 @@ local parse_record_body: function(
     ps: ParseState, i: integer, def: RecordLikeType
 ): integer, boolean
 
-local parse_type_body_fns: {BodyTypeName: ParseBody}
+-- The keywords that introduce a type body. Membership only: the body parsers
+-- are dispatched per kind (parse_body_by_kind), each taking the type it
+-- actually parses into.
+local type_body_keywords: {BodyTypeName: boolean} = {
+    ["interface"] = true,
+    ["record"] = true,
+    ["enum"] = true,
+}
 
 do
     -- Raised by fail and caught in exactly two places -- attempt (the one
@@ -247,8 +255,17 @@ do
         return t
     end
 
-    local function new_body_type(ps: ParseState, i: integer, tn: BodyTypeName): Type
-        return new_type(ps, i, tn as TypeName)
+    local function new_enum_body_type(ps: ParseState, i: integer): EnumType
+        return new_type(ps, i, "enum") as EnumType
+    end
+
+    local function new_record_like_body_type(
+        ps: ParseState, i: integer, tn: BodyTypeName
+    ): RecordLikeType
+        if tn == "interface" then
+            return new_type(ps, i, "interface") as InterfaceType
+        end
+        return new_type(ps, i, "record") as RecordType
     end
 
     local function new_generic(
@@ -323,17 +340,31 @@ do
         return tryi, item
     end
 
+    -- Each body kind builds the type it parses into and hands it to the parser
+    -- typed for it, so the pairing is checked rather than asserted through one
+    -- homogeneous map.
+    local function parse_body_by_kind(
+        ps: ParseState, i: integer, istart: integer, tn: BodyTypeName
+    ): integer, Type, boolean
+        if tn == "enum" then
+            local def = new_enum_body_type(ps, istart)
+            local next_i, ok = parse_enum_body(ps, i, def)
+            return next_i, def, ok
+        end
+        local def = new_record_like_body_type(ps, istart, tn)
+        local next_i, ok = parse_record_body(ps, i, def)
+        return next_i, def, ok
+    end
+
     local function parse_type_body(
         ps: ParseState, i: integer, istart: integer, node: Node, tn: BodyTypeName
     ): integer, Type
         local typeargs: {TypeArgType}
-        local def: Type
         i, typeargs = parse_typeargs_if_any(ps, i)
 
-        def = new_body_type(ps, istart, tn)
-
+        local def: Type
         local ok: boolean
-        i, ok = parse_type_body_fns[tn](ps, i, def)
+        i, def, ok = parse_body_by_kind(ps, i, istart, tn)
         if not ok then
             return fail(ps, i, "expected a type")
         end
@@ -2126,7 +2157,7 @@ do
                 -- parse_nested_type.
                 nt.tok_first = field_start
                 store_field_in_record(ps, v.tk, nt.def, def, nt, field_start, i)
-            elseif parse_type_body_fns[tn] and ps.tokens[i + 1].tk ~= ":" then
+            elseif type_body_keywords[tn] and ps.tokens[i + 1].tk ~= ":" then
                 if def.typename == "interface" and tn == "record" then
                     i = fail(ps, i, "interfaces cannot contain record definitions")
                 else
@@ -2252,19 +2283,13 @@ do
         return i, true
     end
 
-    parse_type_body_fns = {
-        ["interface"] = parse_record_body as ParseBody,
-        ["record"] = parse_record_body as ParseBody,
-        ["enum"] = parse_enum_body as ParseBody,
-    }
-
     local function parse_newtype(ps: ParseState, i: integer): integer, Node
         local node: Node = new_node(ps, i, "newtype")
         local def: Type
         local tn = ps.tokens[i].tk as BodyTypeName
         local istart = i
 
-        if parse_type_body_fns[tn] then
+        if type_body_keywords[tn] then
             i, def = parse_type_body(ps, i + 1, istart, node, tn)
         else
             i, def = parse_type(ps, i)
@@ -2387,7 +2412,7 @@ do
         if ps.tokens[i].tk == "=" then
             local next_word = ps.tokens[i + 1].tk
             local tn = next_word as BodyTypeName
-            if parse_type_body_fns[tn] then
+            if type_body_keywords[tn] then
                 local scope = node_name == "local_declaration" and "local" or "global"
                 return fail(
                     ps,
@@ -2525,7 +2550,7 @@ do
 
     local function at_bare_type(ps: ParseState, i: integer): boolean
         return ps.allow_bare_type
-            and parse_type_body_fns[ps.tokens[i].tk as BodyTypeName] ~= nil
+            and type_body_keywords[ps.tokens[i].tk as BodyTypeName] ~= nil
             and ps.tokens[i + 1].kind == "identifier"
     end
 
@@ -2560,7 +2585,7 @@ do
         elseif ntk == "macroexp" and ps.tokens[i + 2].kind == "identifier" then
             i, node = parse_local_macroexp(ps, i)
         elseif
-            parse_type_body_fns[tn as BodyTypeName]
+            type_body_keywords[tn as BodyTypeName]
             and ps.tokens[i + 2].kind == "identifier"
         then
             i, node = parse_type_constructor(ps, i, "local_type", tn as BodyTypeName)
@@ -2589,7 +2614,7 @@ do
         elseif ntk == "type" and ps.tokens[i + 2].kind == "identifier" then
             i, node = parse_type_declaration(ps, i + 2, "global_type")
         elseif
-            parse_type_body_fns[tn as BodyTypeName]
+            type_body_keywords[tn as BodyTypeName]
             and ps.tokens[i + 2].kind == "identifier"
         then
             i, node = parse_type_constructor(ps, i, "global_type", tn as BodyTypeName)
