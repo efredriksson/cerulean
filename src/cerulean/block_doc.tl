@@ -1,14 +1,15 @@
 local ast = require("cerulean.ast")
 local comment_slots = require("cerulean.comment_slots")
+local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
 local expr_doc = require("cerulean.expr_doc")
 local fmt_logger = require("cerulean.fmt_logger")
 local frozen_regions = require("cerulean.frozen_regions")
-local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local source = require("cerulean.source")
 local stmt_doc = require("cerulean.stmt_doc")
 local token_stream = require("cerulean.token_stream")
+local trivia_doc = require("cerulean.trivia_doc")
 
 local type RenderContext = render_context.RenderContext
 local type Segment = frozen_regions.Segment
@@ -42,7 +43,7 @@ local function render_frozen_run_segment(
     if #pre_fmt_off == 0 and #verbatim_lines == 0 then
         return
     end
-    line_before = render_builders.append_comment_docs(parts, pre_fmt_off, line_before)
+    line_before = trivia_doc.append_comment_docs(parts, pre_fmt_off, line_before)
     if line_before then
         table.insert(parts, doc.hardline())
     end
@@ -97,14 +98,14 @@ local function render_structural_segment(
         table.insert(parts, doc.break_parent())
     end
 
-    line_before = render_builders.append_comment_docs(parts, leading, line_before)
-    line_before = render_builders.append_comment_docs(parts, swept, line_before)
+    line_before = trivia_doc.append_comment_docs(parts, leading, line_before)
+    line_before = trivia_doc.append_comment_docs(parts, swept, line_before)
     table.insert(
         parts,
-        render_builders.append_lines_pre_node(stmt, line_before, doc.stmt_sep_line())
+        delimited_list_doc.append_lines_pre_node(stmt, line_before, doc.stmt_sep_line())
     )
     table.insert(parts, node_doc)
-    table.insert(parts, render_builders.trailing_comment_doc(trailing))
+    table.insert(parts, trivia_doc.trailing_comment_doc(trailing))
     return true
 end
 
@@ -135,7 +136,7 @@ local function render_block_doc(ctx: RenderContext, block: ast.Node): doc.Doc | 
             table.insert(dangling, comment)
         end
     end
-    render_builders.append_comment_docs(parts, dangling, line_before)
+    trivia_doc.append_comment_docs(parts, dangling, line_before)
 
     return doc.concat(parts)
 end
@@ -182,7 +183,7 @@ function block_doc.render_block(
     -- to the end of the block; they arrive here as a render-time tail since the
     -- block's own dangling comments now come from the token stream.
     local parts: {doc.Doc} = {get_prelude(), block_doc_node}
-    render_builders.append_comment_docs(parts, require_sort_tail, true)
+    trivia_doc.append_comment_docs(parts, require_sort_tail, true)
     table.insert(parts, doc.hardline())
     local full_doc = doc.concat(parts)
     fmt_logger.debug("doc IR:\n%s", full_doc)

@@ -1,7 +1,6 @@
 local ast = require("cerulean.ast")
 local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
-local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local trivia_doc = require("cerulean.trivia_doc")
 
@@ -106,7 +105,7 @@ function type_doc.render_typeargs(
     return doc.concat(
         {
             doc.text("<"),
-            render_builders.build_separated_docs(typearg_docs, ", "),
+            delimited_list_doc.build_separated_docs(typearg_docs, ", "),
             doc.text(">"),
         }
     )
@@ -155,7 +154,7 @@ local function nominal_type_render(
             table.insert(typeval_docs, render_type(ctx, typeval, opts))
         end
         table.insert(parts, doc.text("<"))
-        table.insert(parts, render_builders.build_separated_docs(typeval_docs, ", "))
+        table.insert(parts, delimited_list_doc.build_separated_docs(typeval_docs, ", "))
         table.insert(parts, doc.text(">"))
     end
     return doc.concat(parts)
@@ -193,7 +192,7 @@ local function union_type_render(
         local branch_opts = (index == last) and opts or TypeRenderOpts.new()
         table.insert(type_docs, render_type(ctx, t, branch_opts))
     end
-    return render_builders.build_separated_docs(type_docs, " | ")
+    return delimited_list_doc.build_separated_docs(type_docs, " | ")
 end
 
 -- Grouped with breakable separators so a return tuple wider than the
@@ -243,7 +242,7 @@ local function tupletable_type_render(
     return doc.concat(
         {
             doc.text("{"),
-            render_builders.build_separated_docs(type_docs, ", "),
+            delimited_list_doc.build_separated_docs(type_docs, ", "),
             doc.text("}"),
         }
     )

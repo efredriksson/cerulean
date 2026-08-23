@@ -1,7 +1,7 @@
 local ast = require("cerulean.ast")
 local construct_layout = require("cerulean.construct_layout")
+local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
-local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local trivia_doc = require("cerulean.trivia_doc")
 local type_doc = require("cerulean.type_doc")
@@ -17,12 +17,12 @@ function inline_stmt_doc.render_return_doc(ctx: RenderContext, stmt: ast.Node): 
         -- break the enclosing (possibly flat) function group or it swallows `end`.
         local after_return = ctx.slots:opener_comments(stmt, "after_opener")
         return doc.concat(
-            {doc.text("return"), render_builders.trailing_comment_doc(after_return)}
+            {doc.text("return"), trivia_doc.trailing_comment_doc(after_return)}
         )
     end
 
-    local return_exp_doc = render_builders.build_return_exp_list_doc(ctx, stmt.exps)
-    local stmt_doc = render_builders.with_leading_inline_trivia(
+    local return_exp_doc = delimited_list_doc.build_return_exp_list_doc(ctx, stmt.exps)
+    local stmt_doc = trivia_doc.with_leading_inline_trivia(
         ctx.slots:opener_comments(stmt, "after_opener"),
         doc.text("return "),
         return_exp_doc
@@ -47,7 +47,7 @@ local function build_eq_prefix(
         return doc.concat(
             {
                 lhs_doc,
-                render_builders.trailing_comment_doc(last_var_trailing),
+                trivia_doc.trailing_comment_doc(last_var_trailing),
                 doc.indent_hardline(doc.text("= ")),
             }
         )
@@ -86,7 +86,8 @@ local function build_init_doc(
         or #last_var_trailing > 0
         or earlier_var_has_trailing_comment(ctx, stmt.vars)
     if
-        not eq_carries_comments and render_builders.exp_list_can_break(ctx, stmt.exps)
+        not eq_carries_comments
+        and delimited_list_doc.exp_list_can_break(ctx, stmt.exps)
     then
         -- The `=` sheds its trailing space; the wrap's line puts it back when flat.
         return construct_layout.wrap_keyword_before(
@@ -94,9 +95,7 @@ local function build_init_doc(
         )
     end
     local eq_prefix = build_eq_prefix(prefix_doc, inline_blocks, last_var_trailing)
-    return render_builders.with_leading_inline_trivia(
-        after_opener, eq_prefix, value_doc
-    )
+    return trivia_doc.with_leading_inline_trivia(after_opener, eq_prefix, value_doc)
 end
 
 function inline_stmt_doc.render_assignment_doc(
@@ -106,11 +105,11 @@ function inline_stmt_doc.render_assignment_doc(
     for _, var in ipairs(stmt.vars) do
         table.insert(var_docs, ctx.render_expr(var))
     end
-    local vars_doc = render_builders.build_comma_separated_with_trailing(
+    local vars_doc = delimited_list_doc.build_comma_separated_with_trailing(
         ctx, stmt.vars, var_docs
     )
     return build_init_doc(
-        ctx, stmt, vars_doc, render_builders.build_exp_list_doc(ctx, stmt.exps)
+        ctx, stmt, vars_doc, delimited_list_doc.build_exp_list_doc(ctx, stmt.exps)
     )
 end
 
@@ -132,7 +131,7 @@ local function build_vars_doc(
     return doc.concat(
         {
             doc.text(keyword .. " "),
-            render_builders.build_comma_separated_with_trailing(
+            delimited_list_doc.build_comma_separated_with_trailing(
                 ctx, stmt.vars, item_docs
             ),
         }
@@ -167,7 +166,7 @@ function inline_stmt_doc.render_declaration_doc(
     end
 
     return build_init_doc(
-        ctx, stmt, prefix_doc, render_builders.build_exp_list_doc(ctx, stmt.exps)
+        ctx, stmt, prefix_doc, delimited_list_doc.build_exp_list_doc(ctx, stmt.exps)
     )
 end
 

@@ -1,12 +1,13 @@
 -- AST expression node → doc.Doc. Leaf nodes and simple operators produce flat text;
 -- logical chains produce breakable groups at any nesting level; tables delegate to table_doc.
 local ast = require("cerulean.ast")
+local construct_layout = require("cerulean.construct_layout")
 local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
 local function_doc = require("cerulean.function_doc")
 local precedence = require("cerulean.precedence")
-local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
+local string_literal = require("cerulean.string_literal")
 local table_doc = require("cerulean.table_doc")
 local trivia_doc = require("cerulean.trivia_doc")
 local type_doc = require("cerulean.type_doc")
@@ -250,14 +251,14 @@ end
 
 local function render_string_literal(node: ast.Node): doc.Doc
     return doc.text(
-        render_builders.normalize_string_literal(node.tk, node.is_longstring)
+        string_literal.normalize_string_literal(node.tk, node.is_longstring)
     )
 end
 
 -- Flattened, the separator between two statements reads `; ` and a leading comment
 -- swallows the rest of the line. One bare statement is safe.
 local function block_needs_own_lines(ctx: RenderContext, block: ast.Node): boolean
-    return #block ~= 1 or render_builders.any_items_have_comments(ctx, block, false)
+    return #block ~= 1 or construct_layout.any_items_have_comments(ctx, block, false)
 end
 
 -- A macro parameter declared `Statement` puts a block where the argument list
@@ -322,7 +323,7 @@ local function render_index(
     ctx: RenderContext, node: ast.Node, same_indent_on_line: boolean
 ): doc.Doc
     local key = node.e2
-    local spacing = render_builders.key_starts_with_long_string(key) and " " or ""
+    local spacing = string_literal.key_starts_with_long_string(key) and " " or ""
     return doc.concat(
         {
             render_expr(ctx, node.e1, SUFFIX_PREC, same_indent_on_line),

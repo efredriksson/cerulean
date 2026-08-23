@@ -1,10 +1,12 @@
 -- Table constructor → doc.Doc (build_table_doc).
 local ast = require("cerulean.ast")
+local construct_layout = require("cerulean.construct_layout")
 local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
 local precedence = require("cerulean.precedence")
-local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
+local string_literal = require("cerulean.string_literal")
+local trivia_doc = require("cerulean.trivia_doc")
 local type_doc = require("cerulean.type_doc")
 
 local type RenderContext = render_context.RenderContext
@@ -55,15 +57,15 @@ local function build_table_item_text(ctx: RenderContext, item: ast.Node): doc.Do
                 }
             )
         end
-        return render_builders.with_leading_inline_trivia(
+        return trivia_doc.with_leading_inline_trivia(
             ctx.slots:opener_comments(item, "after_opener"),
             doc.text(key_text .. " = "),
             ctx.render_expr(item.value)
         )
     end
 
-    local bracket_spacing = render_builders.key_starts_with_long_string(item.key)
-        and " " or ""
+    local bracket_spacing = string_literal.key_starts_with_long_string(item.key) and " "
+        or ""
     return doc.concat(
         {
             doc.text("[" .. bracket_spacing),
@@ -105,10 +107,10 @@ end
 
 function table_doc.build_table_doc(ctx: RenderContext, items: ast.Node): doc.Doc
     local dangling = ctx.slots:container_dangling_comments(items, #items == 0)
-    local force_wrap = render_builders.any_items_have_comments(ctx, items, true)
+    local force_wrap = construct_layout.any_items_have_comments(ctx, items, true)
         or items.trailing_comma
         or #dangling > 0
-    local line_doc = render_builders.item_line_doc(force_wrap)
+    local line_doc = delimited_list_doc.item_line_doc(force_wrap)
 
     local items_doc = delimited_list_doc.render_items(
         ctx, items, dangling, table_item_render_spec(ctx, force_wrap)

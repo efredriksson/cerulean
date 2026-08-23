@@ -1,11 +1,12 @@
 -- Single AST statement → doc.Doc. Returns nil for unsupported statement shapes.
 local ast = require("cerulean.ast")
 local construct_layout = require("cerulean.construct_layout")
+local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
 local function_doc = require("cerulean.function_doc")
 local inline_stmt_doc = require("cerulean.inline_stmt_doc")
-local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
+local trivia_doc = require("cerulean.trivia_doc")
 local type_body_doc = require("cerulean.type_body_doc")
 local type_doc = require("cerulean.type_doc")
 
@@ -137,7 +138,7 @@ local function render_if_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
                     doc.text("then")
                 )
             end
-            local with_comment = render_builders.with_leading_inline_trivia(
+            local with_comment = trivia_doc.with_leading_inline_trivia(
                 ctx.slots:opener_comments(if_block, "after_opener"),
                 doc.text(keyword .. " "),
                 ctx.render_expr(if_block.exp)
@@ -151,7 +152,7 @@ local function render_if_doc(ctx: RenderContext, node: ast.Node): doc.Doc | nil
         table.insert(parts, get_head_text())
         table.insert(
             parts,
-            render_builders.head_trivia_doc(ctx.slots:opener_comments(if_block, "head"))
+            trivia_doc.head_trivia_doc(ctx.slots:opener_comments(if_block, "head"))
         )
         table.insert(parts, doc.indent_line(body_doc))
     end
@@ -180,7 +181,7 @@ local function render_while_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
                 doc.text("while"), ctx.render_expr(node.exp, true), doc.text("do")
             )
         end
-        local while_and_exp_doc = render_builders.with_leading_inline_trivia(
+        local while_and_exp_doc = trivia_doc.with_leading_inline_trivia(
             ctx.slots:opener_comments(node, "after_opener"),
             doc.text("while "),
             ctx.render_expr(node.exp)
@@ -191,7 +192,7 @@ local function render_while_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
     local header = doc.concat(
         {
             build_head_group(),
-            render_builders.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
+            trivia_doc.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
         }
     )
     return construct_layout.block_with_close(header, body_doc, "end")
@@ -224,11 +225,11 @@ local function render_fornum_doc(ctx: RenderContext, node: ast.Node): doc.Doc | 
         {
             build_fornum_range_doc(node, ctx),
             doc.text(" do"),
-            render_builders.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
+            trivia_doc.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
         }
     )
     return construct_layout.block_with_close(
-        render_builders.with_leading_inline_trivia(
+        trivia_doc.with_leading_inline_trivia(
             ctx.slots:opener_comments(node, "after_opener"),
             doc.text("for " .. node.var.tk .. " = "),
             tail
@@ -265,7 +266,7 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
     local for_in_keyword = doc.concat(
         {
             doc.text("for "),
-            render_builders.build_comma_separated_docs(var_docs),
+            delimited_list_doc.build_comma_separated_docs(var_docs),
             doc.text(" in"),
         }
     )
@@ -274,7 +275,7 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
         if #node.exps == 1 then
             return ctx.render_expr(node.exps[1], true)
         end
-        return render_builders.build_mapped_comma_separated_docs(ctx, node.exps)
+        return delimited_list_doc.build_mapped_comma_separated_docs(ctx, node.exps)
     end
 
     local function build_header(): doc.Doc
@@ -284,7 +285,7 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
                     construct_layout.wrap_keyword_around(
                         for_in_keyword, build_wrapped_exps(), doc.text("do")
                     ),
-                    render_builders.head_trivia_doc(
+                    trivia_doc.head_trivia_doc(
                         ctx.slots:opener_comments(node, "head")
                     ),
                 }
@@ -293,18 +294,16 @@ local function render_forin_doc(ctx: RenderContext, node: ast.Node): doc.Doc | n
         local tail_doc = doc.concat(
             {
                 doc.text(" do"),
-                render_builders.head_trivia_doc(
-                    ctx.slots:opener_comments(node, "head")
-                ),
+                trivia_doc.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
             }
         )
         local exps_and_tail = doc.concat(
             {
-                render_builders.build_mapped_comma_separated_docs(ctx, node.exps),
+                delimited_list_doc.build_mapped_comma_separated_docs(ctx, node.exps),
                 tail_doc,
             }
         )
-        return render_builders.with_leading_inline_trivia(
+        return trivia_doc.with_leading_inline_trivia(
             ctx.slots:opener_comments(node, "after_opener"),
             doc.concat({for_in_keyword, doc.text(" ")}),
             exps_and_tail
@@ -327,7 +326,7 @@ local function render_repeat_doc(ctx: RenderContext, node: ast.Node): doc.Doc | 
     local header = doc.concat(
         {
             doc.text("repeat"),
-            render_builders.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
+            trivia_doc.head_trivia_doc(ctx.slots:opener_comments(node, "head")),
         }
     )
 
@@ -345,7 +344,7 @@ local function render_repeat_doc(ctx: RenderContext, node: ast.Node): doc.Doc | 
                 doc.text("until"), ctx.render_expr(node.exp, true)
             )
         end
-        return render_builders.with_leading_inline_trivia(
+        return trivia_doc.with_leading_inline_trivia(
             ctx.slots:opener_comments(node, "after_opener"),
             doc.text("until "),
             ctx.render_expr(node.exp)

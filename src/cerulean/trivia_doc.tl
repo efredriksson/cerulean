@@ -132,4 +132,60 @@ function trivia_doc.emit_transition(
     end
 end
 
+-- A line comment closes the line it sits on, so only the run's blocks and its first
+-- line comment can share the content's line; padding a second onto it would fuse both
+-- texts into one comment. Runs that reach across a list separator -- the item's own
+-- comment, then the separator's -- are the ones that carry two.
+function trivia_doc.trailing_comment_doc(comments: {ast.Comment}): doc.Doc
+    local parts: {doc.Doc} = {}
+    local line_closed = false
+    for _, comment in ipairs(comments) do
+        local rendered = trivia_doc.comment_doc(comment)
+        if line_closed then
+            table.insert(parts, doc.indent_hardline(rendered))
+        else
+            table.insert(parts, doc.concat({doc.text(" "), rendered}))
+        end
+        line_closed = not trivia_doc.is_block_comment(comment.text)
+    end
+    return doc.concat(parts)
+end
+
+function trivia_doc.head_trivia_doc(head: {ast.Comment}): doc.Doc
+    if #head == 0 then
+        return doc.text("")
+    end
+    local parts: {doc.Doc} = {}
+    trivia_doc.append_inline(parts, head)
+    return doc.concat(parts)
+end
+
+function trivia_doc.append_comment_docs(
+    parts: {doc.Doc}, comments: {ast.Comment}, line_before: boolean
+): boolean
+    for _, comment in ipairs(comments) do
+        if line_before then
+            table.insert(parts, doc.hardline())
+        end
+        if comment.blank_line_before then
+            table.insert(parts, doc.hardline())
+        end
+        table.insert(parts, trivia_doc.comment_doc(comment))
+        line_before = true
+    end
+    return line_before
+end
+
+function trivia_doc.with_leading_inline_trivia(
+    after_opener: {ast.Comment}, prefix: doc.Doc, content: doc.Doc
+): doc.Doc
+    if #after_opener == 0 then
+        return doc.concat({prefix, content})
+    end
+    local parts: {doc.Doc} = {prefix}
+    trivia_doc.append_inline_joined(parts, after_opener)
+    table.insert(parts, doc.indent_hardline(content))
+    return doc.concat(parts)
+end
+
 return trivia_doc

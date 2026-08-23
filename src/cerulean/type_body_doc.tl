@@ -7,9 +7,10 @@ local ast = require("cerulean.ast")
 local construct_layout = require("cerulean.construct_layout")
 local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
-local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
+local string_literal = require("cerulean.string_literal")
 local table_doc = require("cerulean.table_doc")
+local trivia_doc = require("cerulean.trivia_doc")
 local type_doc = require("cerulean.type_doc")
 
 local type RenderContext = render_context.RenderContext
@@ -132,7 +133,7 @@ local function render_interface_list_parts(
         table.insert(iface_docs, type_doc.render(ctx, iface))
     end
     table.insert(parts, doc.text(" is "))
-    table.insert(parts, render_builders.build_comma_separated_docs(iface_docs))
+    table.insert(parts, delimited_list_doc.build_comma_separated_docs(iface_docs))
     return parts
 end
 
@@ -198,7 +199,7 @@ local function render_field_entry(
     end
 
     local function render_string_key(): string
-        local key = render_builders.normalize_string_literal(
+        local key = string_literal.normalize_string_literal(
             entry.string_key_token, entry.is_longstring_key
         )
         local bracket_spacing = entry.is_longstring_key and " " or ""
@@ -246,7 +247,7 @@ local function render_record_like_body_doc(
         end
     end
     for index, entry in ipairs(record_def.field_entries) do
-        line_before = render_builders.append_comment_docs(
+        line_before = trivia_doc.append_comment_docs(
             parts,
             ctx.slots:item_leading_comments(
                 entry, record_def.field_entries[index - 1], index == 1
@@ -254,20 +255,20 @@ local function render_record_like_body_doc(
             line_before
         )
         table.insert(
-            parts, render_builders.append_lines_pre_node(entry, line_before, doc.line())
+            parts,
+            delimited_list_doc.append_lines_pre_node(entry, line_before, doc.line())
         )
         table.insert(parts, render_field_entry(ctx, entry))
 
         table.insert(
-            parts,
-            render_builders.trailing_comment_doc(ctx.slots:trailing_comments(entry))
+            parts, trivia_doc.trailing_comment_doc(ctx.slots:trailing_comments(entry))
         )
         line_before = true
     end
     local end_comments = ctx.slots:container_dangling_comments(
         record_def, #record_def.field_entries == 0
     )
-    render_builders.append_comment_docs(parts, end_comments, line_before)
+    trivia_doc.append_comment_docs(parts, end_comments, line_before)
 
     -- Hardline for the same reason with_indented_body uses one.
     return doc.concat({doc.indent_hardline(doc.concat(parts)), doc.close("end")})
