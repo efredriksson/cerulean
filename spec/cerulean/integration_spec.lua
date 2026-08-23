@@ -271,17 +271,12 @@ describe("formatter integration", function()
          -- fmt:on
       ]]))
 
-      it("does not duplicate the else keyword sharing a frozen run's last line", helpers.format([[
+      -- Freezing whole is what keeps the shared `else` from being emitted twice,
+      -- once in the run's verbatim text and once structurally.
+      it("freezes an if statement whose else shares a line with a frozen run", helpers.check([[
          if c then
          a = 1 --fmt:off
          b = 2 else
-         d = 3
-         end
-      ]], [[
-         if c then
-         a = 1 --fmt:off
-         b = 2
-         else
          d = 3
          end
       ]]))
@@ -312,6 +307,24 @@ describe("formatter integration", function()
          ;
          -- fmt:on
       ]]))
+
+      it("keeps a block comment inside a frozen empty do block", helpers.check([=[
+         -- fmt:off
+         do --[[keep me]] end
+      ]=]))
+
+      it("keeps a block comment before the only statement of a frozen do block", helpers.check([=[
+         -- fmt:off
+         do --[[keep me]] return
+         end
+      ]=]))
+
+      it("keeps a block comment on the do line when fmt:on closes inside the block", helpers.check([=[
+         -- fmt:off
+         do --[[keep me]] return
+         -- fmt:on
+         end
+      ]=]))
    end)
 
    describe("multi-line expressions in local declarations", function()
@@ -440,14 +453,9 @@ describe("formatter integration", function()
          b>return
       ]]))
 
-      it("produces stable output when fmt:off appears as trailing comment after invalid syntax", helpers.format([[
+      it("freezes a do block whose end shares a line with a trailing fmt:off", helpers.check([[
          do
          end local interface b where function(): b local enum b -- fmt:off
-         end end end
-      ]], [[
-         do
-         end
-         local interface b where function(): b local enum b -- fmt:off
          end end end
       ]]))
 
@@ -520,15 +528,10 @@ describe("formatter integration", function()
          ]]end
       ]==]))
 
-      it("does not duplicate the until clause when the condition is a multiline function expression in a fmt:off region", helpers.format([[
+      it("freezes a repeat whose first line carries a trailing fmt:off", helpers.check([[
          repeat a=0--fmt:off
          ..0 until function()
          end
-      ]], [[
-         repeat
-         a=0--fmt:off
-         ..0
-         until function() end
       ]]))
 
       it("does not duplicate the fmt:off directive after a declaration with a trailing return", helpers.check([[

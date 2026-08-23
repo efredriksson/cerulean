@@ -68,10 +68,30 @@ local function block_min_source_line(ctx: RenderContext, block: ast.Node): integ
     return min_line
 end
 
+-- The token before a block's first is what opened it: `do`, `then`, `else`,
+-- `repeat`, or the last token of a signature. Zero when there is none to read,
+-- leaving the clamp below a no-op.
+local function block_opener_line(ctx: RenderContext, block: ast.Node): integer
+    if block.tok_first == nil or block.tok_first < 2 or #ctx.tokens == 0 then
+        return 0
+    end
+    return ctx.tokens[block.tok_first - 1].y
+end
+
+-- The lines a block covers on its own, or nil when it covers none. A line the
+-- block shares with its opener or closer (`do --[[c]] x = 1`, `x = 1 end`)
+-- belongs to the enclosing statement: a block claiming it would subtract that
+-- line from the statement's own ranges, hiding the statement's own frozen text
+-- from the fmt:off check.
 local function block_surface_range(ctx: RenderContext, block: ast.Node): source.Range
-    return source.Range.new(
-        block_min_source_line(ctx, block), max_source_line(ctx, block)
+    local first_line = math.max(
+        block_min_source_line(ctx, block), block_opener_line(ctx, block) + 1
     )
+    local last_line = math.min(max_source_line(ctx, block), block.yend - 1)
+    if last_line < first_line then
+        return nil
+    end
+    return source.Range.new(first_line, last_line)
 end
 
 local function stmt_child_blocks(stmt: ast.Node): {ast.Node}
@@ -90,7 +110,10 @@ local function stmt_child_surface_ranges(
 ): {source.Range}
     local result: {source.Range} = {}
     for _, child_block in ipairs(stmt_child_blocks(stmt)) do
-        table.insert(result, block_surface_range(ctx, child_block))
+        local range = block_surface_range(ctx, child_block)
+        if range ~= nil then
+            table.insert(result, range)
+        end
     end
     return result
 end
@@ -101,9 +124,9 @@ local function stmt_overlaps_fmt_off(ctx: RenderContext, stmt: ast.Node): boolea
     if ctx.fmt_off_regions:is_empty() then
         return false
     end
-    local stmt_range = source.Range.new(stmt.y, max_source_line(ctx, stmt))
+    local last_line = max_source_line(ctx, stmt)
     local own_ranges = source.subtract_many(
-        {stmt_range}, stmt_child_surface_ranges(ctx, stmt)
+        {source.Range.new(stmt.y, last_line)}, stmt_child_surface_ranges(ctx, stmt)
     )
     for _, range in ipairs(own_ranges) do
         if ctx.fmt_off_regions:includes_range(range.first_line, range.last_line) then
@@ -117,7 +140,6 @@ local function stmt_overlaps_fmt_off(ctx: RenderContext, stmt: ast.Node): boolea
     -- collides when a frozen child's verbatim text reaches that same line: the
     -- `end` would be emitted both verbatim and structurally. Freeze the whole
     -- statement so its source is emitted once.
-    local last_line = max_source_line(ctx, stmt)
     for _, child_block in ipairs(stmt_child_blocks(stmt)) do
         for _, child in ipairs(child_block) do
             if
