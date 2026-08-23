@@ -149,11 +149,11 @@ local function collect_chain_terms(
     if node.kind == "op" and node.op.arity == 2 and node.op.op == operator.op then
         collect_chain_terms(ctx, node.e1, operator, terms, gap_before_comments)
         local lhs_line = node.e1.yend
-        local trail, leading = trivia_doc.partition(
+        local split = trivia_doc.partition(
             ctx.slots:op_leading_comments(node), lhs_line
         )
-        if trail ~= nil or #leading > 0 then
-            gap_before_comments[#terms] = ChainGap.new(trail, leading)
+        if split.same_line ~= nil or #split.off_line > 0 then
+            gap_before_comments[#terms] = ChainGap.new(split.same_line, split.off_line)
         end
         collect_chain_terms(ctx, node.e2, operator, terms, gap_before_comments)
         return

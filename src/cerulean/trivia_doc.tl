@@ -30,25 +30,38 @@ function trivia_doc.comment_doc(comment: ast.Comment): doc.Doc
     return doc.concat({doc.text(comment.text), doc.break_parent()})
 end
 
+-- Both halves of a partitioned trivia run. A single record return (not two
+-- values) so a caller cannot silently take the same-line half and drop the
+-- own-line run -- the exact consume-without-emit bug the chain renderer had.
+local record TriviaSplit
+    same_line: ast.Comment
+    off_line: {ast.Comment}
+    new: function(same_line: ast.Comment, off_line: {ast.Comment}): TriviaSplit
+end
+
+function TriviaSplit.new(same_line: ast.Comment, off_line: {ast.Comment}): TriviaSplit
+    local self: TriviaSplit = setmetatable({}, {__index = TriviaSplit})
+    self.same_line = same_line
+    self.off_line = off_line
+    return self
+end
+
 -- A same-line entry only ever sits at index 1 (parser invariant), so we
 -- check just the head — searching the whole list would mistake a later
 -- own-line comment for a same-line one.
-function trivia_doc.partition(
-    trivia: {ast.Comment}, anchor_line: integer
-): ast.Comment, {ast.Comment}
+function trivia_doc.partition(trivia: {ast.Comment}, anchor_line: integer): TriviaSplit
     local same_line: ast.Comment = nil
     local off_line: {ast.Comment} = {}
-    if trivia == nil then
-        return same_line, off_line
-    end
-    for index, comment in ipairs(trivia) do
-        if index == 1 and comment.y == anchor_line then
-            same_line = comment
-        else
-            table.insert(off_line, comment)
+    if trivia ~= nil then
+        for index, comment in ipairs(trivia) do
+            if index == 1 and comment.y == anchor_line then
+                same_line = comment
+            else
+                table.insert(off_line, comment)
+            end
         end
     end
-    return same_line, off_line
+    return TriviaSplit.new(same_line, off_line)
 end
 
 -- The shared core of the inline emitters: the comment texts joined by a single
@@ -95,18 +108,20 @@ function trivia_doc.emit_transition(
     plain_separator: doc.Doc,
     inline_block?: boolean
 )
-    local same_line, off_line = trivia_doc.partition(trivia, anchor_line)
+    local split = trivia_doc.partition(trivia, anchor_line)
+    local same_line = split.same_line
     -- A same-line block comment may sit flush and let the next chunk continue on
     -- the same line; a same-line line comment (runs to end of line) or any own-line
     -- comment forces the next chunk onto its own line.
     local same_line_inline = inline_block
         and same_line ~= nil
         and trivia_doc.is_block_comment(same_line.text)
-    local forces_break = #off_line > 0 or (same_line ~= nil and not same_line_inline)
+    local forces_break = #split.off_line > 0
+        or (same_line ~= nil and not same_line_inline)
     if same_line ~= nil then
         table.insert(parts, doc.text(" " .. same_line.text))
     end
-    for _, c in ipairs(off_line) do
+    for _, c in ipairs(split.off_line) do
         table.insert(parts, doc.indent_hardline(doc.text(c.text)))
     end
     if forces_break then
