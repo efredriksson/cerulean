@@ -2,6 +2,7 @@
 local ast = require("cerulean.ast")
 local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
+local precedence = require("cerulean.precedence")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local type_doc = require("cerulean.type_doc")
@@ -10,25 +11,6 @@ local type RenderContext = render_context.RenderContext
 local type ItemRenderSpec = delimited_list_doc.ItemRenderSpec
 
 local table_doc = {}
-
-local function binary_right_gets_parens(child: ast.Node, parent_prec: integer): boolean
-    if child.kind ~= "op" then
-        return false
-    end
-    return child.op.prec < parent_prec
-end
-
--- The binding precedence of a unary operand for the rightmost-spine walk: an
--- operator's own, a cast's, or 0 for anything that ends the spine.
-local function unary_operand_prec(node: ast.Node): integer
-    if node.kind == "cast" then
-        return render_builders.cast_prec(node)
-    end
-    if node.kind == "op" then
-        return node.op.prec
-    end
-    return 0
-end
 
 -- `x as function(): T, next` re-parses as `x as function(): (T, next)`: the table
 -- separator `,` is greedily consumed as a return-type component. Use `;` instead.
@@ -45,12 +27,12 @@ local function item_value_needs_semicolon(value: ast.Node): boolean
         if value.op.arity == 2 then
             local parent_prec = value.op.prec
             value = value.e2
-            if binary_right_gets_parens(value, parent_prec) then
+            if precedence.binary_right_gets_parens(value, parent_prec) then
                 return false
             end
         else
             local inner = value.e1
-            if unary_operand_prec(inner) < value.op.prec then
+            if precedence.of_operand(inner) < value.op.prec then
                 return false
             end
             value = inner

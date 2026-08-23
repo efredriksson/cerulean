@@ -1,5 +1,6 @@
 local ast = require("cerulean.ast")
 local doc = require("cerulean.doc")
+local precedence = require("cerulean.precedence")
 local render_context = require("cerulean.render_context")
 local trivia_doc = require("cerulean.trivia_doc")
 
@@ -290,29 +291,6 @@ end
 -- tighter than every operator, while `is` sits with the relational ops. Held
 -- here rather than on the node so the parser need not carry operator metadata
 -- for casts.
-local AS_PREC = 50
-local IS_PREC = 3
-
-function render_builders.cast_prec(node: ast.Node): integer
-    if node.is_assertion then
-        return IS_PREC
-    end
-    return AS_PREC
-end
-
--- A control-flow head wraps its expression with a hanging indent for a binary
--- op or a cast: a long condition ending in either breaks around the keyword
--- rather than overflowing the line.
-function render_builders.is_top_level_binary_op(node: ast.Node): boolean
-    if node.kind == "cast" then
-        return true
-    end
-    if node.kind ~= "op" or node.op == nil then
-        return false
-    end
-    return node.op.arity == 2
-end
-
 -- Operator trivia anywhere on the operand spine belongs to the enclosing chain,
 -- including under a node that carries no operator token itself, such as a paren.
 function render_builders.has_chain_internal_trivia(
@@ -341,7 +319,7 @@ function render_builders.should_wrap_condition(
     if #ctx.slots:opener_comments(node, "after_opener") > 0 then
         return false
     end
-    return render_builders.is_top_level_binary_op(exp)
+    return precedence.is_operator_headed(exp)
         and not render_builders.has_chain_internal_trivia(ctx, exp)
 end
 

@@ -4,6 +4,7 @@ local ast = require("cerulean.ast")
 local delimited_list_doc = require("cerulean.delimited_list_doc")
 local doc = require("cerulean.doc")
 local function_doc = require("cerulean.function_doc")
+local precedence = require("cerulean.precedence")
 local render_builders = require("cerulean.render_builders")
 local render_context = require("cerulean.render_context")
 local table_doc = require("cerulean.table_doc")
@@ -23,26 +24,10 @@ local function render_root_expr(
     return render_expr(ctx, node, 0, same_indent_on_line)
 end
 
--- A unary operand needs parentheses when it binds looser than the unary parent.
--- Only the strict-less-than rule applies, so equal-precedence unary chains (e.g.
--- "not not x") never need them. Casts expose their own precedence (`as`/`is`);
--- leaves and suffix chains always bind tighter, so they never need parens.
-local function operand_needs_unary_parens(
-    child: ast.Node, parent_prec: integer
-): boolean
-    if child.kind == "cast" then
-        return render_builders.cast_prec(child) < parent_prec
-    end
-    if child.kind == "op" and child.op ~= nil then
-        return child.op.prec ~= nil and child.op.prec < parent_prec
-    end
-    return false
-end
-
 local function parenthesize_unary_operand(
     rendered: doc.Doc, child: ast.Node, parent_prec: integer
 ): doc.Doc
-    if not operand_needs_unary_parens(child, parent_prec) then
+    if not precedence.unary_operand_needs_parens(child, parent_prec) then
         return rendered
     end
     return doc.group(
@@ -358,7 +343,7 @@ local function render_cast(
 ): doc.Doc
     local keyword = node.is_assertion and "is" or "as"
     local operand_doc = render_expr(
-        ctx, node.e1, render_builders.cast_prec(node), same_indent_on_line
+        ctx, node.e1, precedence.of_cast(node), same_indent_on_line
     )
     local casttype_doc = type_doc.render(ctx, node.casttype)
     local op_leading = ctx.slots:op_leading_comments(node)
