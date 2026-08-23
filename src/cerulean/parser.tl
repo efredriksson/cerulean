@@ -31,6 +31,7 @@ local type ArrayType = ast.ArrayType
 local type RecordLikeType = ast.RecordLikeType
 local type RecordType = ast.RecordType
 local type InterfaceType = ast.InterfaceType
+local type HasDeclName = ast.HasDeclName
 local type NilType = ast.NilType
 local type UnionType = ast.UnionType
 local type TupleTableType = ast.TupleTableType
@@ -1904,15 +1905,23 @@ do
         end
     end
 
+    -- Takes the interface that owns the field, so each narrowed branch below
+    -- passes a type that declares `declname` instead of asserting it does.
+    local function claim_declname(named: HasDeclName, declname: string)
+        if not named.declname then
+            named.declname = declname
+        end
+    end
+
     local function set_declname(def: Type, declname: string)
         if def is GenericType then
             def = def.t
         end
 
-        if def is ast.RecordType or def is ast.InterfaceType or def is EnumType then
-            if not (def as ast.HasDeclName).declname then
-                (def as ast.HasDeclName).declname = declname
-            end
+        if def is RecordLikeType then
+            claim_declname(def, declname)
+        elseif def is EnumType then
+            claim_declname(def, declname)
         end
     end
 
