@@ -145,93 +145,139 @@ local function function_type_render(
     )
 end
 
+local function nominal_type_render(
+    ctx: RenderContext, type_def: ast.NominalType, opts: TypeRenderOpts
+): doc.Doc
+    local parts: {doc.Doc} = {doc.text(table.concat(type_def.names, "."))}
+    if type_def.typevals ~= nil and #type_def.typevals > 0 then
+        local typeval_docs: {doc.Doc} = {}
+        for _, typeval in ipairs(type_def.typevals) do
+            table.insert(typeval_docs, render_type(ctx, typeval, opts))
+        end
+        table.insert(parts, doc.text("<"))
+        table.insert(parts, render_builders.build_separated_docs(typeval_docs, ", "))
+        table.insert(parts, doc.text(">"))
+    end
+    return doc.concat(parts)
+end
+
+local function array_type_render(
+    ctx: RenderContext, type_def: ast.ArrayType, opts: TypeRenderOpts
+): doc.Doc
+    return doc.concat(
+        {
+            doc.text("{"),
+            render_type(ctx, type_def.elements, opts),
+            doc.text("}"),
+        }
+    )
+end
+
+local function typearg_type_render(
+    ctx: RenderContext, type_def: ast.TypeArgType, opts: TypeRenderOpts
+): doc.Doc
+    local typearg_text = doc.text(type_def.typearg)
+    if type_def.constraint ~= nil then
+        local constraint_text = render_type(ctx, type_def.constraint, opts)
+        typearg_text = doc.concat({typearg_text, doc.text(" is "), constraint_text})
+    end
+    return typearg_text
+end
+
+local function union_type_render(
+    ctx: RenderContext, type_def: ast.UnionType, opts: TypeRenderOpts
+): doc.Doc
+    local type_docs: {doc.Doc} = {}
+    local last = #type_def.types
+    for index, t in ipairs(type_def.types) do
+        local branch_opts = (index == last) and opts or TypeRenderOpts.new()
+        table.insert(type_docs, render_type(ctx, t, branch_opts))
+    end
+    return render_builders.build_separated_docs(type_docs, " | ")
+end
+
+-- Grouped with breakable separators so a return tuple wider than the
+-- line wraps at its commas instead of overflowing. The indent rides on
+-- each separator, not around the items: an item wrapped in indent would
+-- nest the whole type one level deeper, visible on any single-entry
+-- tuple (a declaration's type list is one).
+local function tuple_type_render(
+    ctx: RenderContext, type_def: ast.TupleType, opts: TypeRenderOpts
+): doc.Doc
+    local parts: {doc.Doc} = {}
+    for index, t in ipairs(type_def.tuple) do
+        table.insert(parts, render_type(ctx, t, opts))
+        if index < #type_def.tuple then
+            table.insert(parts, doc.text(","))
+            table.insert(parts, doc.indent(doc.line()))
+        end
+    end
+    local result = doc.group(doc.concat(parts))
+    if type_def.is_va then
+        return doc.concat({result, doc.text("...")})
+    end
+    return result
+end
+
+local function map_type_render(
+    ctx: RenderContext, type_def: ast.MapType, opts: TypeRenderOpts
+): doc.Doc
+    return doc.concat(
+        {
+            doc.text("{"),
+            render_type(ctx, type_def.keys, opts),
+            doc.text(": "),
+            render_type(ctx, type_def.values, opts),
+            doc.text("}"),
+        }
+    )
+end
+
+local function tupletable_type_render(
+    ctx: RenderContext, type_def: ast.TupleTableType, opts: TypeRenderOpts
+): doc.Doc
+    local type_docs: {doc.Doc} = {}
+    for _, t in ipairs(type_def.types) do
+        table.insert(type_docs, render_type(ctx, t, opts))
+    end
+    return doc.concat(
+        {
+            doc.text("{"),
+            render_builders.build_separated_docs(type_docs, ", "),
+            doc.text("}"),
+        }
+    )
+end
+
+local function generic_type_render(
+    ctx: RenderContext, type_def: ast.GenericType, opts: TypeRenderOpts
+): doc.Doc
+    local typeargs_doc = type_doc.render_typeargs(ctx, type_def.typeargs)
+    local inner_opts = TypeRenderOpts.new(typeargs_doc, opts.wrap_multi_return_rets)
+    return type_doc_render(ctx, type_def.t, inner_opts)
+end
+
 type_doc_render = function(
     ctx: RenderContext, type_def: ast.Type, opts: TypeRenderOpts
 ): doc.Doc
     if type_def is ast.NominalType then
-        local parts: {doc.Doc} = {doc.text(table.concat(type_def.names, "."))}
-        if type_def.typevals ~= nil and #type_def.typevals > 0 then
-            local typeval_docs: {doc.Doc} = {}
-            for _, typeval in ipairs(type_def.typevals) do
-                table.insert(typeval_docs, render_type(ctx, typeval, opts))
-            end
-            table.insert(parts, doc.text("<"))
-            table.insert(
-                parts, render_builders.build_separated_docs(typeval_docs, ", ")
-            )
-            table.insert(parts, doc.text(">"))
-        end
-        return doc.concat(parts)
+        return nominal_type_render(ctx, type_def, opts)
     elseif type_def is ast.ArrayType then
-        return doc.concat(
-            {
-                doc.text("{"),
-                render_type(ctx, type_def.elements, opts),
-                doc.text("}"),
-            }
-        )
+        return array_type_render(ctx, type_def, opts)
     elseif type_def is ast.TypeArgType then
-        local typearg_text = doc.text(type_def.typearg)
-        if type_def.constraint ~= nil then
-            local constraint_text = render_type(ctx, type_def.constraint, opts)
-            typearg_text = doc.concat({typearg_text, doc.text(" is "), constraint_text})
-        end
-        return typearg_text
+        return typearg_type_render(ctx, type_def, opts)
     elseif type_def is ast.UnionType then
-        local type_docs: {doc.Doc} = {}
-        local last = #type_def.types
-        for index, t in ipairs(type_def.types) do
-            local branch_opts = (index == last) and opts or TypeRenderOpts.new()
-            table.insert(type_docs, render_type(ctx, t, branch_opts))
-        end
-        return render_builders.build_separated_docs(type_docs, " | ")
+        return union_type_render(ctx, type_def, opts)
     elseif type_def is ast.TupleType then
-        -- Grouped with breakable separators so a return tuple wider than the
-        -- line wraps at its commas instead of overflowing. The indent rides on
-        -- each separator, not around the items: an item wrapped in indent would
-        -- nest the whole type one level deeper, visible on any single-entry
-        -- tuple (a declaration's type list is one).
-        local parts: {doc.Doc} = {}
-        for index, t in ipairs(type_def.tuple) do
-            table.insert(parts, render_type(ctx, t, opts))
-            if index < #type_def.tuple then
-                table.insert(parts, doc.text(","))
-                table.insert(parts, doc.indent(doc.line()))
-            end
-        end
-        local result = doc.group(doc.concat(parts))
-        if type_def.is_va then
-            return doc.concat({result, doc.text("...")})
-        end
-        return result
+        return tuple_type_render(ctx, type_def, opts)
     elseif type_def is ast.MapType then
-        return doc.concat(
-            {
-                doc.text("{"),
-                render_type(ctx, type_def.keys, opts),
-                doc.text(": "),
-                render_type(ctx, type_def.values, opts),
-                doc.text("}"),
-            }
-        )
+        return map_type_render(ctx, type_def, opts)
     elseif type_def is ast.FunctionType then
         return function_type_render(ctx, type_def, opts)
     elseif type_def is ast.TupleTableType then
-        local type_docs: {doc.Doc} = {}
-        for _, t in ipairs(type_def.types) do
-            table.insert(type_docs, render_type(ctx, t, opts))
-        end
-        return doc.concat(
-            {
-                doc.text("{"),
-                render_builders.build_separated_docs(type_docs, ", "),
-                doc.text("}"),
-            }
-        )
+        return tupletable_type_render(ctx, type_def, opts)
     elseif type_def is ast.GenericType then
-        local typeargs_doc = type_doc.render_typeargs(ctx, type_def.typeargs)
-        local inner_opts = TypeRenderOpts.new(typeargs_doc, opts.wrap_multi_return_rets)
-        return type_doc_render(ctx, type_def.t, inner_opts)
+        return generic_type_render(ctx, type_def, opts)
     elseif ast.simple_types[type_def.typename] then
         return doc.text(type_def.typename)
     end
