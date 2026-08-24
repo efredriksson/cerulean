@@ -57,14 +57,27 @@ def _line_comment() -> str:
     return "-- " + random.choice(_LINE_COMMENT_BODIES) + "\n"
 
 
+def _closes_early(body: str, level: int) -> bool:
+    eq = "=" * level
+    # A body ending in the closer minus its final ']' fuses with the closer we
+    # append, so `--[[x]]]` closes after `x` and leaves a stray ']' as code.
+    return "]" + eq + "]" in body or body.endswith("]" + eq)
+
+
+def _bracket_comment(body: str, min_level: int) -> str:
+    level = min_level
+    while _closes_early(body, level):
+        level += 1
+    eq = "=" * level
+    return "--[" + eq + "[" + body + "]" + eq + "]"
+
+
 def _block_comment() -> str:
-    return "--[[" + random.choice(_BLOCK_COMMENT_BODIES) + "]]"
+    return _bracket_comment(random.choice(_BLOCK_COMMENT_BODIES), 0)
 
 
 def _long_block_comment() -> str:
-    level = random.randint(1, 3)
-    eq = "=" * level
-    return "--[" + eq + "[" + random.choice(_LONG_BLOCK_BODIES) + "]" + eq + "]"
+    return _bracket_comment(random.choice(_LONG_BLOCK_BODIES), random.randint(1, 3))
 
 
 def _fmt_off_region() -> str:
