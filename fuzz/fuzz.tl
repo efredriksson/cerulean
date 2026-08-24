@@ -567,9 +567,6 @@ local function generate_batch(config: Config, batch_size: integer): {string}
         seed_arg = " --random-seed " .. config.seed
     end
     local env_prefix = "FUZZ_TRIVIA_RATE=" .. config.trivia_rate
-    if config.seed ~= "" then
-        env_prefix = env_prefix .. " FUZZ_TRIVIA_SEED=" .. config.seed
-    end
     local cmd = string.format(
         "%s grammarinator-generate TealGenerator.TealGenerator -r chunk -d %d -n %d -o fuzz/corpus/test_%%d.tl --sys-path fuzz/gen/ --sys-path fuzz/ -s serializer.trivia_serializer%s 2>/dev/null",
         env_prefix,
