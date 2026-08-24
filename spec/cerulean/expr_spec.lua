@@ -275,6 +275,12 @@ describe("formatter binary operator chains", function()
       local x = a ~ ~b
    ]]))
 
+   it("parenthesizes a unary operand of an exponent, as tl reads it", helpers.format([[
+      local x = -2 ^ 2
+   ]], [[
+      local x = (-2) ^ 2
+   ]]))
+
    it("wraps a long chain of one shift operator at every operator", helpers.format([[
       local x = alpha_value >> beta_value >> gamma_value >> delta_value >> epsilon_value >> zeta
    ]], [[

@@ -82,7 +82,19 @@ local function dedent(s)
     return table.concat(dedented, "\n") .. "\n"
 end
 
+-- A paren means something only when it truncates a multi-value expression:
+-- `(f())`, `(...)`. The rest is grouping the renderer re-derives. A tuple cast
+-- (`(f() as (integer, string))`) truncates too, and is not modelled: the
+-- renderer emits every paren node it is given, so it cannot drop that one.
+local function truncates_values(node)
+    return node.kind == "call" or node.kind == "..."
+end
+
 local function normalize_node(node)
+    if node.kind == "paren" and not truncates_values(node.e1) then
+        return normalize_node(node.e1)
+    end
+
     local normalized = {
         kind = node.kind,
     }

@@ -32,6 +32,14 @@ function ShapeNode.new(kind: string): ShapeNode
     return self
 end
 
+-- A paren means something only when it truncates a multi-value expression:
+-- `(f())`, `(...)`. The rest is grouping the renderer re-derives. A tuple cast
+-- (`(f() as (integer, string))`) truncates too, and is not modelled: the
+-- renderer emits every paren node it is given, so it cannot drop that one.
+local function truncates_values(node: ast.Node): boolean
+    return node.kind == "call" or node.kind == "..."
+end
+
 local function add_child(shape: ShapeNode, field_name: string, child: ast.Node)
     if child == nil then
         return
@@ -43,6 +51,10 @@ local function add_child(shape: ShapeNode, field_name: string, child: ast.Node)
 end
 
 function ast_shape.normalize(node: ast.Node): ShapeNode
+    if node.kind == "paren" and not truncates_values(node.e1) then
+        return ast_shape.normalize(node.e1)
+    end
+
     local shape = ShapeNode.new(node.kind)
 
     if node.kind == "op" and node.op ~= nil then
