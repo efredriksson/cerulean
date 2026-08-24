@@ -480,6 +480,14 @@ local function write_regression_spec(): string
     return spec_path
 end
 
+-- Zero now that the grammar's start rule requires a statement; a nonzero count
+-- means the generator regressed and is burning slots on empty files.
+local function write_empty_skipped()
+    if empty_skipped > 0 then
+        io.stdout:write(string.format("Empty inputs (skipped): %d\n", empty_skipped))
+    end
+end
+
 local function print_summary(config: Config)
     io.stdout:write("\n")
     local groups = group_by_kind()
@@ -498,7 +506,7 @@ local function print_summary(config: Config)
 
     io.stdout:write("\n")
     io.stdout:write(string.format("Fuzzed %d inputs.\n", total))
-    io.stdout:write(string.format("Empty inputs (skipped): %d\n", empty_skipped))
+    write_empty_skipped()
     io.stdout:write(string.format("Parse errors (ignored): %d\n\n", parse_error_count))
 
     local counts = counts_by_kind()
@@ -711,7 +719,7 @@ end
 
 if config.until_fail and #failures == 0 then
     io.stdout:write(string.format("\nChecked %d samples, no issues found.\n", total))
-    io.stdout:write(string.format("Empty inputs (skipped): %d\n", empty_skipped))
+    write_empty_skipped()
     io.stdout:write(string.format("Parse errors (ignored): %d\n", parse_error_count))
     os.exit(0)
 end

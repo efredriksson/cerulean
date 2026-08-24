@@ -7,11 +7,18 @@
 grammar Teal;
 
 chunk
-    : block EOF
+    : nonempty_block EOF
     ;
 
 block
     : stat* retstat?
+    ;
+
+// The driver skips zero-byte files, so an empty top-level chunk burns a
+// generation slot. Nested blocks keep `block` and may still be empty.
+nonempty_block
+    : stat+ retstat?
+    | retstat
     ;
 
 stat
