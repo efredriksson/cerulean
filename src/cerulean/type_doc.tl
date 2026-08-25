@@ -335,8 +335,12 @@ function type_doc.cast_absorbs_trailing_comma(casttype: ast.Type): boolean
     return false
 end
 
+-- An empty tuple with no explicit parens (`function()`, no `:` at all) has no
+-- return annotation to print. An explicit `(): ()` keeps its parens: dropping
+-- them would fuse into whatever follows -- a map key's `(): (value)` would
+-- reparse with `(value)` absorbed as the key's own return type instead.
 render_return = function(ctx: RenderContext, type_def: ast.TupleType): doc.Doc
-    if type_def == nil or #type_def.tuple == 0 then
+    if type_def == nil or (#type_def.tuple == 0 and not type_def.paren) then
         return doc.text("")
     end
     return doc.concat({doc.text(": "), type_doc.render(ctx, type_def)})

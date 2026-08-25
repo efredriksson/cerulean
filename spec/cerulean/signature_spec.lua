@@ -248,6 +248,17 @@ describe("formatter signature wrapping", function()
       end
    ]]))
 
+   -- Dropping an explicit `(): (value)` down to `: (value)` reparses with the
+   -- value fused onto the key's own return type, changing which side of the
+   -- map type gets to stay flat on the next pass.
+   it("preserves an explicit empty return type on a map key's function type", helpers.format([[
+      local x : { function < E > ( function ( ) | boolean | E . L ) : ( ) : ( function ( h : nil , Z : number ) : string ) }
+   ]], [[
+      local x: {function<E>(function() | boolean | E.L): (): (function(
+          h: nil, Z: number
+      ): string)}
+   ]]))
+
    describe("generic function type annotations", function()
 
       it("normalises spacing around type parameters in a function type annotation", helpers.format([[
