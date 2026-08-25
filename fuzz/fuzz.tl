@@ -79,7 +79,6 @@ local record Failure
     kind: FailureKind
     path: string
     content: string
-    formatted: string
     error: string
 end
 
@@ -90,7 +89,6 @@ function Failure.new(
     self.kind = kind
     self.path = path
     self.content = content
-    self.formatted = ""
     self.error = failure_error
     return self
 end
@@ -284,9 +282,7 @@ local function classify(path: string, content: string): Failure | nil
         return Failure.new("render_failed", path, result.output, "")
     end
     if result2.output ~= result.output then
-        local failure = Failure.new("not_idempotent", path, content, "")
-        failure.formatted = result.output
-        return failure
+        return Failure.new("not_idempotent", path, content, "")
     end
 
     -- A reformat must not change what the program says: compare the structural
@@ -298,9 +294,7 @@ local function classify(path: string, content: string): Failure | nil
             local input_shape = ast_shape.normalize(input_root)
             local output_shape = ast_shape.normalize(output_root)
             if not ast_shape.equal(input_shape, output_shape) then
-                local failure = Failure.new("ast_changed", path, content, "")
-                failure.formatted = result.output
-                return failure
+                return Failure.new("ast_changed", path, content, "")
             end
         end
     end
@@ -407,42 +401,29 @@ local function regression_block(failure: Failure): string
         table.insert(parts, "        assert.same({}, result2.parse_errors)\n")
         table.insert(parts, "    end)\n\n")
     elseif failure.kind == "not_idempotent" then
-        local embedded_formatted = long_string_embed(failure.formatted)
         table.insert(
             parts,
             '    it("second format pass matches first: ' .. name .. '", function()\n'
         )
         table.insert(
             parts,
-            "        -- asserts formatter(original) == expected and formatter(expected) == expected\n"
+            "        -- asserts formatter(formatter(x)) == formatter(x); the canonical text\n"
+                .. "        -- isn't pinned, so this doesn't go stale when formatting decisions change\n"
         )
-        table.insert(
-            parts,
-            "        helpers.format("
-                .. embedded
-                .. ", "
-                .. embedded_formatted
-                .. ", { skip_ast_equivalence = true })()\n"
-        )
+        table.insert(parts, "        helpers.idempotent(" .. embedded .. ")()\n")
         table.insert(parts, "    end)\n\n")
     elseif failure.kind == "ast_changed" then
-        local embedded_formatted = long_string_embed(failure.formatted)
         table.insert(
             parts,
             '    it("preserves program structure: ' .. name .. '", function()\n'
         )
         table.insert(
             parts,
-            "        -- helpers.format asserts input/output AST-shape equivalence\n"
+            "        -- asserts format(x) stays AST-equivalent to x and a second pass agrees;\n"
+                .. "        -- the canonical text isn't pinned, so this doesn't go stale when\n"
+                .. "        -- formatting decisions change\n"
         )
-        table.insert(
-            parts,
-            "        helpers.format("
-                .. embedded
-                .. ", "
-                .. embedded_formatted
-                .. ")()\n"
-        )
+        table.insert(parts, "        helpers.equivalent(" .. embedded .. ")()\n")
         table.insert(parts, "    end)\n\n")
     end
     return table.concat(parts)

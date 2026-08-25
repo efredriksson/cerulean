@@ -225,6 +225,35 @@ function helpers.format(input, expected, opts)
     end
 end
 
+-- Returns a test function that asserts formatting input is idempotent: a
+-- second pass over the formatter's own output must not change it again. The
+-- canonical text isn't pinned, so a legitimate change to formatting
+-- decisions doesn't make this test stale -- only a real idempotency
+-- regression does.
+function helpers.idempotent(input)
+    return function()
+        local source = dedent(input)
+        local result = rewriter.rewrite(source, "test.tl", default_opts())
+        assert.same({}, result.parse_errors)
+        assert_stable_rewrite(result.output)
+    end
+end
+
+-- Returns a test function that asserts formatting input does not change what
+-- the program says: the output must be AST-shape-equivalent to the input,
+-- and a second pass must not change it again. The canonical text isn't
+-- pinned, so a legitimate change to formatting decisions doesn't make this
+-- test stale -- only a real semantics-changing regression does.
+function helpers.equivalent(input)
+    return function()
+        local source = dedent(input)
+        local result = rewriter.rewrite(source, "test.tl", default_opts())
+        assert.same({}, result.parse_errors)
+        assert_equivalent_ast_shape(source, result.output)
+        assert_stable_rewrite(result.output)
+    end
+end
+
 -- Returns a test function that asserts the formatter reports parse errors
 -- and leaves the source unchanged.
 function helpers.parse_error(source)
