@@ -422,5 +422,20 @@ describe("formatter signature wrapping", function()
          end
       ]=]))
 
+      -- A trailing comment after the comma, following another trailing
+      -- comment on the parameter itself, used to over-indent on the first
+      -- pass and only settle to the single stable indent on a second pass.
+      it("indents a comment after a comma the same as one after a parameter", helpers.format([[
+         local f: function(a: integer -- note
+         , -- note
+         b: integer)
+      ]], [[
+         local f: function(
+             a: integer, -- note
+             -- note
+             b: integer
+         )
+      ]]))
+
    end)
 end)

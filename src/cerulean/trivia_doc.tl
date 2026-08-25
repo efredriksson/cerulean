@@ -136,13 +136,30 @@ end
 -- line comment can share the content's line; padding a second onto it would fuse both
 -- texts into one comment. Runs that reach across a list separator -- the item's own
 -- comment, then the separator's -- are the ones that carry two.
-function trivia_doc.trailing_comment_doc(comments: {ast.Comment}): doc.Doc
+--
+-- Most callers render their item inside a list body that is already wrapped in one
+-- shared indent (parens, table, enum and record bodies), so a comment past the first
+-- belongs at that same indent, not one deeper. `indent_continuation` opts into an
+-- extra indent for the few callers with no such wrapper (an exp/return list, which
+-- indents each later item individually instead). Getting this wrong for a
+-- shared-indent caller breaks a round trip: reparsing collapses the separator onto
+-- the item's line, so its comment moves to the comma's trailing slot and the next
+-- one becomes the following item's leading comment, which never gets the extra
+-- indent -- the two passes would then disagree on the same source.
+function trivia_doc.trailing_comment_doc(
+    comments: {ast.Comment}, indent_continuation?: boolean
+): doc.Doc
     local parts: {doc.Doc} = {}
     local line_closed = false
     for _, comment in ipairs(comments) do
         local rendered = trivia_doc.comment_doc(comment)
         if line_closed then
-            table.insert(parts, doc.indent_hardline(rendered))
+            if indent_continuation then
+                table.insert(parts, doc.indent_hardline(rendered))
+            else
+                table.insert(parts, doc.hardline())
+                table.insert(parts, rendered)
+            end
         else
             table.insert(parts, doc.concat({doc.text(" "), rendered}))
         end

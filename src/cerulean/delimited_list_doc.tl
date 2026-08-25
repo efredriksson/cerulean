@@ -158,7 +158,7 @@ function delimited_list_doc.build_comma_separated_with_trailing(
                     {
                         rendered,
                         doc.text(","),
-                        trivia_doc.trailing_comment_doc(trailing),
+                        trivia_doc.trailing_comment_doc(trailing, true),
                     }
                 )
                 force_next_indent = true
