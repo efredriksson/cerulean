@@ -22,12 +22,13 @@ function construct_layout.any_items_have_comments(
     exclude_last_trailing?: boolean
 ): boolean
     for index, item in ipairs(items) do
-        local leading = ctx.slots:item_leading_comments(
+        local leading_extent = ctx.slots:leading_extent(
             item, items[index - 1], index == 1 and absorb_first_opener
         )
         local checks_trailing = not (exclude_last_trailing and index == #items)
         if
-            #leading > 0 or (checks_trailing and #ctx.slots:trailing_comments(item) > 0)
+            leading_extent > 0
+            or (checks_trailing and ctx.slots:trailing_extent(item) > 0)
         then
             return true
         end

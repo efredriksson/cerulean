@@ -63,6 +63,15 @@ describe("formatter function expressions", function()
           5
    ]]))
 
+   it("preserves a comment on its own line between a plain assignment = and value", helpers.format([[
+      b =
+      --hmm
+      x
+   ]], [[
+      --hmm
+      b = x
+   ]]))
+
    it("preserves comment between return and value", helpers.format([[
       local function f()
           return --hmm
