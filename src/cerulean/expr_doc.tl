@@ -297,6 +297,12 @@ local function render_member(
     ctx: RenderContext, node: ast.Node, same_indent_on_line: boolean
 ): doc.Doc
     local separator = node.kind == "method" and ":" or "."
+    -- A `.` glued onto a numeric-literal base re-lexes as the number's decimal
+    -- point (`1.field` reads as a float literal), so the base needs a space.
+    local base_spacing = ""
+    if separator == "." and (node.e1.kind == "integer" or node.e1.kind == "number") then
+        base_spacing = " "
+    end
     local parts: {doc.Doc} = {
         render_expr(ctx, node.e1, SUFFIX_PREC, same_indent_on_line),
     }
@@ -305,7 +311,7 @@ local function render_member(
         ctx.slots:op_leading_comments(node),
         node.e1.yend,
         doc.text(separator),
-        doc.text("")
+        doc.text(base_spacing)
     )
     trivia_doc.emit_transition(
         parts,

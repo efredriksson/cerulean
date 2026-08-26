@@ -242,6 +242,10 @@ describe("formatter function expressions", function()
       local x = t[ [[d]] and {} ]
    ]=]))
 
+   it("dotted index on a numeric literal base preserves space to avoid tokenizer ambiguity", helpers.equivalent([[
+      i = 1 . node
+   ]]))
+
    it("uses semicolon after cast to function type with multi-return rets to avoid trailing comma ambiguity in wrapped tables", helpers.format([[
       return { ab_field = x is number | function(): boolean, boolean | {string: number} | nil | string }
    ]], [[
