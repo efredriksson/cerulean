@@ -1739,6 +1739,26 @@ describe("formatter comment matrix (single-line)", function()
          x = b as (--[[]])
       ]=]))
 
+      -- A line comment runs to end of line, so the closing paren must move to
+      -- its own line -- flush against it would fuse the paren into the comment.
+      it("preserves a line comment inside an empty parenthesized is-cast", helpers.format([=[
+         x = b is(--
+         )
+      ]=], [=[
+         x = b
+             is (--
+             )
+      ]=]))
+
+      it("preserves a line comment inside an empty return-type tuple", helpers.format([=[
+         function s ( ) : ( --
+         ) end
+      ]=], [=[
+         function s(): (--
+         )
+         end
+      ]=]))
+
       -- Comments buried in parenthesized cast types have no kept slot; the
       -- per-statement sweep relocates them to the statement's own-line leading.
       it("preserves block comment before nominal type in parenthesized is-cast", helpers.format([=[

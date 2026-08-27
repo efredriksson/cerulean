@@ -301,6 +301,13 @@ render_type = function(
             if #after_opener > 0 then
                 local parts: {doc.Doc} = {}
                 trivia_doc.append_inline_joined(parts, after_opener)
+                -- A line comment runs to end of line; the closing paren must
+                -- move to its own line or it fuses into the comment text.
+                if not trivia_doc.is_block_comment(
+                    after_opener[#after_opener].text
+                ) then
+                    table.insert(parts, doc.hardline())
+                end
                 result = doc.concat(parts)
             end
         end
