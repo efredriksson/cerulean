@@ -1682,6 +1682,24 @@ describe("formatter comment matrix (single-line)", function()
          end
       ]]))
 
+      -- Regression: the sweep relocates this comment to the statement's own-line
+      -- leading (see exp_list_has_layout_comments in delimited_list_doc.tl), so a
+      -- second pass no longer sees it next to the first value and picked a
+      -- different, breakable layout -- wrapping a line the first pass left long.
+      it("sweeps a comment before the first value in a multi-value return to the statement's own line", helpers.format([[
+         local function f()
+             return
+             --hmm
+             a, some_long_name_one + some_long_name_two + some_long_name_three + some_long_name_four
+         end
+      ]], [[
+         local function f()
+             --hmm
+             return a,
+                 some_long_name_one + some_long_name_two + some_long_name_three + some_long_name_four
+         end
+      ]]))
+
       it("keeps a comment trailing the exp separate from one trailing the comma", helpers.format([[
          return a -- one
              , -- two

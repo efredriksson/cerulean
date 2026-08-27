@@ -98,14 +98,6 @@ function delimited_list_doc.build_mapped_comma_separated_docs(
     return delimited_list_doc.build_comma_separated_docs(mapped_exp_docs(ctx, nodes))
 end
 
--- A threaded comment pins its item to a line of its own, so the commas stop being
--- free break points and the list has to render through the comment path.
-function delimited_list_doc.exp_list_can_break(
-    ctx: RenderContext, exps: {ast.Node}
-): boolean
-    return #exps > 1 and not construct_layout.any_items_have_comments(ctx, exps, false)
-end
-
 -- The first item's own-line comments lead the whole statement, so the enclosing block
 -- emits those; only a continuation item reads its own.
 local function continuation_leading_comments(
@@ -115,6 +107,27 @@ local function continuation_leading_comments(
         return {}
     end
     return ctx.slots:item_leading_comments(items[index], items[index - 1], false)
+end
+
+-- Whether a layout choice for this exp list must treat a comment before the first
+-- item as disqualifying. It must not: per continuation_leading_comments above,
+-- neither layout this drives (the grouped fast path or with_trailing) ever renders
+-- that comment from inside the list -- it is always the enclosing statement's sweep
+-- that relocates it to the statement's own-line leading. Counting it here would
+-- pick a layout the sweep then invalidates: it moves the comment off the list on
+-- the very next format pass, which flips this same check and breaks idempotency.
+local function exp_list_has_layout_comments(
+    ctx: RenderContext, exps: {ast.Node}
+): boolean
+    return construct_layout.any_items_have_comments(ctx, exps, false, false, true)
+end
+
+-- A threaded comment pins its item to a line of its own, so the commas stop being
+-- free break points and the list has to render through the comment path.
+function delimited_list_doc.exp_list_can_break(
+    ctx: RenderContext, exps: {ast.Node}
+): boolean
+    return #exps > 1 and not exp_list_has_layout_comments(ctx, exps)
 end
 
 local function with_own_line_comments(
@@ -174,7 +187,7 @@ end
 function delimited_list_doc.build_exp_list_doc(
     ctx: RenderContext, exps: {ast.Node}
 ): doc.Doc
-    if not construct_layout.any_items_have_comments(ctx, exps, false) then
+    if not exp_list_has_layout_comments(ctx, exps) then
         return delimited_list_doc.build_grouped_comma_items_doc(
             mapped_exp_docs(ctx, exps)
         )

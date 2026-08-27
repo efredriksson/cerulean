@@ -15,16 +15,24 @@ local construct_layout = {}
 -- a sugar call (`t{}`, `t"s"`) the sole argument has no closing token of its own,
 -- so its last token is also the call's, and the comment after it is the call's
 -- own trailing, read and rendered outside this list (see render_parens).
+-- `exclude_first_leading` skips the leading-comment check on the first item: some
+-- callers' own render never places that comment as the first item's leading either
+-- way, so it must not steer their layout pick (see exp_list_has_layout_comments in
+-- delimited_list_doc.tl).
 function construct_layout.any_items_have_comments(
     ctx: RenderContext,
     items: ast.Node,
     absorb_first_opener: boolean,
-    exclude_last_trailing?: boolean
+    exclude_last_trailing?: boolean,
+    exclude_first_leading?: boolean
 ): boolean
     for index, item in ipairs(items) do
-        local leading_extent = ctx.slots:leading_extent(
-            item, items[index - 1], index == 1 and absorb_first_opener
-        )
+        local leading_extent = 0
+        if not (exclude_first_leading and index == 1) then
+            leading_extent = ctx.slots:leading_extent(
+                item, items[index - 1], index == 1 and absorb_first_opener
+            )
+        end
         local checks_trailing = not (exclude_last_trailing and index == #items)
         if
             leading_extent > 0
