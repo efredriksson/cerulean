@@ -12,9 +12,13 @@
 -- formatter findings, appends the new ones (unique by kind + input) to
 -- fuzz/regressions_spec.lua for debugging; promote each finding to a minimized
 -- case in spec/ before committing its fix.
+local ast = require("cerulean.ast")
+local ast_traversal = require("cerulean.ast_traversal")
 local options_module = require("cerulean.options")
 local parser = require("cerulean.parser")
+local require_sort = require("cerulean.require_sort")
 local rewriter = require("cerulean.rewriter")
+local source = require("cerulean.source")
 local ast_shape = require("fuzz.ast_shape")
 local mutate = require("fuzz.mutate")
 
@@ -247,6 +251,25 @@ local total = 0
 local parse_error_count = 0
 local empty_skipped = 0
 
+-- classify() runs with the default options, which has require sorting on, so
+-- render_with_ast always reorders a leading contiguous block of top-level
+-- `local x = require(...)` statements before rendering. Mirror that same
+-- reordering on input_root before the shape comparison below, or any input
+-- whose requires aren't already alphabetical reads as a false ast_changed --
+-- the spec suite sidesteps this per-case with skip_ast_equivalence on the
+-- require_sort_spec.lua tests that reorder, but the fuzzer has no input-by-
+-- input way to opt out like that.
+local function canonicalize_top_level_requires(root: ast.Node, content: string)
+    local text = source.Text.new(content)
+    local fmt_off_regions = source.collect_fmt_off_regions(
+        text, ast_traversal.collect_block_ranges(root)
+    )
+    local function no_leading(_: ast.Node): {ast.Comment}
+        return {}
+    end
+    require_sort.sort_top_level_requires(root, fmt_off_regions, no_leading)
+end
+
 -- Returns a Failure (formatter-side issue) or nil. Input parse errors bump
 -- parse_error_count and return nil — they're grammar drift, not formatter bugs.
 local function classify(path: string, content: string): Failure | nil
@@ -291,6 +314,7 @@ local function classify(path: string, content: string): Failure | nil
         local input_root = parser.parse(content, path)
         local output_root = parser.parse(result.output, path)
         if input_root ~= nil and output_root ~= nil then
+            canonicalize_top_level_requires(input_root, content)
             local input_shape = ast_shape.normalize(input_root)
             local output_shape = ast_shape.normalize(output_root)
             if not ast_shape.equal(input_shape, output_shape) then
@@ -372,7 +396,11 @@ local function regression_block(failure: Failure): string
         table.insert(parts, "        opts.strict_comments = true\n")
         table.insert(
             parts,
-            "        " .. result_prefix .. "rewriter.rewrite(" .. input .. ', "test.tl", opts)\n'
+            "        "
+                .. result_prefix
+                .. "rewriter.rewrite("
+                .. input
+                .. ', "test.tl", opts)\n'
         )
     end
 
@@ -414,8 +442,7 @@ local function regression_block(failure: Failure): string
         table.insert(parts, "    end)\n\n")
     elseif failure.kind == "ast_changed" then
         table.insert(
-            parts,
-            '    it("preserves program structure: ' .. name .. '", function()\n'
+            parts, '    it("preserves program structure: ' .. name .. '", function()\n'
         )
         table.insert(
             parts,
@@ -448,7 +475,10 @@ local function write_regression_spec(): string
             known[fingerprint] = true
             table.insert(
                 blocks,
-                "    -- fingerprint: " .. fingerprint .. "\n" .. regression_block(failure)
+                "    -- fingerprint: "
+                    .. fingerprint
+                    .. "\n"
+                    .. regression_block(failure)
             )
         end
     end
