@@ -439,11 +439,8 @@ describe("formatter function call wrapping", function()
       local type Color = {number, number, number}
    ]]))
 
-   it("function wrapping without any arguments does not create an empty line", helpers.format([[
+   it("keeps an empty argument list flat when a trailing comment overflows the line", helpers.check([[
       local a_very_long_variable_name = function_call() -- A very long trailing comment on the function forcing line break
-   ]], [[
-      local a_very_long_variable_name = function_call(
-      ) -- A very long trailing comment on the function forcing line break
    ]]))
 
    it("function call with function calls as arguments formats correctly", helpers.format([[
@@ -602,5 +599,11 @@ describe("formatter function call wrapping", function()
       ",
           a
       )
+   ]==]))
+
+   it("does not duplicate a trailing block comment on a sugar table-arg call", helpers.format([==[
+      t{} --[[c]]
+   ]==], [==[
+      t({}) --[[c]]
    ]==]))
 end)

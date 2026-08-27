@@ -60,6 +60,10 @@ function Regions.new(regions: {Region}): Regions
     return self
 end
 
+function Regions:is_empty(): boolean
+    return #self.regions == 0
+end
+
 function Regions:includes_line(line_number: integer): boolean
     for _, region in ipairs(self.regions) do
         if region:includes_line(line_number) then

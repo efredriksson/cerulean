@@ -8,6 +8,10 @@ local record FormatterOptions
     indent_width: integer
     max_line_width: integer
     sort_requires: boolean
+    -- Test-only knob: raise instead of safe-skipping when the comment audit finds
+    -- a dropped/duplicated comment, so a regression cannot hide behind the
+    -- accepted production fallback. Never set from the CLI.
+    strict_comments: boolean
     files: {string}
     read_stdin: boolean
 end
@@ -29,6 +33,7 @@ function FormatterOptions.new(
     self.indent_width = indent_width
     self.max_line_width = max_line_width
     self.sort_requires = sort_requires
+    self.strict_comments = false
     self.files = files
     self.read_stdin = read_stdin
     return self

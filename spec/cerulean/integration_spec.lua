@@ -258,8 +258,7 @@ describe("formatter integration", function()
       ]=], [=[
          function a( -- keep me
          )
-         end
-         --[[ keep me
+         end --[[ keep me
          ]]
       ]=]))
 
@@ -272,20 +271,60 @@ describe("formatter integration", function()
          -- fmt:on
       ]]))
 
-      it("does not duplicate the else keyword sharing a frozen run's last line", helpers.format([[
+      -- Freezing whole is what keeps the shared `else` from being emitted twice,
+      -- once in the run's verbatim text and once structurally.
+      it("freezes an if statement whose else shares a line with a frozen run", helpers.check([[
          if c then
          a = 1 --fmt:off
          b = 2 else
          d = 3
          end
-      ]], [[
-         if c then
-         a = 1 --fmt:off
-         b = 2
-         else
-         d = 3
+      ]]))
+
+      -- A statement partially covered by an fmt:off region freezes whole, so its
+      -- verbatim lines can carry comments that sit outside the region (here after
+      -- the interior fmt:on). Raw emission must mark those consumed, or the
+      -- enclosing statement's sweep relocates a duplicate copy.
+      it("does not duplicate a comment on a frozen line outside the fmt:off region", helpers.check([[
+         local function f()
+             local t = {
+                 -- fmt:off
+                 1,
+                 -- fmt:on
+                 2, -- stray
+             }
          end
       ]]))
+
+      -- A bare `;` is discarded by the grammar and leaves no node, so the frozen
+      -- region has no statement to anchor on. Reading the block's dangling trivia
+      -- straight off the token stream (rather than the attachment pass, which
+      -- synthesized a blank line where the `;` sat and leaked it into the frozen
+      -- text) keeps the region verbatim.
+      it("freezes a bare semicolon inside an fmt:off region", helpers.check([[
+         return
+         -- fmt:off
+         ;
+         -- fmt:on
+      ]]))
+
+      it("keeps a block comment inside a frozen empty do block", helpers.check([=[
+         -- fmt:off
+         do --[[keep me]] end
+      ]=]))
+
+      it("keeps a block comment before the only statement of a frozen do block", helpers.check([=[
+         -- fmt:off
+         do --[[keep me]] return
+         end
+      ]=]))
+
+      it("keeps a block comment on the do line when fmt:on closes inside the block", helpers.check([=[
+         -- fmt:off
+         do --[[keep me]] return
+         -- fmt:on
+         end
+      ]=]))
    end)
 
    describe("multi-line expressions in local declarations", function()
@@ -404,20 +443,19 @@ describe("formatter integration", function()
          --
       ]]))
 
+      it("does not crash on function declaration name at EOF", helpers.parse_error([[
+         function f
+      ]]))
+
       it("does not duplicate fmt:off content when parse errors precede the block", helpers.check([[
          local x:a<
          -- fmt:off
          b>return
       ]]))
 
-      it("produces stable output when fmt:off appears as trailing comment after invalid syntax", helpers.format([[
+      it("freezes a do block whose end shares a line with a trailing fmt:off", helpers.check([[
          do
          end local interface b where function(): b local enum b -- fmt:off
-         end end end
-      ]], [[
-         do
-         end
-         local interface b where function(): b local enum b -- fmt:off
          end end end
       ]]))
 
@@ -490,15 +528,10 @@ describe("formatter integration", function()
          ]]end
       ]==]))
 
-      it("does not duplicate the until clause when the condition is a multiline function expression in a fmt:off region", helpers.format([[
+      it("freezes a repeat whose first line carries a trailing fmt:off", helpers.check([[
          repeat a=0--fmt:off
          ..0 until function()
          end
-      ]], [[
-         repeat
-         a=0--fmt:off
-         ..0
-         until function() end
       ]]))
 
       it("does not duplicate the fmt:off directive after a declaration with a trailing return", helpers.check([[
@@ -544,7 +577,7 @@ describe("formatter integration", function()
 
       it("does not drop a leading fmt:off comment preceding a semicolon and nested record", helpers.check([[
          -- fmt:off
-         ; local record r is end end
+         ; local record r end
       ]]))
 
       it("keeps a leading comment when the semicolon it precedes is removed", helpers.format([[
@@ -564,7 +597,6 @@ describe("formatter integration", function()
       ]], [[
          local a = 1
          -- before semi
-
          -- before next
          local b = 2
       ]]))
@@ -574,6 +606,36 @@ describe("formatter integration", function()
       it("preserves pragma directive unchanged", helpers.check([[
          --#pragma arity on
          local x = 1
+      ]]))
+   end)
+
+   -- The parser accepts anything grammatical; `tl check` owns semantics. These
+   -- inputs are Teal-invalid but must format rather than error.
+   describe("Teal-invalid but grammatical code", function()
+      it("formats an unknown variable attribute", helpers.check([[
+         local x <whatever> = 1
+      ]]))
+
+      it("formats a duplicated userdata declaration", helpers.check([[
+         local record R is userdata, userdata
+         end
+      ]]))
+
+      it("formats a redeclared non-function record field", helpers.check([[
+         local record R
+             f: string
+             f: integer
+         end
+      ]]))
+
+      it("formats a non-optional argument after an optional one", helpers.check([[
+         local function g(a?: string, b: integer)
+             return a, b
+         end
+      ]]))
+
+      it("formats a type declaration requiring a non-literal module", helpers.check([[
+         local type M = require(modname)
       ]]))
    end)
 

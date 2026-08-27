@@ -17,7 +17,11 @@ end
 apply_env_log_level()
 
 local function default_opts()
-    return options_module.default()
+    local opts = options_module.default()
+    -- In tests a comment-audit failure raises instead of safe-skipping, so a
+    -- dropped/duplicated comment cannot hide behind a status assertion.
+    opts.strict_comments = true
+    return opts
 end
 
 local helpers = {}
@@ -78,7 +82,19 @@ local function dedent(s)
     return table.concat(dedented, "\n") .. "\n"
 end
 
+-- A paren means something only when it truncates a multi-value expression:
+-- `(f())`, `(...)`. The rest is grouping the renderer re-derives. A tuple cast
+-- (`(f() as (integer, string))`) truncates too, and is not modelled: the
+-- renderer emits every paren node it is given, so it cannot drop that one.
+local function truncates_values(node)
+    return node.kind == "call" or node.kind == "..."
+end
+
 local function normalize_node(node)
+    if node.kind == "paren" and not truncates_values(node.e1) then
+        return normalize_node(node.e1)
+    end
+
     local normalized = {
         kind = node.kind,
     }
@@ -87,14 +103,16 @@ local function normalize_node(node)
         normalized.op = node.op.op
     end
 
-    if node.kind == "identifier" or node.kind == "typeid" then
+    if node.kind == "name" then
         normalized.tk = node.tk
     elseif node.kind == "string" then
         normalized.conststr = node.conststr or node.tk
     elseif node.kind == "integer" or node.kind == "number" then
-        normalized.constnum = node.constnum or node.tk
+        normalized.constnum = node.tk
     elseif node.kind == "boolean" or node.kind == "nil" then
         normalized.tk = node.tk
+    elseif node.kind == "goto" or node.kind == "label" then
+        normalized.label = node.label
     end
 
     if node.attribute ~= nil then
@@ -165,15 +183,11 @@ local function assert_equivalent_ast_shape(before_source, after_source)
     assert.same(normalize_node(before_ast), normalize_node(after_ast))
 end
 
-local function assert_stable_rewrite(output, opts)
+local function assert_stable_rewrite(output)
     local second_pass = rewriter.rewrite(output, "test.tl", default_opts())
     assert.same({}, second_pass.parse_errors)
     assert.same(output, second_pass.output)
     assert.same("unchanged", second_pass.status)
-
-    if not opts.skip_ast_equivalence then
-        assert_equivalent_ast_shape(output, second_pass.output)
-    end
 end
 
 -- Returns a test function that asserts the formatter rewrites exact input to exact expected.
@@ -184,6 +198,9 @@ function helpers.format_raw(input, expected)
         assert.same({}, result.parse_errors)
         assert.same(expected, result.output)
         assert.same("reformatted", result.status)
+
+        assert_equivalent_ast_shape(input, result.output)
+        assert_stable_rewrite(result.output)
     end
 end
 
@@ -204,7 +221,36 @@ function helpers.format(input, expected, opts)
             assert_equivalent_ast_shape(source, result.output)
         end
 
-        assert_stable_rewrite(result.output, opts)
+        assert_stable_rewrite(result.output)
+    end
+end
+
+-- Returns a test function that asserts formatting input is idempotent: a
+-- second pass over the formatter's own output must not change it again. The
+-- canonical text isn't pinned, so a legitimate change to formatting
+-- decisions doesn't make this test stale -- only a real idempotency
+-- regression does.
+function helpers.idempotent(input)
+    return function()
+        local source = dedent(input)
+        local result = rewriter.rewrite(source, "test.tl", default_opts())
+        assert.same({}, result.parse_errors)
+        assert_stable_rewrite(result.output)
+    end
+end
+
+-- Returns a test function that asserts formatting input does not change what
+-- the program says: the output must be AST-shape-equivalent to the input,
+-- and a second pass must not change it again. The canonical text isn't
+-- pinned, so a legitimate change to formatting decisions doesn't make this
+-- test stale -- only a real semantics-changing regression does.
+function helpers.equivalent(input)
+    return function()
+        local source = dedent(input)
+        local result = rewriter.rewrite(source, "test.tl", default_opts())
+        assert.same({}, result.parse_errors)
+        assert_equivalent_ast_shape(source, result.output)
+        assert_stable_rewrite(result.output)
     end
 end
 
@@ -221,20 +267,13 @@ function helpers.parse_error(source)
 end
 
 -- Returns a test function that asserts the formatter leaves source unchanged.
-function helpers.check(source, opts)
-    opts = opts or {}
+function helpers.check(source)
     return function()
         local dedented = dedent(source)
         local result = rewriter.rewrite(dedented, "test.tl", default_opts())
         assert.same({}, result.parse_errors)
         assert.same(dedented, result.output)
         assert.same("unchanged", result.status, "Formatting failed: " .. result.failure_reason)
-
-        if not opts.skip_ast_equivalence then
-            assert_equivalent_ast_shape(dedented, result.output)
-        end
-
-        assert_stable_rewrite(result.output, opts)
     end
 end
 

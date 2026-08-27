@@ -16,14 +16,16 @@ function fmt_logger.set_level(level_name: string): boolean
     return true
 end
 
-local function should_log_for(level_name: string): boolean
+-- Whether a message at `level_name` would be emitted, for callers whose work to
+-- assemble the message is itself worth skipping.
+function fmt_logger.enabled(level_name: string): boolean
     return LEVEL_NUMBERS[current_level] >= LEVEL_NUMBERS[level_name]
 end
 
 local function log_internal(
     msg: string, level: string, ...: string | number | boolean | Stringable
 )
-    if should_log_for(level) then
+    if fmt_logger.enabled(level) then
         io.stderr:write(string.format("[fmt:%s] %s\n", level, string.format(msg, ...)))
     end
 end

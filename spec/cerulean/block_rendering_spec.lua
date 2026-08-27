@@ -807,6 +807,17 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      -- Regression: two userdata interfaces rendered as bare doc.text with no
+      -- separator between them, so the second pass fused them into a single
+      -- `userdatauserdata` token that failed to reparse.
+      it("keeps two consecutive userdata entries in a record body on separate lines", helpers.check([[
+         local record Foo where self.x
+             userdata
+             userdata
+             ["key"]: string
+         end
+      ]]))
+
       it("reindents a local type interface while preserving its declaration spelling", helpers.format([[
          local type A = interface
            draw: function(self)
@@ -1605,29 +1616,32 @@ describe("formatter structural block rendering", function()
          ::done::
       ]]))
 
-      it("keeps a comment between goto and its label", helpers.format([[
+      it("relocates a comment between goto and its label to leading", helpers.format([[
          goto -- jump
          done
       ]], [[
-         goto done -- jump
+         -- jump
+         goto done
       ]]))
    end)
 
    describe("global declarations", function()
-      it("keeps a comment between global and its declaration keyword", helpers.format([[
+      it("relocates a comment between global and its declaration keyword to leading", helpers.format([[
          global -- x
          type A
       ]], [[
-         global type A -- x
+         -- x
+         global type A
       ]]))
    end)
 
    describe("local declarations", function()
-      it("keeps a comment between local and the variable name", helpers.format([[
+      it("relocates a comment between local and the variable name to leading", helpers.format([[
          local --
          Z
       ]], [[
-         local Z --
+         --
+         local Z
       ]]))
    end)
 

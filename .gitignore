@@ -8,3 +8,4 @@ fuzz/__pycache__/
 .venv
 cerulean-*-1.rockspec
 docs/book/
+fuzz/ab_snapshot/

@@ -63,6 +63,15 @@ describe("formatter function expressions", function()
           5
    ]]))
 
+   it("preserves a comment on its own line between a plain assignment = and value", helpers.format([[
+      b =
+      --hmm
+      x
+   ]], [[
+      --hmm
+      b = x
+   ]]))
+
    it("preserves comment between return and value", helpers.format([[
       local function f()
           return --hmm
@@ -242,6 +251,10 @@ describe("formatter function expressions", function()
       local x = t[ [[d]] and {} ]
    ]=]))
 
+   it("dotted index on a numeric literal base preserves space to avoid tokenizer ambiguity", helpers.equivalent([[
+      i = 1 . node
+   ]]))
+
    it("uses semicolon after cast to function type with multi-return rets to avoid trailing comma ambiguity in wrapped tables", helpers.format([[
       return { ab_field = x is number | function(): boolean, boolean | {string: number} | nil | string }
    ]], [[
@@ -249,6 +262,15 @@ describe("formatter function expressions", function()
           ab_field = x
               is number | function(): boolean, boolean | {string: number} | nil | string;
       }
+   ]]))
+
+   it("keeps a parenthesized assignment on its own line as a separate statement", helpers.check([[
+      local x = nil
+      (t).f = 1
+   ]]))
+
+   it("keeps redundant parentheses around a deeply nested expression", helpers.check([[
+      local x = (((((((((((1)))))))))))
    ]]))
 
 end)
@@ -264,6 +286,12 @@ describe("formatter binary operator chains", function()
 
    it("keeps a unary operand out of a chain of the same token", helpers.check([[
       local x = a ~ ~b
+   ]]))
+
+   it("parenthesizes a unary operand of an exponent, as tl reads it", helpers.format([[
+      local x = -2 ^ 2
+   ]], [[
+      local x = (-2) ^ 2
    ]]))
 
    it("wraps a long chain of one shift operator at every operator", helpers.format([[
@@ -303,14 +331,22 @@ describe("idempotency: ", function()
               or nil
                   and aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
       ) ^ 1
-   ]=], { skip_ast_equivalence = true }))
+   ]=]))
 
    it("and-or continuation inside subscript keeps indent on second pass in binary op wrapper", helpers.check([=[
       return ... > (
           ~f.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx({}).C[a and b
               or vvvvvvvvvvvvvvvvvvvvvvvvvvvvv]
       ) ^ true
-   ]=], { skip_ast_equivalence = true }))
+   ]=]))
+
+   it("while header keeps 'do' on the closing line when the condition is a binary op wrapper", helpers.check([=[
+      while (
+          a -- c
+              is A
+      ) ^ 1 do
+      end
+   ]=]))
 
    it("no extra blank line after multiline call arg ending in field access", helpers.format([=[
       f(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa or [[ multiline string
@@ -326,7 +362,7 @@ describe("idempotency: ", function()
               ).S,
           c
       )
-   ]=], { skip_ast_equivalence = true }))
+   ]=]))
 
    it("no blank line before statement when string-call arg spans to a later line", helpers.format([==[
       return function ( ) break f(
@@ -358,5 +394,5 @@ describe("idempotency: ", function()
                   + {1, 1},
           }
       )
-   ]=], { skip_ast_equivalence = true }))
+   ]=]))
 end)

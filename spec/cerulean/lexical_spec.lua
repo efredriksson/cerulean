@@ -122,6 +122,12 @@ describe("formatter lexical transforms", function()
       it("does not change long string literals", helpers.check([=[
          local x = [[hello]]
       ]=]))
+
+      -- The lines inside a long string are content, not layout: neither the
+      -- indenter nor the blank-line pass may touch them.
+      it("keeps the lines of a multi-line long string verbatim", helpers.check(
+         "local s = [[\nline one\n\nline two]]\nprint(s)\n"
+      ))
    end)
 
    describe("indentation", function()

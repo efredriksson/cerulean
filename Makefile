@@ -10,9 +10,18 @@ BINDIR ?= /usr/local/bin
 
 FORMATTER := tl run src/cerulean/init.tl --
 
+# Heuristic tripwire, not a proof: catches literal `.text ==`/`.text ~=` only,
+# not `:match`/`:find`/`:sub` or a local alias of `.text`.
+RENDER_LAYER := src/cerulean/*_doc.tl src/cerulean/comment_slots.tl src/cerulean/blank_lines.tl src/cerulean/frozen_regions.tl src/cerulean/precedence.tl src/cerulean/construct_layout.tl src/cerulean/string_literal.tl
+
 lint:
 	tl check ${SRCS_LINT}
 	${FORMATTER} --check src/cerulean
+	@if grep -n "\.text [=~]=" ${RENDER_LAYER}; then \
+		echo "render layer must not classify token text; the parser owns grammar"; \
+		echo "(see ARCHITECTURE.md, Comment Model)"; \
+		exit 1; \
+	fi
 
 format:
 	${FORMATTER} src/cerulean
@@ -52,12 +61,21 @@ release-upload:
 	@test -n "$(VERSION)" || (echo "Usage: make release-upload VERSION=x.y.z" && exit 1)
 	luarocks upload cerulean-$(VERSION)-1.rockspec --api-key=$(LUAROCKS_API_KEY)
 
+.PHONY: ab-snapshot ab-diff
+ab-snapshot:
+	tl run fuzz/ab.tl -- snapshot
+
+ab-diff:
+	tl run fuzz/ab.tl -- diff
+
 .PHONY: fuzz fuzz-corpus fuzz-deep
 fuzz:
 	tl run fuzz/fuzz.tl -- $(ARGS)
 
+# Pinned seed: the corpus must be reproducible, or regenerating it between
+# ab-snapshot and ab-diff turns the diff into "corpus changed?" noise.
 fuzz-corpus:
-	tl run fuzz/fuzz.tl -- --seed-corpus src/cerulean,spec/cerulean/fixtures --count 5000 --mutations-per-file 1 $(ARGS)
+	tl run fuzz/fuzz.tl -- --seed 20260823 --seed-corpus src/cerulean,spec/cerulean/fixtures --count 5000 --mutations-per-file 1 $(ARGS)
 
 fuzz-deep:
 	tl run fuzz/fuzz.tl -- --depth 40 --trivia-rate 0.4 --count 5000 $(ARGS)

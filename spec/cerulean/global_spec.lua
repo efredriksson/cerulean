@@ -202,6 +202,11 @@ describe("formatter global declarations", function()
       it("does not crash on keyword as argument name followed by optional marker", helpers.parse_error([[
          local f = function(or ?) end
       ]]))
+
+      it("does not crash on a record is-list cut off at end of file", helpers.parse_error([[
+         local record A
+             is C,
+      ]]))
    end)
 
    describe("blank line preservation in record bodies", function()

@@ -9,10 +9,17 @@
 --   tl run fuzz/fuzz.tl -- --depth 30
 -- Silent during the run; prints a summary at the end. Input parse errors are
 -- counted as informational (grammar drift) and do not fail the run. On real
--- formatter findings, writes fuzz/regressions_spec.lua for debugging.
+-- formatter findings, appends the new ones (unique by kind + input) to
+-- fuzz/regressions_spec.lua for debugging; promote each finding to a minimized
+-- case in spec/ before committing its fix.
+local ast = require("cerulean.ast")
+local ast_traversal = require("cerulean.ast_traversal")
 local options_module = require("cerulean.options")
 local parser = require("cerulean.parser")
+local require_sort = require("cerulean.require_sort")
 local rewriter = require("cerulean.rewriter")
+local source = require("cerulean.source")
+local ast_shape = require("fuzz.ast_shape")
 local mutate = require("fuzz.mutate")
 
 local function read_file(path: string): string | nil
@@ -69,13 +76,13 @@ local enum FailureKind
     "render_failed"
     "broken_output"
     "not_idempotent"
+    "ast_changed"
 end
 
 local record Failure
     kind: FailureKind
     path: string
     content: string
-    formatted: string
     error: string
 end
 
@@ -86,7 +93,6 @@ function Failure.new(
     self.kind = kind
     self.path = path
     self.content = content
-    self.formatted = ""
     self.error = failure_error
     return self
 end
@@ -96,6 +102,7 @@ local valid_kinds: {string: FailureKind} = {
     render_failed = "render_failed",
     broken_output = "broken_output",
     not_idempotent = "not_idempotent",
+    ast_changed = "ast_changed",
 }
 
 local record Config
@@ -244,10 +251,33 @@ local total = 0
 local parse_error_count = 0
 local empty_skipped = 0
 
+-- classify() runs with the default options, which has require sorting on, so
+-- render_with_ast always reorders a leading contiguous block of top-level
+-- `local x = require(...)` statements before rendering. Mirror that same
+-- reordering on input_root before the shape comparison below, or any input
+-- whose requires aren't already alphabetical reads as a false ast_changed --
+-- the spec suite sidesteps this per-case with skip_ast_equivalence on the
+-- require_sort_spec.lua tests that reorder, but the fuzzer has no input-by-
+-- input way to opt out like that.
+local function canonicalize_top_level_requires(root: ast.Node, content: string)
+    local text = source.Text.new(content)
+    local fmt_off_regions = source.collect_fmt_off_regions(
+        text, ast_traversal.collect_block_ranges(root)
+    )
+    local function no_leading(_: ast.Node): {ast.Comment}
+        return {}
+    end
+    require_sort.sort_top_level_requires(root, fmt_off_regions, no_leading)
+end
+
 -- Returns a Failure (formatter-side issue) or nil. Input parse errors bump
 -- parse_error_count and return nil — they're grammar drift, not formatter bugs.
 local function classify(path: string, content: string): Failure | nil
     local opts = options_module.default()
+    -- Match ab.tl: a comment-audit or separator-ownership regression raises
+    -- with the offending comment named, instead of degrading to an anonymous
+    -- render_failed.
+    opts.strict_comments = true
     local ok, result = pcall(rewriter.rewrite, content, path, opts)
     if not ok then
         return Failure.new("crash", path, content, tostring(result))
@@ -275,15 +305,28 @@ local function classify(path: string, content: string): Failure | nil
         return Failure.new("render_failed", path, result.output, "")
     end
     if result2.output ~= result.output then
-        local failure = Failure.new("not_idempotent", path, content, "")
-        failure.formatted = result.output
-        return failure
+        return Failure.new("not_idempotent", path, content, "")
+    end
+
+    -- A reformat must not change what the program says: compare the structural
+    -- shape of the input and output parse trees.
+    if result.status == "reformatted" then
+        local input_root = parser.parse(content, path)
+        local output_root = parser.parse(result.output, path)
+        if input_root ~= nil and output_root ~= nil then
+            canonicalize_top_level_requires(input_root, content)
+            local input_shape = ast_shape.normalize(input_root)
+            local output_shape = ast_shape.normalize(output_root)
+            if not ast_shape.equal(input_shape, output_shape) then
+                return Failure.new("ast_changed", path, content, "")
+            end
+        end
     end
     return nil
 end
 
 local kind_order: {FailureKind} = {
-    "not_idempotent", "render_failed", "broken_output", "crash"
+    "not_idempotent", "ast_changed", "render_failed", "broken_output", "crash"
 }
 
 local function counts_by_kind(): {FailureKind: integer}
@@ -292,6 +335,7 @@ local function counts_by_kind(): {FailureKind: integer}
         broken_output = 0,
         not_idempotent = 0,
         render_failed = 0,
+        ast_changed = 0,
     }
     for _, failure in ipairs(failures) do
         counts[failure.kind] = counts[failure.kind] + 1
@@ -305,6 +349,7 @@ local function group_by_kind(): {FailureKind: {Failure}}
         broken_output = {},
         not_idempotent = {},
         render_failed = {},
+        ast_changed = {},
     }
     for _, failure in ipairs(failures) do
         table.insert(groups[failure.kind], failure)
@@ -316,80 +361,142 @@ local function first_line(text: string): string
     return text:match("^[^\n]*") or ""
 end
 
+local REGRESSION_TAIL <const> = "end)\n"
+
+local REGRESSION_HEADER <const> = "-- Generated by fuzz/fuzz.tl. Do not commit; findings append across runs.\n"
+    .. "-- Promote each finding to a minimized case in spec/ before committing its fix.\n"
+    .. "-- Run: busted fuzz/regressions_spec.lua\n\n"
+    .. 'require("tl").loader()\n'
+    .. 'local rewriter = require("cerulean.rewriter")\n'
+    .. 'local options_module = require("cerulean.options")\n'
+    .. 'local helpers = require("spec.cerulean.helpers")\n\n'
+    .. 'describe("fuzz regressions", function()\n\n'
+
+-- Stable id for one finding (djb2 over kind + input), so reruns append only
+-- findings the spec does not already hold.
+local function regression_fingerprint(kind: FailureKind, content: string): string
+    local hash = 5381
+    local text = kind .. "\0" .. content
+    for index = 1, #text do
+        hash = (hash * 33 + text:byte(index)) % 0x100000000
+    end
+    return string.format("%08x", math.floor(hash))
+end
+
+local function regression_block(failure: Failure): string
+    local match_result = failure.path:match("([^/]+%.tl)$")
+    local name = match_result or failure.path
+    local embedded = long_string_embed(failure.content)
+    local parts: {string} = {}
+
+    -- classify() runs with strict_comments on, so the pinned case must too or
+    -- an audit-raise finding would pass silently as a safe-skip.
+    local function append_strict_rewrite(result_prefix: string, input: string)
+        table.insert(parts, "        local opts = options_module.default()\n")
+        table.insert(parts, "        opts.strict_comments = true\n")
+        table.insert(
+            parts,
+            "        "
+                .. result_prefix
+                .. "rewriter.rewrite("
+                .. input
+                .. ', "test.tl", opts)\n'
+        )
+    end
+
+    if failure.kind == "crash" then
+        table.insert(parts, "    -- " .. failure.error:gsub("\n", "\n    -- ") .. "\n")
+        table.insert(parts, '    it("does not crash: ' .. name .. '", function()\n')
+        append_strict_rewrite("", embedded)
+        table.insert(parts, "    end)\n\n")
+    elseif failure.kind == "render_failed" then
+        table.insert(
+            parts, '    it("renders without failure: ' .. name .. '", function()\n'
+        )
+        append_strict_rewrite("local result = ", embedded)
+        table.insert(parts, '        assert.are_not.equal("failed", result.status)\n')
+        table.insert(parts, "    end)\n\n")
+    elseif failure.kind == "broken_output" then
+        table.insert(parts, "    -- " .. failure.error:gsub("\n", "\n    -- ") .. "\n")
+        table.insert(
+            parts, '    it("produces parseable output: ' .. name .. '", function()\n'
+        )
+        append_strict_rewrite("local result = ", embedded)
+        table.insert(
+            parts,
+            '        local result2 = rewriter.rewrite(result.output, "test.tl", opts)\n'
+        )
+        table.insert(parts, "        assert.same({}, result2.parse_errors)\n")
+        table.insert(parts, "    end)\n\n")
+    elseif failure.kind == "not_idempotent" then
+        table.insert(
+            parts,
+            '    it("second format pass matches first: ' .. name .. '", function()\n'
+        )
+        table.insert(
+            parts,
+            "        -- asserts formatter(formatter(x)) == formatter(x); the canonical text\n"
+                .. "        -- isn't pinned, so this doesn't go stale when formatting decisions change\n"
+        )
+        table.insert(parts, "        helpers.idempotent(" .. embedded .. ")()\n")
+        table.insert(parts, "    end)\n\n")
+    elseif failure.kind == "ast_changed" then
+        table.insert(
+            parts, '    it("preserves program structure: ' .. name .. '", function()\n'
+        )
+        table.insert(
+            parts,
+            "        -- asserts format(x) stays AST-equivalent to x and a second pass agrees;\n"
+                .. "        -- the canonical text isn't pinned, so this doesn't go stale when\n"
+                .. "        -- formatting decisions change\n"
+        )
+        table.insert(parts, "        helpers.equivalent(" .. embedded .. ")()\n")
+        table.insert(parts, "    end)\n\n")
+    end
+    return table.concat(parts)
+end
+
 local function write_regression_spec(): string
     local spec_path = "fuzz/regressions_spec.lua"
-    local file = assert(io.open(spec_path, "w"))
-
-    file:write("-- Generated by fuzz/fuzz.tl. Do not commit.\n")
-    file:write("-- Run: busted fuzz/regressions_spec.lua\n\n")
-    file:write('require("tl").loader()\n')
-    file:write('local rewriter = require("cerulean.rewriter")\n')
-    file:write('local options_module = require("cerulean.options")\n')
-    file:write('local helpers = require("spec.cerulean.helpers")\n\n')
-    file:write('describe("fuzz regressions", function()\n\n')
-
-    for _, failure in ipairs(failures) do
-        local match_result = failure.path:match("([^/]+%.tl)$")
-        local name = match_result or failure.path
-        local embedded = long_string_embed(failure.content)
-
-        if failure.kind == "crash" then
-            file:write("    -- " .. failure.error:gsub("\n", "\n    -- ") .. "\n")
-            file:write('    it("does not crash: ' .. name .. '", function()\n')
-            file:write(
-                "        rewriter.rewrite("
-                    .. embedded
-                    .. ', "test.tl", options_module.default())\n'
-            )
-            file:write("    end)\n\n")
-        elseif failure.kind == "render_failed" then
-            file:write('    it("renders without failure: ' .. name .. '", function()\n')
-            file:write(
-                "        local result = rewriter.rewrite("
-                    .. embedded
-                    .. ', "test.tl", options_module.default())\n'
-            )
-            file:write('        assert.are_not.equal("failed", result.status)\n')
-            file:write("    end)\n\n")
-        elseif failure.kind == "broken_output" then
-            file:write("    -- " .. failure.error:gsub("\n", "\n    -- ") .. "\n")
-            file:write(
-                '    it("produces parseable output: ' .. name .. '", function()\n'
-            )
-            file:write(
-                "        local result = rewriter.rewrite("
-                    .. embedded
-                    .. ', "test.tl", options_module.default())\n'
-            )
-            file:write(
-                '        local result2 = rewriter.rewrite(result.output, "test.tl", options_module.default())\n'
-            )
-            file:write("        assert.same({}, result2.parse_errors)\n")
-            file:write("    end)\n\n")
-        elseif failure.kind == "not_idempotent" then
-            local embedded_formatted = long_string_embed(failure.formatted)
-            file:write(
-                '    it("second format pass matches first: '
-                    .. name
-                    .. '", function()\n'
-            )
-            file:write(
-                "        -- asserts formatter(original) == expected and formatter(expected) == expected\n"
-            )
-            file:write(
-                "        helpers.format("
-                    .. embedded
-                    .. ", "
-                    .. embedded_formatted
-                    .. ", { skip_ast_equivalence = true })()\n"
-            )
-            file:write("    end)\n\n")
+    local existing = read_file(spec_path)
+    local body = REGRESSION_HEADER
+    local known: {string: boolean} = {}
+    if existing is string and existing:sub(-#REGRESSION_TAIL) == REGRESSION_TAIL then
+        body = existing:sub(1, #existing - #REGRESSION_TAIL)
+        for fingerprint in existing:gmatch("%-%- fingerprint: (%x+)") do
+            known[fingerprint] = true
         end
     end
 
-    file:write("end)\n")
+    local blocks: {string} = {}
+    for _, failure in ipairs(failures) do
+        local fingerprint = regression_fingerprint(failure.kind, failure.content)
+        if not known[fingerprint] then
+            known[fingerprint] = true
+            table.insert(
+                blocks,
+                "    -- fingerprint: "
+                    .. fingerprint
+                    .. "\n"
+                    .. regression_block(failure)
+            )
+        end
+    end
+
+    local file = assert(io.open(spec_path, "w"))
+    file:write(body)
+    file:write(table.concat(blocks))
+    file:write(REGRESSION_TAIL)
     file:close()
     return spec_path
+end
+
+-- Zero now that the grammar's start rule requires a statement; a nonzero count
+-- means the generator regressed and is burning slots on empty files.
+local function write_empty_skipped()
+    if empty_skipped > 0 then
+        io.stdout:write(string.format("Empty inputs (skipped): %d\n", empty_skipped))
+    end
 end
 
 local function print_summary(config: Config)
@@ -410,7 +517,7 @@ local function print_summary(config: Config)
 
     io.stdout:write("\n")
     io.stdout:write(string.format("Fuzzed %d inputs.\n", total))
-    io.stdout:write(string.format("Empty inputs (skipped): %d\n", empty_skipped))
+    write_empty_skipped()
     io.stdout:write(string.format("Parse errors (ignored): %d\n\n", parse_error_count))
 
     local counts = counts_by_kind()
@@ -471,9 +578,6 @@ local function generate_batch(config: Config, batch_size: integer): {string}
         seed_arg = " --random-seed " .. config.seed
     end
     local env_prefix = "FUZZ_TRIVIA_RATE=" .. config.trivia_rate
-    if config.seed ~= "" then
-        env_prefix = env_prefix .. " FUZZ_TRIVIA_SEED=" .. config.seed
-    end
     local cmd = string.format(
         "%s grammarinator-generate TealGenerator.TealGenerator -r chunk -d %d -n %d -o fuzz/corpus/test_%%d.tl --sys-path fuzz/gen/ --sys-path fuzz/ -s serializer.trivia_serializer%s 2>/dev/null",
         env_prefix,
@@ -519,10 +623,15 @@ local function process_path(config: Config, path: string): boolean
     return false
 end
 
+-- Sorted so a pinned --seed reproduces the same corpus: find's traversal order
+-- is filesystem-dependent, and the mutation stream pairs rng draws with files
+-- by position.
 local function list_tl_files(dirs: {string}): {string}
     local paths: {string} = {}
     for _, dir in ipairs(dirs) do
-        local handle = io.popen("find " .. dir .. " -name '*.tl' -type f 2>/dev/null")
+        local handle = io.popen(
+            "find " .. dir .. " -name '*.tl' -type f 2>/dev/null | sort"
+        )
         if handle then
             for line in handle:lines() do
                 table.insert(paths, line)
@@ -618,7 +727,7 @@ end
 
 if config.until_fail and #failures == 0 then
     io.stdout:write(string.format("\nChecked %d samples, no issues found.\n", total))
-    io.stdout:write(string.format("Empty inputs (skipped): %d\n", empty_skipped))
+    write_empty_skipped()
     io.stdout:write(string.format("Parse errors (ignored): %d\n", parse_error_count))
     os.exit(0)
 end
