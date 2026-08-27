@@ -241,6 +241,13 @@ local function render_record_like_body_doc(
     if needs_userdata_in_body(record_def) then
         for _, iface in ipairs(record_def.interface_list or {}) do
             if is_userdata_nominal(iface) then
+                -- interface_list entries are Type nodes, not ContainerItem, so
+                -- (unlike field_entries below) there's no blank_line_before to
+                -- preserve here -- just the line each successive userdata needs
+                -- to keep from fusing into the previous one's text.
+                if line_before then
+                    table.insert(parts, doc.line())
+                end
                 table.insert(parts, doc.text("userdata"))
                 line_before = true
             end

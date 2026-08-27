@@ -807,6 +807,17 @@ describe("formatter structural block rendering", function()
          end
       ]]))
 
+      -- Regression: two userdata interfaces rendered as bare doc.text with no
+      -- separator between them, so the second pass fused them into a single
+      -- `userdatauserdata` token that failed to reparse.
+      it("keeps two consecutive userdata entries in a record body on separate lines", helpers.check([[
+         local record Foo where self.x
+             userdata
+             userdata
+             ["key"]: string
+         end
+      ]]))
+
       it("reindents a local type interface while preserving its declaration spelling", helpers.format([[
          local type A = interface
            draw: function(self)
