@@ -1,3 +1,4 @@
+local fmt_logger = require("cerulean.fmt_logger")
 local lfs = require("lfs")
 
 local file_discovery = {}
@@ -8,8 +9,16 @@ local function is_directory(path: string): boolean
 end
 
 local function collect_tl_files_in_dir(dir: string, out: {string}): string
+    local results: {any} = {pcall(lfs.dir, dir)}
+    local ok = results[1] as boolean
+    if not ok or type(results[2]) ~= "function" then
+        fmt_logger.info("skipping unreadable directory: %s", dir)
+        return nil
+    end
+    local iter = results[2] as function(any): string
+    local state = results[3]
     local names: {string} = {}
-    for name in lfs.dir(dir) do
+    for name in iter, state do
         if name:sub(1, 1) ~= "." then
             table.insert(names, name)
         end
