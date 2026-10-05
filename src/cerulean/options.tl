@@ -96,6 +96,11 @@ local function apply_args(
         return nil, "cannot combine '-' (stdin) with file paths"
     end
 
+    if apply_to.read_stdin then
+        apply_to.files = {}
+        return apply_to, nil
+    end
+
     if #apply_to.files == 0 then
         table.insert(apply_to.files, ".")
     end
