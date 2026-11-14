@@ -147,6 +147,46 @@ describe("cli.run", function()
         end)
     end)
 
+    describe("folder with an unreadable subdirectory", function()
+        -- Root ignores permission bits, so there is no unreadable subtree to
+        -- report; callers should pending-skip in that case.
+        local unreadable_note = "skipped: process can read chmod-000 directories (running as root?)"
+
+        it("returns 1", function()
+            local tree = helpers.locked_tree({ok_content = "local x=1\n"})
+            finally(tree.close)
+            if tree.readable then
+                pending(unreadable_note)
+                return
+            end
+            local code = run({tree.root})
+            assert.same(1, code)
+        end)
+
+        it("prints the unreadable directory error to stderr", function()
+            local tree = helpers.locked_tree({ok_content = "local x=1\n"})
+            finally(tree.close)
+            if tree.readable then
+                pending(unreadable_note)
+                return
+            end
+            local _, _, err = run({tree.root})
+            assert_contains(err, "locked")
+        end)
+
+        it("still processes the readable files", function()
+            local tree = helpers.locked_tree({ok_content = "local x=1\n"})
+            finally(tree.close)
+            if tree.readable then
+                pending(unreadable_note)
+                return
+            end
+            run({tree.root})
+            local formatted = assert(io.open(tree.ok_file)):read("*a")
+            assert.truthy(formatted:find("local x = 1", 1, true))
+        end)
+    end)
+
     describe("stdin (-)", function()
         it("formats stdin and writes only the result to stdout", function()
             local code, out = run({"-"}, "local  x=1\n")

@@ -48,7 +48,7 @@ end
 
 local function apply_args(
     apply_to: FormatterOptions, script_args: {string}
-): FormatterOptions, string
+): FormatterOptions, string, {string}
     local i = 1
     while i <= #script_args do
         local value = script_args[i]
@@ -59,33 +59,33 @@ local function apply_args(
         elseif value == "--log-level" then
             i = i + 1
             if i > #script_args then
-                return nil, "--log-level requires an argument"
+                return nil, "--log-level requires an argument", nil
             end
             apply_to.log_level = script_args[i]
         elseif value == "--indent" then
             i = i + 1
             if i > #script_args then
-                return nil, "--indent requires an argument"
+                return nil, "--indent requires an argument", nil
             end
             local n, err = parse_positive_integer(script_args[i], "--indent")
             if err then
-                return nil, err
+                return nil, err, nil
             end
             apply_to.indent_width = n
         elseif value == "--line-length" then
             i = i + 1
             if i > #script_args then
-                return nil, "--line-length requires an argument"
+                return nil, "--line-length requires an argument", nil
             end
             local n, err = parse_positive_integer(script_args[i], "--line-length")
             if err then
-                return nil, err
+                return nil, err, nil
             end
             apply_to.max_line_width = n
         elseif value == "-" then
             apply_to.read_stdin = true
         elseif value:sub(1, 2) == "--" then
-            return nil, string.format("unknown flag: '%s'", value)
+            return nil, string.format("unknown flag: '%s'", value), nil
         else
             table.insert(apply_to.files, value)
         end
@@ -93,25 +93,22 @@ local function apply_args(
     end
 
     if apply_to.read_stdin and #apply_to.files > 0 then
-        return nil, "cannot combine '-' (stdin) with file paths"
+        return nil, "cannot combine '-' (stdin) with file paths", nil
     end
 
     if apply_to.read_stdin then
         apply_to.files = {}
-        return apply_to, nil
+        return apply_to, nil, {}
     end
 
     if #apply_to.files == 0 then
         table.insert(apply_to.files, ".")
     end
 
-    local expanded, expand_err = file_discovery.expand_paths(apply_to.files)
-    if expand_err then
-        return nil, expand_err
-    end
+    local expanded, walk_errors = file_discovery.expand_paths(apply_to.files)
     apply_to.files = expanded
 
-    return apply_to, nil
+    return apply_to, nil, walk_errors
 end
 
 function options.from_config_file(): FormatterOptions, string
@@ -171,18 +168,20 @@ end
 
 function options.from_config_file_and_args(
     script_args: {string}
-): FormatterOptions, string
+): FormatterOptions, string, {string}
     local file_opts, config_err = options.from_config_file()
     if config_err then
-        return nil, config_err
+        return nil, config_err, nil
     end
 
-    local opts, parse_err = apply_args(file_opts or options.default(), script_args)
+    local opts, parse_err, walk_errors = apply_args(
+        file_opts or options.default(), script_args
+    )
     if parse_err then
-        return nil, parse_err
+        return nil, parse_err, nil
     end
 
-    return opts, nil
+    return opts, nil, walk_errors
 end
 
 return options
