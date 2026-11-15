@@ -294,13 +294,53 @@ end
 
 -- Returns a test function that resolves FormatterOptions from a given directory
 -- (for tlconfig.lua pickup) and CLI args. Restores the working directory after.
+-- Returns opts, err, walk_errors (the third is nil for hard errors).
 function helpers.resolve_options(directory, args)
     local saved = assert(lfs.currentdir())
     assert(lfs.chdir(directory))
-    local ok, opts, err = pcall(options_module.from_config_file_and_args, args)
+    local ok, opts, err, walk_errors = pcall(options_module.from_config_file_and_args, args)
     lfs.chdir(saved)
     if not ok then error(opts, 2) end
-    return opts, err
+    return opts, err, walk_errors
+end
+
+-- Creates a temporary directory tree with a readable .tl file next to an
+-- unreadable (chmod 000) "locked" subdirectory holding another .tl file.
+-- Returns a table with fields:
+--   root      absolute path of the temp directory
+--   ok_file   path of the readable .tl file
+--   locked    path of the locked subdirectory
+--   readable  true when the process can still read the locked dir (e.g. as root)
+-- opts.ok_content overrides the readable file's contents.
+-- Call tree.close() to restore permissions and remove the tree; prefer
+-- busted's `finally(tree.close)` so cleanup runs even if the test fails.
+function helpers.locked_tree(opts)
+    opts = opts or {}
+    local root = os.tmpname()
+    os.remove(root)
+    assert(lfs.mkdir(root))
+    assert(lfs.mkdir(root .. "/ok"))
+    assert(lfs.mkdir(root .. "/locked"))
+    local ok_file = root .. "/ok/a.tl"
+    local ok = assert(io.open(ok_file, "w"))
+    ok:write(opts.ok_content or "local x = 1\n")
+    ok:close()
+    local locked_file = root .. "/locked/b.tl"
+    local locked = assert(io.open(locked_file, "w"))
+    locked:write("local y = 2\n")
+    locked:close()
+    os.execute("chmod 000 " .. root .. "/locked")
+    local readable = pcall(lfs.dir, root .. "/locked")
+    local tree = {root = root, ok_file = ok_file, locked = root .. "/locked", readable = readable}
+    function tree.close()
+        os.execute("chmod 755 " .. root .. "/locked")
+        os.remove(ok_file)
+        os.remove(locked_file)
+        lfs.rmdir(root .. "/ok")
+        lfs.rmdir(root .. "/locked")
+        lfs.rmdir(root)
+    end
+    return tree
 end
 
 return helpers

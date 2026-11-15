@@ -233,11 +233,17 @@ local function process_stdin(opts: FormatterOptions, stdio: Stdio): integer
     return 0
 end
 
-local function process_files(opts: FormatterOptions, stdio: Stdio): integer
+local function process_files(
+    opts: FormatterOptions, stdio: Stdio, discovery_errors: {string}
+): integer
     local reformatted = 0
     local unchanged = 0
     local failed_format = 0
     local errored = 0
+
+    for _, discovery_error in ipairs(discovery_errors) do
+        stdio:print_err(discovery_error)
+    end
 
     for _, path in ipairs(opts.files) do
         local status = process_file(path, opts, stdio)
@@ -265,7 +271,12 @@ local function process_files(opts: FormatterOptions, stdio: Stdio): integer
         stdio:print_err(string.format("%s could not be processed.", file_word(errored)))
     end
 
-    if (opts.check_only and reformatted > 0) or errored > 0 or failed_format > 0 then
+    if
+        (opts.check_only and reformatted > 0)
+        or errored > 0
+        or failed_format > 0
+        or #discovery_errors > 0
+    then
         return 1
     end
     return 0
@@ -292,7 +303,7 @@ function cli.run(args: {string}, stdio: Stdio): integer
         return 0
     end
 
-    local opts, config_err = options.from_config_file_and_args(args)
+    local opts, config_err, walk_errors = options.from_config_file_and_args(args)
     if config_err then
         stdio:print_err(config_err)
         return 1
@@ -307,7 +318,7 @@ function cli.run(args: {string}, stdio: Stdio): integer
     if opts.read_stdin then
         return process_stdin(opts, stdio)
     else
-        return process_files(opts, stdio)
+        return process_files(opts, stdio, walk_errors or {})
     end
 end
 

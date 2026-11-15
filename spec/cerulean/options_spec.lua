@@ -1,5 +1,6 @@
 require("tl").loader()
 
+local lfs = require("lfs")
 local helpers = require("spec.cerulean.helpers")
 local assert = require("luassert")
 
@@ -194,6 +195,25 @@ describe("FormatterOptions.from_config_file_and_args", function()
         end)
     end)
 
+    describe("stdin", function()
+        it("sets read_stdin and skips filesystem expansion for '-'", function()
+            local opts, err = helpers.resolve_options(".", {"-"})
+            assert.is_nil(err)
+            assert.is_true(opts.read_stdin)
+            assert.same({}, opts.files)
+        end)
+
+        it("does not walk the current directory for '-' even when it contains an unreadable subdir", function()
+            local tree = helpers.locked_tree()
+            finally(tree.close)
+            local opts, err, walk_errors = helpers.resolve_options(tree.root, {"-"})
+            assert.is_nil(err)
+            assert.is_true(opts.read_stdin)
+            assert.same({}, opts.files)
+            assert.same({}, walk_errors or {})
+        end)
+    end)
+
     describe("directory expansion", function()
         it("passes an explicit file through unchanged", function()
             local path = fixtures .. "file_discovery/flat/a.tl"
@@ -235,6 +255,21 @@ describe("FormatterOptions.from_config_file_and_args", function()
             local opts, err = helpers.resolve_options(".", {dir})
             assert.is_nil(err)
             assert.same({}, opts.files)
+        end)
+
+        it("reports unreadable subdirectories and still returns readable files", function()
+            local tree = helpers.locked_tree()
+            finally(tree.close)
+            -- Root ignores permission bits, so there is no unreadable subtree to report.
+            if tree.readable then
+                pending("skipped: process can read chmod-000 directories (running as root?)")
+                return
+            end
+            local opts, err, walk_errors = helpers.resolve_options(".", {tree.root})
+            assert.is_nil(err)
+            assert.same({tree.ok_file}, opts.files)
+            assert.same(1, #walk_errors)
+            assert.truthy(walk_errors[1]:find("locked", 1, true))
         end)
 
         it("mixes explicit files and directories", function()
